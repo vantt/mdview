@@ -6,7 +6,7 @@ use anyhow::Result;
 use axum::{
     extract::{
         ws::{Message, WebSocket, WebSocketUpgrade},
-        Path, Query, State,
+        Form, Path, Query, State,
     },
     http::{header, StatusCode},
     response::{Html, IntoResponse, Redirect, Response},
@@ -71,7 +71,8 @@ fn router(state: AppState) -> Router {
         .route("/health", get(health))
         .route("/api/status", get(status))
         .route("/api/projects", get(api_projects))
-        .route("/api/config", get(api_config))
+        .route("/settings", get(settings_page_handler))
+        .route("/api/config", get(api_config).post(update_config))
         .route("/static/app.css", get(css_asset))
         .route("/static/app.js", get(js_asset))
         .route("/highlight.css", get(highlight_asset))
@@ -131,6 +132,79 @@ async fn api_projects(State(st): State<AppState>) -> impl IntoResponse {
 
 async fn api_config(State(st): State<AppState>) -> impl IntoResponse {
     Json(json!(st.engine.config))
+}
+
+#[derive(serde::Deserialize)]
+struct SavedFlag {
+    saved: Option<String>,
+}
+
+async fn settings_page_handler(Query(flag): Query<SavedFlag>) -> Response {
+    // Read fresh from disk so the form reflects the last save (the running daemon
+    // still uses its startup config until restarted — noted in the UI).
+    let cfg = mdview_core::Config::load();
+    Html(views::settings_page(&cfg, flag.saved.is_some())).into_response()
+}
+
+#[derive(serde::Deserialize)]
+struct SettingsForm {
+    port: Option<u16>,
+    host: Option<String>,
+    open_browser: Option<String>,
+    theme: Option<String>,
+    syntax_theme: Option<String>,
+    debounce_ms: Option<u64>,
+    max_file_size_mb: Option<u64>,
+    exclude_patterns: Option<String>,
+    mcp_enabled: Option<String>,
+    mcp_transport: Option<String>,
+}
+
+async fn update_config(Form(form): Form<SettingsForm>) -> Response {
+    let mut cfg = mdview_core::Config::load();
+    if let Some(p) = form.port {
+        if p >= 1 {
+            cfg.server.port = p;
+        }
+    }
+    if let Some(h) = form.host {
+        let h = h.trim();
+        if !h.is_empty() {
+            cfg.server.host = h.to_string();
+        }
+    }
+    cfg.server.open_browser_on_start = form.open_browser.is_some();
+    if let Some(t) = form.theme {
+        if ["light", "dark", "system"].contains(&t.as_str()) {
+            cfg.renderer.theme = t;
+        }
+    }
+    if let Some(s) = form.syntax_theme {
+        let s = s.trim();
+        if !s.is_empty() {
+            cfg.renderer.syntax_highlight_theme = s.to_string();
+        }
+    }
+    if let Some(d) = form.debounce_ms {
+        cfg.indexing.debounce_ms = d;
+    }
+    if let Some(m) = form.max_file_size_mb {
+        if m >= 1 {
+            cfg.indexing.max_file_size_mb = m;
+        }
+    }
+    if let Some(ex) = form.exclude_patterns {
+        cfg.indexing.exclude_patterns =
+            ex.lines().map(|l| l.trim().to_string()).filter(|l| !l.is_empty()).collect();
+    }
+    cfg.mcp.enabled = form.mcp_enabled.is_some();
+    if let Some(tr) = form.mcp_transport {
+        if ["stdio", "http"].contains(&tr.as_str()) {
+            cfg.mcp.transport = tr;
+        }
+    }
+    let _ = cfg.save();
+    Redirect::to("/settings?saved=1").into_response()
 }
 
 async fn css_asset() -> impl IntoResponse {

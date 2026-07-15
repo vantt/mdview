@@ -2,6 +2,7 @@
 //! Theme is CSS-variable driven (no-flash head script); code colors come from
 //! `/highlight.css` (syntect class-based), so themes switch without re-render.
 
+use mdview_core::config::Config;
 use mdview_core::domain::{IndexedFile, Project, RenderedPage, SearchResult};
 
 pub fn layout(title: &str, head_extra: &str, body: &str) -> String {
@@ -54,7 +55,8 @@ pub fn project_list_page(projects: &[(Project, usize)]) -> String {
         ));
     }
     let body = format!(
-        r#"<header class="topbar"><h1>mdview</h1>{toggle}</header>
+        r#"<header class="topbar"><h1>mdview</h1>
+  <a class="nav-link" href="/settings">Settings</a>{toggle}</header>
 <main class="container"><h2>Projects</h2>{rows}</main>"#,
         toggle = theme_toggle(),
         rows = rows
@@ -226,6 +228,76 @@ fn highlight_excerpt(excerpt: &str) -> String {
     esc(excerpt)
         .replace("&lt;mark&gt;", "<mark>")
         .replace("&lt;/mark&gt;", "</mark>")
+}
+
+pub fn settings_page(cfg: &Config, saved: bool) -> String {
+    let banner = if saved {
+        "<div class=\"banner\">Saved. Server &amp; indexing changes apply after restart (<code>mdview stop &amp;&amp; mdview serve</code>).</div>"
+    } else {
+        ""
+    };
+    let checked = |b: bool| if b { "checked" } else { "" };
+    let sel = |v: &str, opt: &str| if v == opt { "selected" } else { "" };
+    let excludes = cfg.indexing.exclude_patterns.join("\n");
+
+    let body = format!(
+        r#"<header class="topbar"><a href="/" class="home">mdview</a>
+  <span class="crumb">Settings</span>{toggle}</header>
+<main class="container">
+  <h2>Settings</h2>
+  {banner}
+  <form class="settings" method="post" action="/api/config">
+    <fieldset><legend>Server <span class="tag">restart</span></legend>
+      <label>Port <input type="number" name="port" value="{port}" min="1" max="65535"></label>
+      <label>Host <input name="host" value="{host}"> <span class="hint">127.0.0.1 (local) or 0.0.0.0 (LAN)</span></label>
+      <label class="cb"><input type="checkbox" name="open_browser" {open}> Open browser on start</label>
+    </fieldset>
+    <fieldset><legend>Renderer</legend>
+      <label>Theme
+        <select name="theme">
+          <option value="system" {t_sys}>System</option>
+          <option value="light" {t_light}>Light</option>
+          <option value="dark" {t_dark}>Dark</option>
+        </select>
+      </label>
+      <label>Syntax highlight theme <input name="syntax_theme" value="{syntax}"></label>
+    </fieldset>
+    <fieldset><legend>Indexing <span class="tag">restart</span></legend>
+      <label>Debounce (ms) <input type="number" name="debounce_ms" value="{debounce}" min="0"></label>
+      <label>Max file size (MB) <input type="number" name="max_file_size_mb" value="{maxmb}" min="1"></label>
+      <label>Exclude patterns (one per line)
+        <textarea name="exclude_patterns" rows="5">{excludes}</textarea>
+      </label>
+    </fieldset>
+    <fieldset><legend>MCP <span class="tag">restart</span></legend>
+      <label class="cb"><input type="checkbox" name="mcp_enabled" {mcp_on}> Enabled</label>
+      <label>Transport
+        <select name="mcp_transport">
+          <option value="stdio" {tr_stdio}>stdio</option>
+          <option value="http" {tr_http}>http</option>
+        </select>
+      </label>
+    </fieldset>
+    <button type="submit">Save</button>
+  </form>
+</main>"#,
+        toggle = theme_toggle(),
+        banner = banner,
+        port = cfg.server.port,
+        host = esc(&cfg.server.host),
+        open = checked(cfg.server.open_browser_on_start),
+        t_sys = sel(&cfg.renderer.theme, "system"),
+        t_light = sel(&cfg.renderer.theme, "light"),
+        t_dark = sel(&cfg.renderer.theme, "dark"),
+        syntax = esc(&cfg.renderer.syntax_highlight_theme),
+        debounce = cfg.indexing.debounce_ms,
+        maxmb = cfg.indexing.max_file_size_mb,
+        excludes = esc(&excludes),
+        mcp_on = checked(cfg.mcp.enabled),
+        tr_stdio = sel(&cfg.mcp.transport, "stdio"),
+        tr_http = sel(&cfg.mcp.transport, "http"),
+    );
+    layout("Settings", "", &body)
 }
 
 pub fn error_page(status: u16, msg: &str) -> String {
