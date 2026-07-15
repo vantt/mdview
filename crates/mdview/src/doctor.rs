@@ -297,7 +297,10 @@ fn check_agent_instruction(dry_run: bool, fix: bool) -> Check {
         Check {
             name: "agent instruction".into(),
             status: Status::Fixed,
-            detail: format!("added MDView snippet to {} (.md.bak backup where a file existed)", fixed.join(", ")),
+            detail: format!(
+                "added MDView snippet to {} (.md.bak backup where a file existed)",
+                fixed.join(", ")
+            ),
         }
     } else {
         Check {

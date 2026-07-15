@@ -198,7 +198,10 @@ fn file_tree(project: &Project, files: &[IndexedFile], active: &str) -> String {
     // No-JS fallback: the files directly in the active file's folder, by title.
     let active_dir = parent_dir(active);
     let mut fallback = String::new();
-    for f in files.iter().filter(|f| parent_dir(&f.rel_path) == active_dir) {
+    for f in files
+        .iter()
+        .filter(|f| parent_dir(&f.rel_path) == active_dir)
+    {
         let label = if f.title.is_empty() {
             base_name(&f.rel_path)
         } else {
