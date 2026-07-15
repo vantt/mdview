@@ -113,6 +113,119 @@
     render();
   })();
 
+  // Fuzzy file-jump palette (Cmd/Ctrl+K): fetch nucleo-ranked files from the
+  // server /p/:id/_jump endpoint and navigate. Complements full-text search —
+  // this jumps by file name/path, that searches content.
+  (function () {
+    var chapter = document.getElementById("chapter");
+    var pid = chapter && chapter.getAttribute("data-pid");
+    if (!pid) return;
+
+    var overlay, input, list;
+    var hits = [];
+    var sel = 0;
+    var seq = 0; // request sequence — drop responses that a later query superseded
+    var timer = null;
+
+    function build() {
+      overlay = document.createElement("div");
+      overlay.className = "jump-overlay";
+      overlay.setAttribute("hidden", "");
+      var box = document.createElement("div");
+      box.className = "jump-box";
+      input = document.createElement("input");
+      input.className = "jump-input";
+      input.type = "text";
+      input.placeholder = "Jump to file…";
+      input.setAttribute("aria-label", "Jump to file");
+      list = document.createElement("ul");
+      list.className = "jump-list";
+      box.appendChild(input);
+      box.appendChild(list);
+      overlay.appendChild(box);
+      document.body.appendChild(overlay);
+
+      overlay.addEventListener("mousedown", function (e) {
+        if (e.target === overlay) close();
+      });
+      input.addEventListener("input", onInput);
+      input.addEventListener("keydown", onKey);
+    }
+
+    function isOpen() { return overlay && !overlay.hasAttribute("hidden"); }
+
+    function open() {
+      if (!overlay) build();
+      overlay.removeAttribute("hidden");
+      input.value = "";
+      hits = [];
+      sel = 0;
+      render();
+      input.focus();
+    }
+
+    function close() {
+      if (overlay) overlay.setAttribute("hidden", "");
+    }
+
+    function onInput() {
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(fetchHits, 120);
+    }
+
+    function fetchHits() {
+      var q = input.value.trim();
+      if (!q) { hits = []; sel = 0; render(); return; }
+      var mine = ++seq;
+      fetch("/p/" + encodeURIComponent(pid) + "/_jump?q=" + encodeURIComponent(q))
+        .then(function (r) { return r.ok ? r.json() : []; })
+        .then(function (data) {
+          if (mine !== seq) return; // a newer keystroke already fired
+          hits = Array.isArray(data) ? data : [];
+          sel = 0;
+          render();
+        })
+        .catch(function () { if (mine === seq) { hits = []; render(); } });
+    }
+
+    function render() {
+      list.textContent = "";
+      hits.forEach(function (h, i) {
+        var li = document.createElement("li");
+        li.className = "jump-item" + (i === sel ? " active" : "");
+        var t = document.createElement("span");
+        t.className = "jump-title";
+        t.textContent = h.title && h.title.length ? h.title : h.rel_path;
+        var p = document.createElement("span");
+        p.className = "jump-path";
+        p.textContent = h.rel_path;
+        li.appendChild(t);
+        li.appendChild(p);
+        li.addEventListener("mousedown", function (e) { e.preventDefault(); go(i); });
+        list.appendChild(li);
+      });
+    }
+
+    function go(i) {
+      var h = hits[i];
+      if (h) window.location.href = h.url;
+    }
+
+    function onKey(e) {
+      if (e.key === "Escape") { e.preventDefault(); close(); }
+      else if (e.key === "ArrowDown") { e.preventDefault(); if (hits.length) { sel = (sel + 1) % hits.length; render(); } }
+      else if (e.key === "ArrowUp") { e.preventDefault(); if (hits.length) { sel = (sel - 1 + hits.length) % hits.length; render(); } }
+      else if (e.key === "Enter") { e.preventDefault(); go(sel); }
+    }
+
+    document.addEventListener("keydown", function (e) {
+      if ((e.metaKey || e.ctrlKey) && (e.key === "k" || e.key === "K")) {
+        e.preventDefault();
+        if (isOpen()) close(); else open();
+      }
+    });
+  })();
+
   // Live reload: reload-signal over WebSocket, full-page reload (PRD FR-19, Phase 1).
   function connect() {
     var proto = location.protocol === "https:" ? "wss:" : "ws:";

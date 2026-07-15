@@ -83,6 +83,7 @@ fn router(state: AppState) -> Router {
         .route("/ws", get(ws_handler))
         .route("/p/:id/", get(project_home))
         .route("/p/:id/_search", get(search_page))
+        .route("/p/:id/_jump", get(jump_search))
         .route("/p/:id/*path", get(project_path))
         .with_state(state)
 }
@@ -302,6 +303,36 @@ async fn search_page(
             .unwrap_or_default()
     };
     Html(views::search_page(&project, &query.q, &results)).into_response()
+}
+
+#[derive(serde::Deserialize)]
+struct JumpQuery {
+    #[serde(default)]
+    q: String,
+    #[serde(default = "default_jump_limit")]
+    limit: usize,
+}
+
+fn default_jump_limit() -> usize {
+    20
+}
+
+/// Fuzzy file-jump endpoint: ranks the project's files by a fuzzy match of `q`
+/// against their relative paths (complements the `_search` content search) and
+/// returns the hits as JSON for the client jump palette.
+async fn jump_search(
+    State(st): State<AppState>,
+    Path(id): Path<String>,
+    Query(query): Query<JumpQuery>,
+) -> Response {
+    if matches!(st.engine.get_project(&id), Ok(None) | Err(_)) {
+        return not_found("project not found");
+    }
+    let hits = st
+        .engine
+        .fuzzy_files(&id, &query.q, query.limit)
+        .unwrap_or_default();
+    Json(hits).into_response()
 }
 
 async fn ws_handler(ws: WebSocketUpgrade, State(st): State<AppState>) -> Response {

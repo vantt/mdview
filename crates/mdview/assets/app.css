@@ -150,6 +150,51 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
 .excerpt mark, .markdown-body mark { background: #fff8c5; color: inherit; padding: 0 1px; border-radius: 2px; }
 :root[data-theme="dark"] .excerpt mark, :root[data-theme="dark"] .markdown-body mark { background: #ae7c14; color: #fff; }
 
+/* Fuzzy file-jump palette (Cmd/Ctrl+K) */
+.jump-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.4);
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding-top: 12vh;
+  z-index: 1000;
+}
+.jump-overlay[hidden] { display: none; }
+.jump-box {
+  width: min(560px, 92vw);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.3);
+  overflow: hidden;
+}
+.jump-input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 14px 16px;
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--fg);
+  font-size: 15px;
+  outline: none;
+}
+.jump-list { list-style: none; margin: 0; padding: 6px; max-height: 50vh; overflow-y: auto; }
+.jump-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.jump-item.active { background: var(--card); }
+.jump-title { color: var(--fg); font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.jump-path { color: var(--muted); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
 @media (max-width: 900px) {
   .rightbar { display: none; }
 }
