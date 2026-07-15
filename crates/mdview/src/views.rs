@@ -261,6 +261,7 @@ pub fn settings_page(cfg: &Config, saved: bool) -> String {
     <fieldset><legend>Server <span class="tag">restart</span></legend>
       <label>Port <input type="number" name="port" value="{port}" min="1" max="65535"></label>
       <label>Host <input name="host" value="{host}"> <span class="hint">127.0.0.1 (local) or 0.0.0.0 (LAN)</span></label>
+      <label>Display hostname <input name="host_name" value="{host_name}"> <span class="hint">optional — used in rendered links instead of the IP/host above</span></label>
       <label class="cb"><input type="checkbox" name="open_browser" {open}> Open browser on start</label>
     </fieldset>
     <fieldset><legend>Renderer</legend>
@@ -296,6 +297,7 @@ pub fn settings_page(cfg: &Config, saved: bool) -> String {
         banner = banner,
         port = cfg.server.port,
         host = esc(&cfg.server.host),
+        host_name = esc(cfg.server.host_name.as_deref().unwrap_or("")),
         open = checked(cfg.server.open_browser_on_start),
         t_sys = sel(&cfg.renderer.theme, "system"),
         t_light = sel(&cfg.renderer.theme, "light"),

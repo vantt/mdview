@@ -46,8 +46,18 @@ launcher — CLI, MCP, future desktop — coordinates through `~/.mdview/daemon.
   daemon is up, and returns a viewable URL.
 - **CLI** — `serve` (daemon), plus `register / open / list / search / status /
   refresh / unregister / stop`, and `doctor`.
+- **Settings** — view and change the server binding, renderer theme, indexing
+  behavior, and MCP transport, from a web page or `serve` CLI overrides.
+  Server/Indexing/MCP changes need a restart to take effect. An optional
+  display hostname can stand in for the real host/IP in every URL handed to a
+  person or an agent, without changing what address the server binds/is
+  health-checked on (see the Settings spec, R1) — this is a cross-area link
+  into Agent integration and CLI `open`, both of which build their returned
+  URL through this substitution.
 - **Doctor** — diagnoses and safely repairs setup: config presence, daemon
-  health, and Claude Code MCP registration (merged idempotently, with a backup).
+  health, Claude Code MCP registration, and an AGENTS.md/CLAUDE.md mention of
+  mdview's agent tool (all merged idempotently, with a backup where content
+  already existed).
 
 ## Boundaries (non-goals)
 

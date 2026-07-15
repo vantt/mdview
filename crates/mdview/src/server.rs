@@ -154,6 +154,7 @@ async fn settings_page_handler(Query(flag): Query<SavedFlag>) -> Response {
 struct SettingsForm {
     port: Option<u16>,
     host: Option<String>,
+    host_name: Option<String>,
     open_browser: Option<String>,
     theme: Option<String>,
     syntax_theme: Option<String>,
@@ -177,6 +178,10 @@ async fn update_config(Form(form): Form<SettingsForm>) -> Response {
             cfg.server.host = h.to_string();
         }
     }
+    cfg.server.host_name = form
+        .host_name
+        .map(|h| h.trim().to_string())
+        .filter(|h| !h.is_empty());
     cfg.server.open_browser_on_start = form.open_browser.is_some();
     if let Some(t) = form.theme {
         if ["light", "dark", "system"].contains(&t.as_str()) {

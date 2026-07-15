@@ -47,7 +47,7 @@ pub fn run(as_json: bool, dry_run: bool, fix: bool) -> Result<()> {
     let daemon = check_daemon();
     checks.push(daemon);
     checks.push(check_mcp_registration(dry_run, fix));
-    checks.push(check_agent_instruction());
+    checks.push(check_agent_instruction(dry_run, fix));
 
     if as_json {
         let arr: Vec<Value> = checks
@@ -223,21 +223,146 @@ fn check_mcp_registration(dry_run: bool, fix: bool) -> Check {
     }
 }
 
-fn check_agent_instruction() -> Check {
-    for name in ["AGENTS.md", "CLAUDE.md"] {
-        if let Ok(text) = std::fs::read_to_string(name) {
-            if text.contains("mdview_view_file") || text.contains("MDView") {
-                return Check {
-                    name: "agent instruction".into(),
-                    status: Status::Ok,
-                    detail: format!("{name} mentions mdview"),
-                };
-            }
+/// Preamble + `---` + the actual agent-facing snippet; only the latter half
+/// gets copied into AGENTS.md/CLAUDE.md.
+const AGENT_TEMPLATE: &str = include_str!("../../../docs/mdview-agents-template.md");
+
+fn agent_instruction_snippet() -> &'static str {
+    AGENT_TEMPLATE
+        .split_once("\n---\n")
+        .map(|(_, snippet)| snippet.trim_start())
+        .unwrap_or(AGENT_TEMPLATE)
+}
+
+fn has_agent_marker(text: &str) -> bool {
+    text.contains("mdview_view_file") || text.contains("MDView")
+}
+
+/// Append the snippet to `name` (backing up any existing content first, same
+/// pattern as `check_mcp_registration`'s `.bak` write), creating the file if absent.
+fn write_agent_snippet(name: &str) -> anyhow::Result<()> {
+    let path = std::path::Path::new(name);
+    let mut content = std::fs::read_to_string(path).unwrap_or_default();
+    if !content.is_empty() {
+        let _ = std::fs::copy(path, path.with_extension("md.bak"));
+        if !content.ends_with('\n') {
+            content.push('\n');
+        }
+        content.push('\n');
+    }
+    content.push_str(agent_instruction_snippet());
+    config::write_atomic(path, content.as_bytes()).map_err(anyhow::Error::from)
+}
+
+fn check_agent_instruction(dry_run: bool, fix: bool) -> Check {
+    const FILES: [&str; 2] = ["AGENTS.md", "CLAUDE.md"];
+
+    let missing: Vec<&str> = FILES
+        .into_iter()
+        .filter(|name| {
+            !std::fs::read_to_string(name)
+                .map(|t| has_agent_marker(&t))
+                .unwrap_or(false)
+        })
+        .collect();
+
+    if missing.is_empty() {
+        return Check {
+            name: "agent instruction".into(),
+            status: Status::Ok,
+            detail: "AGENTS.md and CLAUDE.md mention mdview".into(),
+        };
+    }
+
+    if dry_run || !fix {
+        return Check {
+            name: "agent instruction".into(),
+            status: Status::Manual,
+            detail: format!(
+                "missing MDView snippet in: {} (see `mdview` docs §5.7) — run `mdview doctor --fix`",
+                missing.join(", ")
+            ),
+        };
+    }
+
+    let mut fixed = Vec::new();
+    let mut failed = Vec::new();
+    for name in &missing {
+        match write_agent_snippet(name) {
+            Ok(()) => fixed.push(*name),
+            Err(e) => failed.push(format!("{name}: {e}")),
         }
     }
-    Check {
-        name: "agent instruction".into(),
-        status: Status::Warn,
-        detail: "no MDView snippet in ./AGENTS.md or ./CLAUDE.md (see `mdview` docs §5.7)".into(),
+    if failed.is_empty() {
+        Check {
+            name: "agent instruction".into(),
+            status: Status::Fixed,
+            detail: format!("added MDView snippet to {} (.md.bak backup where a file existed)", fixed.join(", ")),
+        }
+    } else {
+        Check {
+            name: "agent instruction".into(),
+            status: Status::Manual,
+            detail: format!("write failed: {}", failed.join("; ")),
+        }
+    }
+}
+
+#[cfg(test)]
+mod agent_instruction_tests {
+    use super::*;
+
+    fn tmp_path(label: &str) -> PathBuf {
+        std::env::temp_dir().join(format!(
+            "mdview-doctor-{label}-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ))
+    }
+
+    #[test]
+    fn snippet_strips_preamble() {
+        let s = agent_instruction_snippet();
+        assert!(s.starts_with("## Documentation Viewing (MDView)"));
+        assert!(!s.contains("Copy this snippet"));
+    }
+
+    #[test]
+    fn marker_detection() {
+        assert!(has_agent_marker("call mdview_view_file please"));
+        assert!(has_agent_marker("see MDView docs"));
+        assert!(!has_agent_marker("nothing relevant here"));
+    }
+
+    #[test]
+    fn write_snippet_creates_missing_file() {
+        let path = tmp_path("create");
+        let name = path.to_str().unwrap();
+        write_agent_snippet(name).unwrap();
+        let text = std::fs::read_to_string(&path).unwrap();
+        assert!(has_agent_marker(&text));
+        assert!(!path.with_extension("md.bak").exists());
+        std::fs::remove_file(&path).ok();
+    }
+
+    #[test]
+    fn write_snippet_appends_and_backs_up_existing_file() {
+        let path = tmp_path("append");
+        std::fs::write(&path, "# My project\n\nExisting content.\n").unwrap();
+        let name = path.to_str().unwrap();
+        write_agent_snippet(name).unwrap();
+        let text = std::fs::read_to_string(&path).unwrap();
+        assert!(text.contains("Existing content."));
+        assert!(has_agent_marker(&text));
+        let bak = path.with_extension("md.bak");
+        assert!(bak.exists());
+        assert!(std::fs::read_to_string(&bak)
+            .unwrap()
+            .contains("Existing content."));
+        std::fs::remove_file(&path).ok();
+        std::fs::remove_file(&bak).ok();
     }
 }

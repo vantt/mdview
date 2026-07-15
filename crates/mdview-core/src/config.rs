@@ -20,6 +20,10 @@ pub struct Config {
 pub struct ServerConfig {
     pub port: u16,
     pub host: String,
+    /// Optional display hostname. When set, rendered view URLs use this
+    /// instead of `host`/the daemon's bind address; the bind/connect
+    /// address itself is unaffected.
+    pub host_name: Option<String>,
     pub open_browser_on_start: bool,
 }
 
@@ -57,6 +61,7 @@ impl Default for ServerConfig {
         Self {
             port: 7700,
             host: "127.0.0.1".into(),
+            host_name: None,
             open_browser_on_start: false,
         }
     }
@@ -188,6 +193,20 @@ mod tests {
         c.save_to(&p).unwrap();
         let loaded = Config::load_from(&p);
         assert_eq!(loaded.server.port, 9999);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn host_name_defaults_to_none_and_roundtrips_when_set() {
+        assert_eq!(ServerConfig::default().host_name, None);
+
+        let dir = std::env::temp_dir().join(format!("mdview-cfg3-{}", std::process::id()));
+        let p = dir.join("config.toml");
+        let mut c = Config::default();
+        c.server.host_name = Some("my-machine.local".into());
+        c.save_to(&p).unwrap();
+        let loaded = Config::load_from(&p);
+        assert_eq!(loaded.server.host_name.as_deref(), Some("my-machine.local"));
         std::fs::remove_dir_all(&dir).ok();
     }
 }

@@ -6,4 +6,5 @@ search — it answers "where does X live" without a grep.
 
 | Area | Spec | Code entry points |
 |---|---|---|
-| (none mapped yet — run a bee-scribing bootstrap pass) | | |
+| Settings | `docs/specs/settings.md` | `crates/mdview-core/src/config.rs`, `crates/mdview/src/server.rs`, `crates/mdview/src/views.rs`, `crates/mdview/src/runtime.rs` |
+| Doctor | `docs/specs/doctor.md` | `crates/mdview/src/doctor.rs`, `crates/mdview/src/cli.rs` |
