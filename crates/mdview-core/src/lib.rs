@@ -8,6 +8,7 @@ pub mod config;
 pub mod domain;
 pub mod error;
 pub mod link_resolver;
+pub mod render;
 
 pub use config::Config;
 pub use error::{Error, Result};
