@@ -530,13 +530,13 @@ Desktop = binary `mdview-desktop` (Tauri v2), mỏng, tái dùng pattern từ ma
 - [ ] CLI hoàn chỉnh (tất cả commands FR-29) — status/list/search sống ở CLI, không ở MCP
 
 ### Phase 3 — UX Polish (2-3 tuần)
-- [ ] Backlinks panel
-- [ ] Full-text search (`mdview_search` + `/search` UI)
-- [ ] Table of Contents (sticky sidebar)
-- [ ] Breadcrumb navigation
-- [ ] Broken link highlighting
-- [ ] Light/dark theme
-- [ ] Màn hình Settings (`/settings`, FR-22b) + `/api/config`
+- [x] Backlinks panel
+- [x] Full-text search (FTS5 + `/p/{id}/_search` web UI + CLI)
+- [x] Table of Contents (sticky right sidebar)
+- [x] Breadcrumb navigation
+- [x] Broken link highlighting
+- [x] Light/dark theme (no-flash)
+- [ ] Màn hình Settings (`/settings`, FR-22b) + `/api/config` (PUT) — còn lại
 
 ### Phase 4 — Production Hardiness + Desktop (2-3 tuần)
 - [ ] **Desktop shell `mdview-desktop` (Tauri)**: attach/spawn daemon, tray, single-instance (§7.5)
