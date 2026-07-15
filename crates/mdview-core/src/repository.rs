@@ -72,6 +72,7 @@ impl SqliteStore {
         let c = self.conn.lock().unwrap();
         c.execute("DELETE FROM files WHERE project_id=?1", params![id])?;
         c.execute("DELETE FROM files_fts WHERE project_id=?1", params![id])?;
+        c.execute("DELETE FROM links WHERE project_id=?1", params![id])?;
         c.execute("DELETE FROM projects WHERE id=?1", params![id])?;
         Ok(())
     }
@@ -102,7 +103,39 @@ impl SqliteStore {
         let c = self.conn.lock().unwrap();
         c.execute("DELETE FROM files WHERE project_id=?1 AND rel_path=?2", params![project_id, rel_path])?;
         c.execute("DELETE FROM files_fts WHERE project_id=?1 AND rel_path=?2", params![project_id, rel_path])?;
+        c.execute("DELETE FROM links WHERE project_id=?1 AND source_rel=?2", params![project_id, rel_path])?;
         Ok(())
+    }
+
+    // ---- links / backlinks (FR-18) ----
+
+    /// Replace the set of outgoing internal links for a source file.
+    pub fn set_file_links(&self, project_id: &str, source_rel: &str, targets: &[String]) -> Result<()> {
+        let c = self.conn.lock().unwrap();
+        c.execute("DELETE FROM links WHERE project_id=?1 AND source_rel=?2", params![project_id, source_rel])?;
+        for t in targets {
+            c.execute(
+                "INSERT OR IGNORE INTO links(project_id,source_rel,target_rel) VALUES(?1,?2,?3)",
+                params![project_id, source_rel, t],
+            )?;
+        }
+        Ok(())
+    }
+
+    /// Files that link *to* `target_rel` → (source_rel, title).
+    pub fn backlinks(&self, project_id: &str, target_rel: &str) -> Result<Vec<(String, String)>> {
+        let c = self.conn.lock().unwrap();
+        let mut stmt = c.prepare(
+            "SELECT l.source_rel, COALESCE(f.title, l.source_rel)
+             FROM links l
+             LEFT JOIN files f ON f.project_id = l.project_id AND f.rel_path = l.source_rel
+             WHERE l.project_id = ?1 AND l.target_rel = ?2
+             ORDER BY l.source_rel",
+        )?;
+        let rows = stmt.query_map(params![project_id, target_rel], |r| {
+            Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
+        })?;
+        Ok(rows.filter_map(|r| r.ok()).collect())
     }
 
     pub fn get_file(&self, project_id: &str, rel_path: &str) -> Result<Option<IndexedFile>> {
@@ -202,6 +235,13 @@ CREATE VIRTUAL TABLE IF NOT EXISTS files_fts USING fts5(
     title,
     content
 );
+CREATE TABLE IF NOT EXISTS links (
+    project_id TEXT NOT NULL,
+    source_rel TEXT NOT NULL,
+    target_rel TEXT NOT NULL,
+    PRIMARY KEY(project_id, source_rel, target_rel)
+);
+CREATE INDEX IF NOT EXISTS idx_links_target ON links(project_id, target_rel);
 "#;
 
 fn row_to_project(r: &rusqlite::Row) -> Project {

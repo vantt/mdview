@@ -50,6 +50,45 @@ pub fn normalize(path: &Path) -> PathBuf {
     out
 }
 
+/// Resolve an internal link to the target's project-relative path (no anchor,
+/// no URL), or None if external/unresolvable. Used for backlinks and to detect
+/// broken links.
+pub fn resolve_to_rel(
+    source_abs: &Path,
+    href: &str,
+    project_root: &Path,
+    index: &dyn IndexLookup,
+) -> Option<String> {
+    if is_external(href) {
+        return None;
+    }
+    let path_part = href.split('#').next().unwrap_or(href);
+    let path_part = path_part.split('?').next().unwrap_or(path_part);
+    if path_part.is_empty() {
+        return None;
+    }
+    let abs = if let Some(rest) = path_part.strip_prefix('/') {
+        normalize(&project_root.join(rest))
+    } else {
+        let source_dir = source_abs.parent().unwrap_or(project_root);
+        normalize(&source_dir.join(path_part))
+    };
+    let candidates = [
+        abs.clone(),
+        with_md_extension(&abs),
+        abs.join("README.md"),
+        abs.join("index.md"),
+    ];
+    for cand in candidates.iter() {
+        if index.contains(cand) {
+            if let Ok(rel) = cand.strip_prefix(project_root) {
+                return Some(to_url_path(rel));
+            }
+        }
+    }
+    None
+}
+
 /// Resolve one link. Returns the rewritten in-app URL, or a broken marker.
 ///
 /// * `source_abs` — absolute path of the file the link lives in.

@@ -3,7 +3,6 @@
 //! (PRD FR-08/FR-09/FR-09b).
 
 use anyhow::Result;
-use mdview_core::indexer::IndexService;
 use mdview_core::Engine;
 use notify::{RecursiveMode, Watcher};
 use notify_debouncer_full::{new_debouncer, DebounceEventResult, Debouncer, FileIdMap};
@@ -42,7 +41,6 @@ pub fn spawn_watchers(engine: Arc<Engine>, reload_tx: broadcast::Sender<String>)
 /// Reindex the given paths incrementally. Returns true if anything relevant changed.
 fn reindex_paths(engine: &Engine, paths: &[std::path::PathBuf]) -> bool {
     let projects = engine.list_projects().unwrap_or_default();
-    let max_bytes = engine.config.indexing.max_file_size_mb.saturating_mul(1024 * 1024);
     let mut changed = false;
 
     for path in paths {
@@ -53,13 +51,14 @@ fn reindex_paths(engine: &Engine, paths: &[std::path::PathBuf]) -> bool {
             continue;
         };
         if path.exists() {
-            if IndexService::index_file(&engine.store, project, path, max_bytes).is_ok() {
+            // Reindex the file and refresh its outgoing links (keeps backlinks live).
+            if engine.index_file_incremental(project, path).is_ok() {
                 changed = true;
             }
         } else {
             // Removed/renamed away — drop from index (survives atomic-save because
             // the debounced batch also carries the recreated path).
-            let _ = IndexService::remove_file(&engine.store, project, path);
+            let _ = engine.remove_file(project, path);
             changed = true;
         }
     }

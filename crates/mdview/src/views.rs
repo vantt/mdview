@@ -67,8 +67,11 @@ pub fn file_page(
     file: &IndexedFile,
     page: &RenderedPage,
     files: &[IndexedFile],
+    backlinks: &[(String, String)],
 ) -> String {
     let tree = file_tree(project, files, &file.rel_path);
+    let right = right_panel(project, page, backlinks);
+    let breadcrumb = breadcrumb(project, &file.rel_path);
     let head_extra = if page.has_mermaid {
         // PRD §9: Mermaid via CDN for AI-generated docs.
         r#"<script type="module">
@@ -93,16 +96,68 @@ window.addEventListener('DOMContentLoaded', renderMermaid);
 <div class="layout">
   <aside class="sidebar">{tree}</aside>
   <main class="content">
+    {breadcrumb}
     <article class="markdown-body">{html}</article>
   </main>
+  {right}
 </div>"#,
         pname = esc(&project.name),
         rel = esc(&file.rel_path),
         toggle = theme_toggle(),
         tree = tree,
+        breadcrumb = breadcrumb,
         html = page.html,
+        right = right,
     );
     layout(&page.title, head_extra, &body)
+}
+
+/// Right sidebar: table of contents + backlinks (FR-18). Empty string if neither.
+fn right_panel(project: &Project, page: &RenderedPage, backlinks: &[(String, String)]) -> String {
+    let mut inner = String::new();
+    let toc: Vec<_> = page.headings.iter().filter(|h| h.level >= 1 && h.level <= 4).collect();
+    if !toc.is_empty() {
+        inner.push_str("<div class=\"panel-head\">On this page</div><ul class=\"toc\">");
+        for h in toc {
+            inner.push_str(&format!(
+                "<li class=\"toc-l{lvl}\"><a href=\"#{slug}\">{text}</a></li>",
+                lvl = h.level,
+                slug = esc(&h.slug),
+                text = esc(&h.text),
+            ));
+        }
+        inner.push_str("</ul>");
+    }
+    if !backlinks.is_empty() {
+        inner.push_str("<div class=\"panel-head\">Linked from</div><ul class=\"backlinks\">");
+        for (rel, title) in backlinks {
+            inner.push_str(&format!(
+                "<li><a href=\"/p/{pid}/{rel}\">{title}</a></li>",
+                pid = esc(&project.id),
+                rel = esc(rel),
+                title = esc(title),
+            ));
+        }
+        inner.push_str("</ul>");
+    }
+    if inner.is_empty() {
+        String::new()
+    } else {
+        format!("<aside class=\"rightbar\">{inner}</aside>")
+    }
+}
+
+/// Breadcrumb of path segments (orientation only; folders are not pages).
+fn breadcrumb(project: &Project, rel_path: &str) -> String {
+    let mut crumbs = format!(
+        "<a href=\"/p/{pid}/\">{name}</a>",
+        pid = esc(&project.id),
+        name = esc(&project.name)
+    );
+    for seg in rel_path.split('/') {
+        crumbs.push_str(&format!(" <span class=\"sep\">/</span> {}", esc(seg)));
+    }
+    format!("<nav class=\"breadcrumb\">{crumbs}</nav>")
 }
 
 fn file_tree(project: &Project, files: &[IndexedFile], active: &str) -> String {

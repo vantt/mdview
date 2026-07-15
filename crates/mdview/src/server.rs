@@ -160,7 +160,8 @@ async fn project_path(State(st): State<AppState>, Path((id, path)): Path<(String
                 Ok(page) => {
                     let file = st.engine.store.get_file(&id, &path).unwrap().unwrap();
                     let files = st.engine.list_files(&id).unwrap_or_default();
-                    Html(views::file_page(&project, &file, &page, &files)).into_response()
+                    let backlinks = st.engine.backlinks(&id, &path).unwrap_or_default();
+                    Html(views::file_page(&project, &file, &page, &files, &backlinks)).into_response()
                 }
                 Err(e) => internal_error(&e.to_string()),
             };

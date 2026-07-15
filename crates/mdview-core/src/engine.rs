@@ -6,7 +6,7 @@ use crate::config::Config;
 use crate::domain::{IndexedFile, Project, RenderedPage, SearchResult};
 use crate::error::{Error, Result};
 use crate::indexer::{self, IndexService};
-use crate::render::RenderService;
+use crate::render::{self, RenderService};
 use crate::repository::SqliteStore;
 use std::path::{Path, PathBuf};
 
@@ -64,6 +64,7 @@ impl Engine {
             &self.config.indexing.exclude_patterns,
             self.max_bytes(),
         )?;
+        self.reindex_links(&project)?;
         Ok(project)
     }
 
@@ -86,7 +87,7 @@ impl Engine {
         let project = self.ensure_project(project_root, None)?;
         let abs = project.root_path.join(rel_path);
         let abs = crate::link_resolver::normalize(&abs);
-        IndexService::index_file(&self.store, &project, &abs, self.max_bytes())?;
+        self.index_file_incremental(&project, &abs)?;
         let rel = indexer::rel_path_str(&project.root_path, &abs);
         if rel.is_empty() {
             return Err(Error::PathOutsideProject(abs));
@@ -113,12 +114,55 @@ impl Engine {
             .store
             .get_project(project_id)?
             .ok_or_else(|| Error::ProjectNotFound(project_id.to_string()))?;
-        IndexService::index_project(
+        let n = IndexService::index_project(
             &self.store,
             &project,
             &self.config.indexing.exclude_patterns,
             self.max_bytes(),
-        )
+        )?;
+        self.reindex_links(&project)?;
+        Ok(n)
+    }
+
+    /// Index a single file and (re)compute its outgoing links. Used by view_file
+    /// and the filesystem watcher.
+    pub fn index_file_incremental(&self, project: &Project, abs: &Path) -> Result<()> {
+        IndexService::index_file(&self.store, project, abs, self.max_bytes())?;
+        self.compute_file_links(project, abs)
+    }
+
+    /// Drop a file from the index (and its outgoing links).
+    pub fn remove_file(&self, project: &Project, abs: &Path) -> Result<()> {
+        IndexService::remove_file(&self.store, project, abs)
+    }
+
+    /// Resolve and store the internal links a single file points to.
+    fn compute_file_links(&self, project: &Project, abs: &Path) -> Result<()> {
+        let rel = indexer::rel_path_str(&project.root_path, abs);
+        if rel.is_empty() {
+            return Ok(());
+        }
+        let content = std::fs::read_to_string(abs).unwrap_or_default();
+        let index = self.store.file_abs_paths(&project.id)?;
+        let targets = render::extract_internal_links(&content, abs, &project.root_path, &index);
+        self.store.set_file_links(&project.id, &rel, &targets)
+    }
+
+    /// Recompute links for every file in a project (after a full scan).
+    fn reindex_links(&self, project: &Project) -> Result<()> {
+        let files = self.store.list_files(&project.id)?;
+        let index = self.store.file_abs_paths(&project.id)?;
+        for f in files {
+            let content = std::fs::read_to_string(&f.abs_path).unwrap_or_default();
+            let targets = render::extract_internal_links(&content, &f.abs_path, &project.root_path, &index);
+            self.store.set_file_links(&project.id, &f.rel_path, &targets)?;
+        }
+        Ok(())
+    }
+
+    /// Files that link to `rel_path` → (source_rel, title). FR-18 backlinks.
+    pub fn backlinks(&self, project_id: &str, rel_path: &str) -> Result<Vec<(String, String)>> {
+        self.store.backlinks(project_id, rel_path)
     }
 
     /// Render a file for the viewer, rewriting internal links against the index.
@@ -206,6 +250,13 @@ mod tests {
         // second call reuses the same project id
         let vf2 = engine.view_file(&dir, "src/api/README.md").unwrap();
         assert_eq!(vf.project_id, vf2.project_id);
+
+        // backlinks: architecture.md links to the API readme (FR-18)
+        let back = engine.backlinks(&vf.project_id, "src/api/README.md").unwrap();
+        assert!(
+            back.iter().any(|(rel, _)| rel == "docs/architecture.md"),
+            "backlinks: {back:?}"
+        );
 
         std::fs::remove_dir_all(&dir).ok();
     }
