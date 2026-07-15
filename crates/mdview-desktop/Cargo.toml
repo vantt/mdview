@@ -1,0 +1,25 @@
+[package]
+name = "mdview-desktop"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+authors = ["Van Tran"]
+description = "Native desktop shell for mdview (Tauri v2) — a window onto the local daemon"
+
+# Standalone (not part of the root workspace) so the verified core/CLI build never
+# depends on Tauri's system libraries. See README.md for build prerequisites.
+[workspace]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+mdview-core = { path = "../mdview-core" }
+tauri = { version = "2", features = ["tray-icon"] }
+tauri-plugin-single-instance = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[features]
+# Reserved for a custom protocol build later.
+default = []
