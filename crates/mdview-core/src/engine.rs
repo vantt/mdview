@@ -276,8 +276,9 @@ impl Engine {
 /// `crates/mdview/src/server.rs::content_type()` already recognizes;
 /// mdview-core cannot import across the crate boundary, so keep this list in
 /// sync if content_type() ever changes.
-const ALLOWED_ASSET_EXTENSIONS: &[&str] =
-    &["png", "jpg", "jpeg", "gif", "svg", "webp", "ico", "bmp", "pdf"];
+const ALLOWED_ASSET_EXTENSIONS: &[&str] = &[
+    "png", "jpg", "jpeg", "gif", "svg", "webp", "ico", "bmp", "pdf",
+];
 
 fn has_allowed_asset_extension(path: &Path) -> bool {
     path.extension()
@@ -373,9 +374,7 @@ mod tests {
         assert!(engine.asset_path(&project.id, "images/LOGO.PNG").is_ok());
 
         // disallowed extension → Err
-        assert!(engine
-            .asset_path(&project.id, "images/secret.env")
-            .is_err());
+        assert!(engine.asset_path(&project.id, "images/secret.env").is_err());
 
         // allowed extension but inside an excluded directory → Err
         assert!(engine
@@ -396,9 +395,7 @@ mod tests {
             let target = dir.join("images/secret.env");
             let link = dir.join("images/bypass.png");
             std::os::unix::fs::symlink(&target, &link).unwrap();
-            assert!(engine
-                .asset_path(&project.id, "images/bypass.png")
-                .is_err());
+            assert!(engine.asset_path(&project.id, "images/bypass.png").is_err());
         }
 
         std::fs::remove_dir_all(&dir).ok();

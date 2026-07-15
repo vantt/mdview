@@ -405,6 +405,9 @@ fn esc(s: &str) -> String {
         .replace('"', "&quot;")
 }
 
+pub const APP_CSS: &str = include_str!("../assets/app.css");
+pub const APP_JS: &str = include_str!("../assets/app.js");
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -428,6 +431,3 @@ mod tests {
         assert_eq!(round_tripped, source);
     }
 }
-
-pub const APP_CSS: &str = include_str!("../assets/app.css");
-pub const APP_JS: &str = include_str!("../assets/app.js");
