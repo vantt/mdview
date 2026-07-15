@@ -25,6 +25,12 @@ authentication — anyone who can reach the settings page can change it.
 - Start-up CLI overrides (`serve --host <host> --port <port>`) → persist the
   given value(s) into configuration before the server starts, without visiting
   the settings page.
+- `mdview config edit` (CLI) → opens the configuration file in the operator's
+  `$EDITOR` (a full-file text edit, all fields at once — the terminal counterpart
+  to the `/settings` form). The file is created with current/default values first
+  so nothing is blank; after saving, an invalid edit is warned about (the server
+  would otherwise ignore it and fall back to defaults) and the operator is told to
+  restart the daemon to apply. Same "changes apply on restart" rule as R2.
 
 ## Data Dictionary
 
