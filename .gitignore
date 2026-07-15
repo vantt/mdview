@@ -1,13 +1,29 @@
 # BEE:START
-.bee/
-.claude/skills/bee-*/
-.agents/skills/bee-*/
+.bee/state.json
+.bee/reservations.json
+.bee/workers/
+.bee/logs/
+.bee/capture-queue.jsonl
+.bee/feedback-digest.json
+.bee/.inject-cache.json
+.bee/HANDOFF.json
+.bee/spikes/
+.bee/manifest-hash.json
 # BEE:END
 # DISTILL:START
 /upstreams/
 .claude/skills/distill/
 .agents/skills/distill/
 # DISTILL:END
+
+# Local agent tooling — not project source; kept out of git and out of history
+# by user decision. Placed OUTSIDE the BEE/DISTILL managed blocks above so bee's
+# onboarding cannot reset these broader rules when it rewrites its own block.
+.bee/
+.claude/skills/bee-*/
+.agents/skills/bee-*/
+.claude/skills/distill/
+.agents/skills/distill/
 
 # Rust
 /target

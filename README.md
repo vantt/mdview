@@ -30,13 +30,17 @@ cargo install --git https://github.com/vantt/mdview mdview
 ## Use
 
 ```sh
+mdview open docs/architecture.md     # print the browser URL (starts the daemon if needed)
 mdview register /path/to/project     # recursive scan + index
-mdview serve                         # http://localhost:7700
-mdview open docs/architecture.md     # print the browser URL
 mdview search "deployment"           # full-text search (FTS5)
 mdview status                        # is the daemon up?
 mdview doctor                        # diagnose integration, --fix to repair
+mdview serve                         # optional: pre-start the daemon (or set host/port)
 ```
+
+The daemon **auto-starts** on the first `open` or MCP call — you don't need to
+run `mdview serve` first. Run `serve` only to pre-start it or to bind a custom
+host/port (`mdview serve --host 0.0.0.0 --port 7700`).
 
 Open <http://localhost:7700> to browse projects; click through links across
 folders without broken links. Edits on disk live-reload the page.
@@ -81,6 +85,24 @@ MVP (Phase 1 + MCP + CLI + doctor), verified end-to-end. Desktop shell (Tauri)
 and some UX polish are planned — see [PRD.md](PRD.md) §8 and
 [docs/distillery/porting-log.md](docs/distillery/porting-log.md).
 
+## Credits
+
+mdview is an independent project, but its design leans on ideas and hard-won
+lessons from two prior open-source markdown servers. Grateful thanks to both:
+
+- **[mdserve](https://github.com/jfernandez/mdserve)** — Jose Fernandez, MIT.
+  Watcher robustness across atomic editor saves, WebSocket reload-signal live
+  reload, the pre-render-to-memory pipeline, path-traversal guarding, and port
+  auto-increment on bind conflict.
+- **[marky](https://github.com/GRVYDEV/marky)** — GRVYDEV, Apache-2.0.
+  Recursive folder tree that respects `.gitignore`, atomic corrupt-resilient
+  settings persistence, sanitize-before-serve, and nucleo-backed fuzzy search.
+
+What mdview took are these design ideas, adapted into its own Rust
+implementation; the per-feature record lives in
+[docs/distillery/porting-log.md](docs/distillery/porting-log.md).
+
 ## License
 
-MIT
+MIT — see [LICENSE](LICENSE). The upstream projects credited above are MIT
+(mdserve) and Apache-2.0 (marky), both compatible with mdview's MIT license.

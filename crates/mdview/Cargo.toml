@@ -25,3 +25,7 @@ tokio.workspace = true
 clap.workspace = true
 notify.workspace = true
 notify-debouncer-full.workspace = true
+
+# setsid(2) for fully detaching the auto-spawned daemon (Unix only).
+[target.'cfg(unix)'.dependencies]
+libc.workspace = true

@@ -11,11 +11,21 @@ bee-compounding appends hard-won patterns here; keep it short and current.
   *displayed* string, never at the shared underlying field — otherwise the
   connectivity path silently breaks. (2026-07-15,
   `docs/history/learnings/20260715-mdview-hostname-doctor-fix.md`)
-- **`crates/mdview-desktop/src/main.rs::ensure_daemon()` duplicates
-  `crates/mdview/src/runtime.rs::ensure_daemon_base()` — it is NOT shared
-  code.** Before changing daemon-URL-building logic in `runtime.rs`, grep the
-  desktop crate for the same shape; it will not pick up the change
-  automatically and can silently drift. (2026-07-15, same learnings file)
+- **`crates/mdview-desktop/src/main.rs` duplicates the daemon-spawn / daemon-URL
+  logic of `crates/mdview/src/runtime.rs` — it is NOT shared code.** Two known
+  drifts already: `ensure_daemon()` (URL building) and the non-detached
+  serve-spawn (missing the setsid detach that `runtime.rs::spawn_daemon_detached`
+  now has). Before changing either in `runtime.rs`, grep the desktop crate for
+  the same shape and apply the fix there too. (2026-07-15,
+  `20260715-mdview-hostname-doctor-fix.md`, `20260715-daemon-auto-spawn-detach.md`)
+- **Detachment must be proven, not assumed from a function name.** For any
+  backgrounded child in this repo, the daemon must survive its spawner's
+  session/process-group teardown — verify with
+  `ps -o pid,ppid,sid,pgid -p <pid>`: `sid == pid` (own session leader) and
+  `ppid == 1` (reparented to init). If `sid` equals the spawner's session, the
+  detach did not happen. Use the setsid(unix)/creation-flags(windows) form from
+  `runtime.rs::spawn_daemon_detached`, never stdio-null-only `.spawn()`.
+  (2026-07-15, `20260715-daemon-auto-spawn-detach.md`)
 - **Rust CLI E2E testing in this repo:** never invoke `./target/...` directly
   (blocked by the scout hook) and never let `HOME` overrides break rustup.
   Use: `cd <scratch-dir> && HOME=<fake> RUSTUP_HOME=/home/vantt/.rustup

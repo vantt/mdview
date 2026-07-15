@@ -32,9 +32,13 @@ The CLI/daemon does **not** need any GUI system libraries.
 
 ```bash
 mdview register /path/to/project     # recursive scan + index
-mdview serve                         # background server at http://localhost:7700
+mdview open README.md                # print a URL — auto-starts the daemon if needed
 mdview status                        # is it running?
 ```
+
+The daemon **auto-starts** on the first `open` or MCP call and keeps running in
+its own session (it survives the terminal that launched it). You only need
+`mdview serve` to pre-start it or to bind a custom host/port — see §4.
 
 Open <http://localhost:7700> in a browser. You get: project list, per-file
 rendering with **cross-folder links that don't 404**, live reload on file
@@ -78,7 +82,7 @@ after writing docs.
 ## 4. CLI reference
 
 ```bash
-mdview serve [--port 7700] [--host 127.0.0.1]   # start the daemon
+mdview serve [--port 7700] [--host 127.0.0.1]   # optional: pre-start the daemon (auto-starts otherwise)
 mdview register <dir> [--name "My App"]         # index a project
 mdview open <file.md>                           # print the browser URL for a file
 mdview list                                     # list projects
