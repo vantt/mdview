@@ -9,6 +9,7 @@ pub mod daemon;
 pub mod domain;
 pub mod engine;
 pub mod error;
+pub mod fuzzy;
 pub mod indexer;
 pub mod link_resolver;
 pub mod render;

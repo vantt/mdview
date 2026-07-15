@@ -5,6 +5,7 @@
 use crate::config::Config;
 use crate::domain::{IndexedFile, Project, RenderedPage, SearchResult};
 use crate::error::{Error, Result};
+use crate::fuzzy::{self, FuzzyHit};
 use crate::indexer::{self, IndexService};
 use crate::render::{self, RenderService};
 use crate::repository::SqliteStore;
@@ -221,6 +222,19 @@ impl Engine {
         limit: usize,
     ) -> Result<Vec<SearchResult>> {
         self.store.search(query, project_id, limit)
+    }
+
+    /// Fuzzy file-jump: rank a project's files by a fuzzy match of `query`
+    /// against their relative paths (name/path jump, complementing the
+    /// content-based `search`). Ordered by descending match score.
+    pub fn fuzzy_files(
+        &self,
+        project_id: &str,
+        query: &str,
+        limit: usize,
+    ) -> Result<Vec<FuzzyHit>> {
+        let files = self.store.list_files(project_id)?;
+        Ok(fuzzy::rank_files(&files, project_id, query, limit))
     }
 
     /// Resolve an on-disk absolute path for an asset/image request, guarding
