@@ -16,24 +16,45 @@ pub fn build_engine() -> Result<Engine> {
     Ok(Engine::new(store, config))
 }
 
+/// Ensure a daemon is running and resolve its real bind `(host, port)` — the
+/// connectivity values, spawning a daemon if none is up. This is the shared
+/// basis for the *display* URL builders below; it never mutates connectivity.
+fn ensure_bind() -> (String, u16) {
+    if let Some(info) = daemon::running_daemon() {
+        return (info.host, info.port);
+    }
+    let _ = spawn_daemon_detached();
+    for _ in 0..20 {
+        std::thread::sleep(Duration::from_millis(100));
+        if let Some(info) = daemon::running_daemon() {
+            return (info.host, info.port);
+        }
+    }
+    let cfg = Config::load();
+    (cfg.server.host, cfg.server.port)
+}
+
 /// Ensure a daemon is running and return its base URL (spawns one if needed).
 ///
 /// The returned host is a display value: when `config.server.host_name` is
 /// set it replaces the bind/connect host in the URL text only — the daemon
 /// still binds and is health-checked on its real host/IP (`DaemonInfo.host`).
 pub fn ensure_daemon_base() -> String {
-    if let Some(info) = daemon::running_daemon() {
-        return display_base_url(&info.host, info.port);
-    }
-    let _ = spawn_daemon_detached();
-    for _ in 0..20 {
-        std::thread::sleep(Duration::from_millis(100));
-        if let Some(info) = daemon::running_daemon() {
-            return display_base_url(&info.host, info.port);
-        }
-    }
+    let (host, port) = ensure_bind();
+    display_base_url(&host, port)
+}
+
+/// Like [`ensure_daemon_base`], but returns *every* viewable base URL. When the
+/// daemon binds a wildcard host (`0.0.0.0` / `::`) and no `host_name` override
+/// is set, this is one URL per reachable machine IP so a caller (e.g. a remote
+/// agent) can pick an address that routes to it. Otherwise it is the single URL
+/// [`ensure_daemon_base`] would return. Display values only — connectivity
+/// (`DaemonInfo.host`, health) is never derived from this.
+pub fn ensure_daemon_bases() -> Vec<String> {
+    let (host, port) = ensure_bind();
     let cfg = Config::load();
-    display_base_url(&cfg.server.host, cfg.server.port)
+    let host_name = cfg.server.host_name.as_deref();
+    build_display_urls(host_name, &host, port, &machine_ipv4s())
 }
 
 fn display_base_url(bind_host: &str, port: u16) -> String {
@@ -46,6 +67,53 @@ fn display_base_url(bind_host: &str, port: u16) -> String {
         .filter(|h| !h.is_empty())
         .unwrap_or(bind_host);
     format!("http://{host}:{port}")
+}
+
+/// True if `host` is a wildcard "any interface" bind address, whose literal
+/// form is useless as a link — the case that warrants listing real IPs.
+fn is_wildcard(host: &str) -> bool {
+    matches!(host, "0.0.0.0" | "::" | "[::]")
+}
+
+/// The machine's externally-usable IPv4 addresses (loopback and link-local
+/// excluded), sorted and deduped. Empty when only loopback/link-local exist.
+fn machine_ipv4s() -> Vec<String> {
+    let mut out: Vec<String> = if_addrs::get_if_addrs()
+        .into_iter()
+        .flatten()
+        .filter(|i| !i.is_loopback())
+        .filter_map(|i| match i.ip() {
+            std::net::IpAddr::V4(v4) if !v4.is_link_local() => Some(v4.to_string()),
+            _ => None,
+        })
+        .collect();
+    out.sort();
+    out.dedup();
+    out
+}
+
+/// Pure display-URL builder (unit-tested; no I/O). Precedence:
+/// 1. a non-empty `host_name` override → that single URL;
+/// 2. a wildcard `bind_host` with machine IPs → one URL per IP;
+/// 3. a wildcard `bind_host` with no external IP → single `127.0.0.1` URL;
+/// 4. any other `bind_host` → that single URL.
+fn build_display_urls(
+    host_name: Option<&str>,
+    bind_host: &str,
+    port: u16,
+    machine_ips: &[String],
+) -> Vec<String> {
+    let url = |h: &str| format!("http://{h}:{port}");
+    if let Some(name) = host_name.map(str::trim).filter(|h| !h.is_empty()) {
+        return vec![url(name)];
+    }
+    if is_wildcard(bind_host) {
+        if machine_ips.is_empty() {
+            return vec![url("127.0.0.1")];
+        }
+        return machine_ips.iter().map(|ip| url(ip)).collect();
+    }
+    vec![url(bind_host)]
 }
 
 /// Spawn `mdview serve` fully detached, so MCP/CLI can guarantee a viewer is up
@@ -90,4 +158,55 @@ pub fn spawn_daemon_detached() -> Result<()> {
 
     cmd.spawn()?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{build_display_urls, is_wildcard};
+
+    fn ips(v: &[&str]) -> Vec<String> {
+        v.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn host_name_override_wins_even_over_wildcard() {
+        let urls = build_display_urls(Some("my.local"), "0.0.0.0", 7700, &ips(&["192.168.1.5"]));
+        assert_eq!(urls, vec!["http://my.local:7700"]);
+    }
+
+    #[test]
+    fn blank_host_name_is_ignored() {
+        let urls = build_display_urls(Some("  "), "127.0.0.1", 7700, &[]);
+        assert_eq!(urls, vec!["http://127.0.0.1:7700"]);
+    }
+
+    #[test]
+    fn wildcard_lists_every_machine_ip() {
+        let urls = build_display_urls(None, "0.0.0.0", 7700, &ips(&["192.168.1.5", "10.0.0.2"]));
+        assert_eq!(
+            urls,
+            vec!["http://192.168.1.5:7700", "http://10.0.0.2:7700"]
+        );
+    }
+
+    #[test]
+    fn wildcard_with_no_ip_falls_back_to_loopback() {
+        let urls = build_display_urls(None, "0.0.0.0", 7700, &[]);
+        assert_eq!(urls, vec!["http://127.0.0.1:7700"]);
+    }
+
+    #[test]
+    fn specific_bind_host_is_single_and_unchanged() {
+        let urls = build_display_urls(None, "192.168.1.9", 7700, &ips(&["192.168.1.9"]));
+        assert_eq!(urls, vec!["http://192.168.1.9:7700"]);
+    }
+
+    #[test]
+    fn wildcard_detection() {
+        assert!(is_wildcard("0.0.0.0"));
+        assert!(is_wildcard("::"));
+        assert!(is_wildcard("[::]"));
+        assert!(!is_wildcard("127.0.0.1"));
+        assert!(!is_wildcard("192.168.1.1"));
+    }
 }

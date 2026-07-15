@@ -25,6 +25,9 @@ tokio.workspace = true
 clap.workspace = true
 notify.workspace = true
 notify-debouncer-full.workspace = true
+# Enumerate the machine's network interfaces to list every reachable IP when the
+# daemon binds a wildcard host (0.0.0.0) — display-URL only, never connectivity.
+if-addrs = "0.13"
 
 # setsid(2) for fully detaching the auto-spawned daemon (Unix only).
 [target.'cfg(unix)'.dependencies]

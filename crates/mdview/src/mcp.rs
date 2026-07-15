@@ -99,15 +99,37 @@ fn handle_tool_call(id: Option<Value>, engine: &Engine, req: &Value) -> Value {
 
     match engine.view_file(Path::new(root), rel) {
         Ok(vf) => {
-            // Ensure a daemon is up so the URL is actually viewable.
-            let base = runtime::ensure_daemon_base();
-            let full = format!("{base}{}", vf.url);
-            let text = format!("Viewable at: {full}\nproject_id: {}", vf.project_id);
+            // Ensure a daemon is up so the URL is actually viewable. When the
+            // daemon binds a wildcard host with no host_name override, this is
+            // one URL per reachable machine IP so the caller can pick a routable
+            // address; otherwise it is a single URL.
+            let urls: Vec<String> = runtime::ensure_daemon_bases()
+                .iter()
+                .map(|base| format!("{base}{}", vf.url))
+                .collect();
+            // Primary URL kept for back-compat with clients reading `url`.
+            let primary = urls.first().cloned().unwrap_or_default();
+            let viewable = if urls.len() > 1 {
+                let lines = urls
+                    .iter()
+                    .map(|u| format!("  {u}"))
+                    .collect::<Vec<_>>()
+                    .join("\n");
+                format!("Viewable at (pick a reachable IP):\n{lines}")
+            } else {
+                format!("Viewable at: {primary}")
+            };
+            let text = format!("{viewable}\nproject_id: {}", vf.project_id);
             ok(
                 id,
                 json!({
                     "content": [{ "type": "text", "text": text }],
-                    "structuredContent": { "url": full, "path": vf.url, "project_id": vf.project_id }
+                    "structuredContent": {
+                        "url": primary,
+                        "urls": urls,
+                        "path": vf.url,
+                        "project_id": vf.project_id
+                    }
                 }),
             )
         }
