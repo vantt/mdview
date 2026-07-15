@@ -278,6 +278,100 @@
     });
   })();
 
+  // Mermaid pan/zoom + fullscreen. Mermaid renders <pre class="mermaid"> into an
+  // <svg> asynchronously (client-side, CDN); we watch for that SVG and wrap each
+  // diagram with wheel-zoom / drag-pan / fullscreen — no extra library.
+  (function () {
+    var pres = document.querySelectorAll("pre.mermaid");
+    if (!pres.length) return;
+
+    function enhance(pre) {
+      var svg = pre.querySelector("svg");
+      if (!svg || pre.classList.contains("zoomable")) return;
+      pre.classList.add("zoomable");
+      pre.setAttribute("tabindex", "0");
+
+      var state = { scale: 1, x: 0, y: 0 };
+      function apply() {
+        svg.style.transform =
+          "translate(" + state.x + "px," + state.y + "px) scale(" + state.scale + ")";
+      }
+      function clampScale(s) { return Math.min(8, Math.max(0.2, s)); }
+
+      // Zoom toward a point (px,py) in the pre's local coordinates.
+      function zoomAt(factor, px, py) {
+        var next = clampScale(state.scale * factor);
+        var ratio = next / state.scale;
+        state.x = px - ratio * (px - state.x);
+        state.y = py - ratio * (py - state.y);
+        state.scale = next;
+        apply();
+      }
+      function reset() { state = { scale: 1, x: 0, y: 0 }; apply(); }
+
+      pre.addEventListener("wheel", function (e) {
+        e.preventDefault();
+        var rect = pre.getBoundingClientRect();
+        zoomAt(e.deltaY < 0 ? 1.15 : 1 / 1.15, e.clientX - rect.left, e.clientY - rect.top);
+      }, { passive: false });
+
+      // Drag to pan.
+      var dragging = false, sx = 0, sy = 0, ox = 0, oy = 0;
+      pre.addEventListener("mousedown", function (e) {
+        if (e.target.closest(".mermaid-controls")) return;
+        dragging = true; sx = e.clientX; sy = e.clientY; ox = state.x; oy = state.y;
+        pre.classList.add("grabbing");
+        e.preventDefault();
+      });
+      window.addEventListener("mousemove", function (e) {
+        if (!dragging) return;
+        state.x = ox + (e.clientX - sx);
+        state.y = oy + (e.clientY - sy);
+        apply();
+      });
+      window.addEventListener("mouseup", function () {
+        dragging = false; pre.classList.remove("grabbing");
+      });
+
+      // Controls toolbar.
+      var controls = document.createElement("div");
+      controls.className = "mermaid-controls";
+      function btn(label, title, onClick) {
+        var b = document.createElement("button");
+        b.type = "button";
+        b.textContent = label;
+        b.title = title;
+        b.setAttribute("aria-label", title);
+        b.addEventListener("click", function (e) { e.stopPropagation(); onClick(); });
+        controls.appendChild(b);
+      }
+      btn("+", "Zoom in", function () {
+        var r = pre.getBoundingClientRect(); zoomAt(1.2, r.width / 2, r.height / 2);
+      });
+      btn("−", "Zoom out", function () {
+        var r = pre.getBoundingClientRect(); zoomAt(1 / 1.2, r.width / 2, r.height / 2);
+      });
+      btn("⟲", "Reset", reset);
+      btn("⛶", "Fullscreen", function () {
+        if (document.fullscreenElement === pre) {
+          if (document.exitFullscreen) document.exitFullscreen();
+        } else if (pre.requestFullscreen) {
+          pre.requestFullscreen();
+        }
+      });
+      pre.appendChild(controls);
+    }
+
+    pres.forEach(function (pre) {
+      if (pre.querySelector("svg")) { enhance(pre); return; }
+      // mermaid injects the <svg> later; observe until it appears.
+      var obs = new MutationObserver(function () {
+        if (pre.querySelector("svg")) { obs.disconnect(); enhance(pre); }
+      });
+      obs.observe(pre, { childList: true, subtree: true });
+    });
+  })();
+
   // Live reload: reload-signal over WebSocket, full-page reload (PRD FR-19, Phase 1).
   function connect() {
     var proto = location.protocol === "https:" ? "wss:" : "ws:";

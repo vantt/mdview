@@ -99,6 +99,48 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
 }
 .markdown-body pre.code code { background: none; padding: 0; }
 .markdown-body pre.mermaid { background: var(--code-bg); text-align: center; border-radius: 8px; padding: 12px; overflow-x: auto; }
+
+/* Mermaid pan/zoom + fullscreen (enhanced client-side once the SVG renders) */
+.markdown-body pre.mermaid.zoomable {
+  position: relative;
+  overflow: hidden;
+  cursor: grab;
+  text-align: left;
+}
+.markdown-body pre.mermaid.zoomable.grabbing { cursor: grabbing; }
+.markdown-body pre.mermaid.zoomable > svg {
+  transform-origin: 0 0;
+  will-change: transform;
+  max-width: none; /* let it scale beyond the container while panning */
+}
+.mermaid-controls {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  display: flex;
+  gap: 4px;
+  opacity: 0;
+  transition: opacity 0.15s;
+  z-index: 2;
+}
+.markdown-body pre.mermaid.zoomable:hover .mermaid-controls,
+.markdown-body pre.mermaid.zoomable:focus-within .mermaid-controls { opacity: 1; }
+.mermaid-controls button {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--fg);
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+}
+.mermaid-controls button:hover { background: var(--card); }
+/* In fullscreen the diagram fills the viewport with a solid backdrop. */
+.markdown-body pre.mermaid.zoomable:fullscreen { background: var(--bg); padding: 0; border-radius: 0; }
+.markdown-body pre.mermaid.zoomable:fullscreen .mermaid-controls { opacity: 1; }
 .broken-link { color: #cf222e; border-bottom: 1px dotted #cf222e; }
 .broken-link:hover { text-decoration: none; }
 
