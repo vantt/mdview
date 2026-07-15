@@ -6,9 +6,14 @@
 
 pub mod config;
 pub mod domain;
+pub mod engine;
 pub mod error;
+pub mod indexer;
 pub mod link_resolver;
 pub mod render;
+pub mod repository;
 
 pub use config::Config;
+pub use engine::Engine;
 pub use error::{Error, Result};
+pub use repository::SqliteStore;
