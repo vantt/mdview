@@ -68,6 +68,9 @@ pub enum Command {
     Unregister { project_id: String },
     /// Stop the running daemon.
     Stop,
+    /// Restart the daemon: stop the running one (if any), then start a fresh
+    /// detached daemon. Useful after changing config (host, port, theme).
+    Restart,
     /// Diagnose & auto-fix integration with Claude Code.
     Doctor {
         #[arg(long)]
@@ -97,6 +100,7 @@ pub fn run(cli: Cli) -> Result<()> {
         Command::Refresh { project } => cmd_refresh(project.as_deref()),
         Command::Unregister { project_id } => cmd_unregister(&project_id),
         Command::Stop => cmd_stop(),
+        Command::Restart => cmd_restart(),
         Command::Doctor { json, dry_run, fix } => crate::doctor::run(json, dry_run, fix),
         Command::Mcp => crate::mcp::run(),
     }
@@ -276,30 +280,61 @@ fn cmd_unregister(id: &str) -> Result<()> {
     Ok(())
 }
 
+/// Stop the daemon named by the lock file, if any. Removes the lock either way
+/// (a failed kill means the process is already gone). Returns `(pid, killed_ok)`
+/// when a lock existed, or `None` when no daemon was recorded.
+fn stop_daemon() -> Option<(u32, bool)> {
+    let info = runtime::read_lock()?;
+    #[cfg(unix)]
+    let ok = std::process::Command::new("kill")
+        .arg(info.pid.to_string())
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false);
+    #[cfg(not(unix))]
+    let ok = std::process::Command::new("taskkill")
+        .args(["/PID", &info.pid.to_string(), "/F"])
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false);
+    runtime::remove_lock();
+    Some((info.pid, ok))
+}
+
 fn cmd_stop() -> Result<()> {
-    match runtime::read_lock() {
-        Some(info) => {
-            #[cfg(unix)]
-            let ok = std::process::Command::new("kill")
-                .arg(info.pid.to_string())
-                .status()
-                .map(|s| s.success())
-                .unwrap_or(false);
-            #[cfg(not(unix))]
-            let ok = std::process::Command::new("taskkill")
-                .args(["/PID", &info.pid.to_string(), "/F"])
-                .status()
-                .map(|s| s.success())
-                .unwrap_or(false);
-            if ok {
-                runtime::remove_lock();
-                println!("Stopped daemon (pid {}).", info.pid);
-            } else {
-                println!("Could not stop pid {}. It may already be gone.", info.pid);
-                runtime::remove_lock();
-            }
-        }
+    match stop_daemon() {
+        Some((pid, true)) => println!("Stopped daemon (pid {pid})."),
+        Some((pid, false)) => println!("Could not stop pid {pid}. It may already be gone."),
         None => println!("No daemon running."),
     }
+    Ok(())
+}
+
+fn cmd_restart() -> Result<()> {
+    match stop_daemon() {
+        Some((pid, _)) => println!("Stopped daemon (pid {pid})."),
+        None => println!("No daemon was running."),
+    }
+    // Wait for the old process to actually exit so the port and lock are free.
+    for _ in 0..30 {
+        if runtime::running_daemon().is_none() {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
+    // Start a fresh daemon fully detached so it outlives this CLI invocation.
+    runtime::spawn_daemon_detached()?;
+    for _ in 0..30 {
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        if let Some(info) = runtime::running_daemon() {
+            println!(
+                "Started daemon (pid {}) at {}",
+                info.pid,
+                runtime::ensure_daemon_base()
+            );
+            return Ok(());
+        }
+    }
+    println!("Started daemon; not yet confirmed up (check `mdview status`).");
     Ok(())
 }
