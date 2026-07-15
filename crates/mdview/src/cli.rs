@@ -6,6 +6,7 @@ use crate::runtime;
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use mdview_core::indexer;
+use mdview_core::Config;
 use std::path::{Path, PathBuf};
 
 #[derive(Parser)]
@@ -82,6 +83,17 @@ pub enum Command {
     },
     /// Run the MCP server over stdio (used by Claude Code).
     Mcp,
+    /// Edit configuration.
+    Config {
+        #[command(subcommand)]
+        action: ConfigAction,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum ConfigAction {
+    /// Open the config file (`~/.mdview/config.toml`) in $EDITOR.
+    Edit,
 }
 
 pub fn run(cli: Cli) -> Result<()> {
@@ -103,7 +115,55 @@ pub fn run(cli: Cli) -> Result<()> {
         Command::Restart => cmd_restart(),
         Command::Doctor { json, dry_run, fix } => crate::doctor::run(json, dry_run, fix),
         Command::Mcp => crate::mcp::run(),
+        Command::Config { action } => match action {
+            ConfigAction::Edit => cmd_config_edit(),
+        },
     }
+}
+
+fn cmd_config_edit() -> Result<()> {
+    let path = mdview_core::config::config_path();
+    // Materialize the file with current (or default) values so the editor opens
+    // a fully-populated config, not an empty/absent file.
+    Config::load()
+        .save()
+        .with_context(|| format!("writing {}", path.display()))?;
+
+    // Prefer $VISUAL, then $EDITOR, else a sensible platform default.
+    let editor = std::env::var("VISUAL")
+        .or_else(|_| std::env::var("EDITOR"))
+        .unwrap_or_else(|_| if cfg!(windows) { "notepad" } else { "vi" }.to_string());
+
+    // Support editors passed with args (e.g. "code --wait") by splitting on
+    // whitespace; the config path is the final argument.
+    let mut parts = editor.split_whitespace();
+    let program = parts.next().unwrap_or("vi");
+    let status = std::process::Command::new(program)
+        .args(parts)
+        .arg(&path)
+        .status()
+        .with_context(|| format!("launching editor '{editor}'"))?;
+    if !status.success() {
+        println!("Editor exited without success; config left unchanged on disk.");
+        return Ok(());
+    }
+
+    // Validate what the user saved: a broken TOML would otherwise be silently
+    // ignored (Config::load falls back to defaults), so warn loudly instead.
+    match std::fs::read_to_string(&path) {
+        Ok(text) => match toml::from_str::<Config>(&text) {
+            Ok(_) => println!(
+                "Saved {}.\nRestart the daemon to apply: mdview restart",
+                path.display()
+            ),
+            Err(e) => println!(
+                "Warning: {} is not valid TOML ({e}).\nmdview will ignore it and fall back to defaults until you fix it.",
+                path.display()
+            ),
+        },
+        Err(e) => println!("Could not re-read {}: {e}", path.display()),
+    }
+    Ok(())
 }
 
 fn cmd_serve(port: Option<u16>, host: Option<String>) -> Result<()> {
