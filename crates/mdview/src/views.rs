@@ -2,7 +2,7 @@
 //! Theme is CSS-variable driven (no-flash head script); code colors come from
 //! `/highlight.css` (syntect class-based), so themes switch without re-render.
 
-use mdview_core::domain::{IndexedFile, Project, RenderedPage};
+use mdview_core::domain::{IndexedFile, Project, RenderedPage, SearchResult};
 
 pub fn layout(title: &str, head_extra: &str, body: &str) -> String {
     format!(
@@ -161,7 +161,13 @@ fn breadcrumb(project: &Project, rel_path: &str) -> String {
 }
 
 fn file_tree(project: &Project, files: &[IndexedFile], active: &str) -> String {
-    let mut out = format!("<div class=\"tree-head\">{}</div><ul class=\"tree\">", esc(&project.name));
+    let mut out = format!(
+        "<form class=\"search\" action=\"/p/{pid}/_search\" method=\"get\">\
+         <input name=\"q\" placeholder=\"Search…\" autocomplete=\"off\"></form>\
+         <div class=\"tree-head\">{name}</div><ul class=\"tree\">",
+        pid = esc(&project.id),
+        name = esc(&project.name)
+    );
     for f in files {
         let cls = if f.rel_path == active { "tree-item active" } else { "tree-item" };
         out.push_str(&format!(
@@ -177,6 +183,49 @@ fn file_tree(project: &Project, files: &[IndexedFile], active: &str) -> String {
 
 fn theme_toggle() -> &'static str {
     r#"<button id="theme-toggle" class="theme-toggle" title="Toggle theme">◐</button>"#
+}
+
+pub fn search_page(project: &Project, query: &str, results: &[SearchResult]) -> String {
+    let mut items = String::new();
+    if query.trim().is_empty() {
+        items.push_str("<p class=\"muted\">Type a query to search this project.</p>");
+    } else if results.is_empty() {
+        items.push_str(&format!("<p class=\"muted\">No matches for “{}”.</p>", esc(query)));
+    } else {
+        for r in results {
+            items.push_str(&format!(
+                "<a class=\"result\" href=\"{url}\"><div class=\"result-title\">{title}</div>\
+                 <div class=\"muted\">{rel}</div><div class=\"excerpt\">{excerpt}</div></a>",
+                url = esc(&r.url),
+                title = esc(&r.title),
+                rel = esc(&r.rel_path),
+                excerpt = highlight_excerpt(&r.excerpt),
+            ));
+        }
+    }
+    let body = format!(
+        r#"<header class="topbar"><a href="/" class="home">mdview</a>
+  <span class="crumb">{name} · search</span>{toggle}</header>
+<main class="container">
+  <form class="search wide" action="/p/{pid}/_search" method="get">
+    <input name="q" value="{q}" placeholder="Search…" autofocus autocomplete="off">
+  </form>
+  {items}
+</main>"#,
+        name = esc(&project.name),
+        pid = esc(&project.id),
+        q = esc(query),
+        toggle = theme_toggle(),
+        items = items,
+    );
+    layout(&format!("search: {query}"), "", &body)
+}
+
+/// FTS snippets contain `<mark>…</mark>`. Escape everything, then restore marks.
+fn highlight_excerpt(excerpt: &str) -> String {
+    esc(excerpt)
+        .replace("&lt;mark&gt;", "<mark>")
+        .replace("&lt;/mark&gt;", "</mark>")
 }
 
 pub fn error_page(status: u16, msg: &str) -> String {

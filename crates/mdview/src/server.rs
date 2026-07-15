@@ -6,7 +6,7 @@ use anyhow::Result;
 use axum::{
     extract::{
         ws::{Message, WebSocket, WebSocketUpgrade},
-        Path, State,
+        Path, Query, State,
     },
     http::{header, StatusCode},
     response::{Html, IntoResponse, Redirect, Response},
@@ -77,6 +77,7 @@ fn router(state: AppState) -> Router {
         .route("/highlight.css", get(highlight_asset))
         .route("/ws", get(ws_handler))
         .route("/p/:id/", get(project_home))
+        .route("/p/:id/_search", get(search_page))
         .route("/p/:id/*path", get(project_path))
         .with_state(state)
 }
@@ -174,6 +175,28 @@ async fn project_path(State(st): State<AppState>, Path((id, path)): Path<(String
         }
     }
     not_found("file not found")
+}
+
+#[derive(serde::Deserialize)]
+struct SearchQuery {
+    #[serde(default)]
+    q: String,
+}
+
+async fn search_page(
+    State(st): State<AppState>,
+    Path(id): Path<String>,
+    Query(query): Query<SearchQuery>,
+) -> Response {
+    let Ok(Some(project)) = st.engine.get_project(&id) else {
+        return not_found("project not found");
+    };
+    let results = if query.q.trim().is_empty() {
+        Vec::new()
+    } else {
+        st.engine.search(&query.q, Some(&id), 30).unwrap_or_default()
+    };
+    Html(views::search_page(&project, &query.q, &results)).into_response()
 }
 
 async fn ws_handler(ws: WebSocketUpgrade, State(st): State<AppState>) -> Response {

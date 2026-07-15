@@ -99,6 +99,19 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
 .toc-l4 { padding-left: 30px; }
 .backlinks li a { color: var(--accent); }
 
+.search { margin: 0 0 12px; }
+.search input {
+  width: 100%; padding: 6px 10px; border: 1px solid var(--border); border-radius: 6px;
+  background: var(--bg); color: var(--fg); font-size: 13px;
+}
+.search.wide input { padding: 10px 14px; font-size: 15px; }
+.result { display: block; padding: 12px 14px; margin: 10px 0; border: 1px solid var(--border); border-radius: 8px; background: var(--card); color: var(--fg); }
+.result:hover { border-color: var(--accent); text-decoration: none; }
+.result-title { font-weight: 600; }
+.excerpt { font-size: 13px; color: var(--muted); margin-top: 6px; white-space: pre-wrap; }
+.excerpt mark, .markdown-body mark { background: #fff8c5; color: inherit; padding: 0 1px; border-radius: 2px; }
+:root[data-theme="dark"] .excerpt mark, :root[data-theme="dark"] .markdown-body mark { background: #ae7c14; color: #fff; }
+
 @media (max-width: 900px) {
   .rightbar { display: none; }
 }
