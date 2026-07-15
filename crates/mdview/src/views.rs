@@ -117,7 +117,11 @@ window.addEventListener('DOMContentLoaded', renderMermaid);
 /// Right sidebar: table of contents + backlinks (FR-18). Empty string if neither.
 fn right_panel(project: &Project, page: &RenderedPage, backlinks: &[(String, String)]) -> String {
     let mut inner = String::new();
-    let toc: Vec<_> = page.headings.iter().filter(|h| h.level >= 1 && h.level <= 4).collect();
+    let toc: Vec<_> = page
+        .headings
+        .iter()
+        .filter(|h| h.level >= 1 && h.level <= 4)
+        .collect();
     if !toc.is_empty() {
         inner.push_str("<div class=\"panel-head\">On this page</div><ul class=\"toc\">");
         for h in toc {
@@ -171,7 +175,11 @@ fn file_tree(project: &Project, files: &[IndexedFile], active: &str) -> String {
         name = esc(&project.name)
     );
     for f in files {
-        let cls = if f.rel_path == active { "tree-item active" } else { "tree-item" };
+        let cls = if f.rel_path == active {
+            "tree-item active"
+        } else {
+            "tree-item"
+        };
         out.push_str(&format!(
             "<li class=\"{cls}\"><a href=\"/p/{pid}/{rel}\">{label}</a></li>",
             pid = esc(&project.id),
@@ -192,7 +200,10 @@ pub fn search_page(project: &Project, query: &str, results: &[SearchResult]) -> 
     if query.trim().is_empty() {
         items.push_str("<p class=\"muted\">Type a query to search this project.</p>");
     } else if results.is_empty() {
-        items.push_str(&format!("<p class=\"muted\">No matches for “{}”.</p>", esc(query)));
+        items.push_str(&format!(
+            "<p class=\"muted\">No matches for “{}”.</p>",
+            esc(query)
+        ));
     } else {
         for r in results {
             items.push_str(&format!(
@@ -311,7 +322,10 @@ pub fn error_page(status: u16, msg: &str) -> String {
 }
 
 fn esc(s: &str) -> String {
-    s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;").replace('"', "&quot;")
+    s.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
 }
 
 pub const APP_CSS: &str = include_str!("../assets/app.css");

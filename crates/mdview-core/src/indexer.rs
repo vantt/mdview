@@ -130,7 +130,10 @@ pub fn rel_path_str(root: &Path, abs: &Path) -> String {
 }
 
 fn filename(p: &Path) -> String {
-    p.file_name().and_then(|s| s.to_str()).unwrap_or("untitled").to_string()
+    p.file_name()
+        .and_then(|s| s.to_str())
+        .unwrap_or("untitled")
+        .to_string()
 }
 
 /// First `# H1` in the document, if any.
@@ -171,7 +174,9 @@ pub fn slug_from_root(root: &Path) -> String {
 
 /// Now as an RFC3339 UTC string.
 pub fn now_rfc3339() -> String {
-    OffsetDateTime::now_utc().format(&Rfc3339).unwrap_or_default()
+    OffsetDateTime::now_utc()
+        .format(&Rfc3339)
+        .unwrap_or_default()
 }
 
 #[cfg(test)]
@@ -203,12 +208,22 @@ mod tests {
             created_at: now_rfc3339(),
             last_seen_at: now_rfc3339(),
         };
-        let n = IndexService::index_project(&store, &project, &["node_modules".into()], 10_000_000).unwrap();
-        assert_eq!(n, 3, "should index 3 md files (excluding node_modules + txt)");
+        let n = IndexService::index_project(&store, &project, &["node_modules".into()], 10_000_000)
+            .unwrap();
+        assert_eq!(
+            n, 3,
+            "should index 3 md files (excluding node_modules + txt)"
+        );
 
-        let deep = store.get_file(&project.id, "docs/nested/deep.md").unwrap().unwrap();
+        let deep = store
+            .get_file(&project.id, "docs/nested/deep.md")
+            .unwrap()
+            .unwrap();
         assert_eq!(deep.title, "deep.md"); // fallback to filename
-        let guide = store.get_file(&project.id, "docs/guide.md").unwrap().unwrap();
+        let guide = store
+            .get_file(&project.id, "docs/guide.md")
+            .unwrap()
+            .unwrap();
         assert_eq!(guide.title, "Guide");
 
         std::fs::remove_dir_all(&dir).ok();

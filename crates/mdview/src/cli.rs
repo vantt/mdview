@@ -9,7 +9,11 @@ use mdview_core::indexer;
 use std::path::{Path, PathBuf};
 
 #[derive(Parser)]
-#[command(name = "mdview", version, about = "Multi-project markdown viewer for AI agent workflows")]
+#[command(
+    name = "mdview",
+    version,
+    about = "Multi-project markdown viewer for AI agent workflows"
+)]
 pub struct Cli {
     #[command(subcommand)]
     pub command: Command,
@@ -59,13 +63,9 @@ pub enum Command {
         json: bool,
     },
     /// Re-scan a project (or all) to reconcile the index.
-    Refresh {
-        project: Option<String>,
-    },
+    Refresh { project: Option<String> },
     /// Remove a project from the registry (files are not deleted).
-    Unregister {
-        project_id: String,
-    },
+    Unregister { project_id: String },
     /// Stop the running daemon.
     Stop,
     /// Diagnose & auto-fix integration with Claude Code.
@@ -87,7 +87,12 @@ pub fn run(cli: Cli) -> Result<()> {
         Command::Register { path, name, json } => cmd_register(&path, name.as_deref(), json),
         Command::Open { path, json } => cmd_open(&path, json),
         Command::List { json } => cmd_list(json),
-        Command::Search { query, project, limit, json } => cmd_search(&query, project.as_deref(), limit, json),
+        Command::Search {
+            query,
+            project,
+            limit,
+            json,
+        } => cmd_search(&query, project.as_deref(), limit, json),
         Command::Status { json } => cmd_status(json),
         Command::Refresh { project } => cmd_refresh(project.as_deref()),
         Command::Unregister { project_id } => cmd_unregister(&project_id),
@@ -122,20 +127,27 @@ fn cmd_register(path: &Path, name: Option<&str>, json: bool) -> Result<()> {
     let project = engine.register(path, name)?;
     let count = engine.file_count(&project.id)?;
     if json {
-        println!("{}", serde_json::json!({
-            "project_id": project.id, "name": project.name,
-            "root_path": project.root_path, "file_count": count,
-            "url": format!("/p/{}/", project.id)
-        }));
+        println!(
+            "{}",
+            serde_json::json!({
+                "project_id": project.id, "name": project.name,
+                "root_path": project.root_path, "file_count": count,
+                "url": format!("/p/{}/", project.id)
+            })
+        );
     } else {
-        println!("Registered '{}' ({}) — {} markdown files", project.name, project.id, count);
+        println!(
+            "Registered '{}' ({}) — {} markdown files",
+            project.name, project.id, count
+        );
         println!("  {}", project.root_path.display());
     }
     Ok(())
 }
 
 fn cmd_open(path: &Path, json: bool) -> Result<()> {
-    let abs = std::fs::canonicalize(path).with_context(|| format!("no such file: {}", path.display()))?;
+    let abs =
+        std::fs::canonicalize(path).with_context(|| format!("no such file: {}", path.display()))?;
     let engine = runtime::build_engine()?;
     let root = find_project_root(&engine, &abs);
     let rel = indexer::rel_path_str(&root, &abs);
@@ -143,7 +155,10 @@ fn cmd_open(path: &Path, json: bool) -> Result<()> {
     let base = runtime::ensure_daemon_base();
     let full = format!("{base}{}", vf.url);
     if json {
-        println!("{}", serde_json::json!({ "url": full, "project_id": vf.project_id }));
+        println!(
+            "{}",
+            serde_json::json!({ "url": full, "project_id": vf.project_id })
+        );
     } else {
         println!("{full}");
     }
@@ -166,17 +181,24 @@ fn find_project_root(engine: &mdview_core::Engine, file: &Path) -> PathBuf {
         }
         dir = d.parent();
     }
-    file.parent().unwrap_or_else(|| Path::new(".")).to_path_buf()
+    file.parent()
+        .unwrap_or_else(|| Path::new("."))
+        .to_path_buf()
 }
 
 fn cmd_list(json: bool) -> Result<()> {
     let engine = runtime::build_engine()?;
     let projects = engine.list_projects()?;
     if json {
-        let arr: Vec<_> = projects.iter().map(|p| serde_json::json!({
-            "id": p.id, "name": p.name, "root_path": p.root_path,
-            "file_count": engine.file_count(&p.id).unwrap_or(0)
-        })).collect();
+        let arr: Vec<_> = projects
+            .iter()
+            .map(|p| {
+                serde_json::json!({
+                    "id": p.id, "name": p.name, "root_path": p.root_path,
+                    "file_count": engine.file_count(&p.id).unwrap_or(0)
+                })
+            })
+            .collect();
         println!("{}", serde_json::json!({ "projects": arr }));
     } else if projects.is_empty() {
         println!("No projects registered.");
@@ -210,13 +232,16 @@ fn cmd_status(json: bool) -> Result<()> {
     let projects = engine.list_projects()?;
     let files = engine.store.total_file_count()?;
     if json {
-        println!("{}", serde_json::json!({
-            "running": daemon.is_some(),
-            "server_url": daemon.as_ref().map(|d| format!("http://{}:{}", d.host, d.port)),
-            "version": env!("CARGO_PKG_VERSION"),
-            "project_count": projects.len(),
-            "indexed_file_count": files,
-        }));
+        println!(
+            "{}",
+            serde_json::json!({
+                "running": daemon.is_some(),
+                "server_url": daemon.as_ref().map(|d| format!("http://{}:{}", d.host, d.port)),
+                "version": env!("CARGO_PKG_VERSION"),
+                "project_count": projects.len(),
+                "indexed_file_count": files,
+            })
+        );
     } else {
         match &daemon {
             Some(d) => println!("running: http://{}:{} (pid {})", d.host, d.port, d.pid),

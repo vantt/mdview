@@ -15,7 +15,10 @@ pub type WatchHandle = Debouncer<notify::RecommendedWatcher, FileIdMap>;
 
 /// Build a debouncer watching every registered project. The returned handle
 /// must be kept alive for the daemon's lifetime.
-pub fn spawn_watchers(engine: Arc<Engine>, reload_tx: broadcast::Sender<String>) -> Result<WatchHandle> {
+pub fn spawn_watchers(
+    engine: Arc<Engine>,
+    reload_tx: broadcast::Sender<String>,
+) -> Result<WatchHandle> {
     let debounce = Duration::from_millis(engine.config.indexing.debounce_ms.max(50));
     let cb_engine = engine.clone();
 
@@ -31,7 +34,10 @@ pub fn spawn_watchers(engine: Arc<Engine>, reload_tx: broadcast::Sender<String>)
     for project in engine.list_projects().unwrap_or_default() {
         let root = project.root_path.clone();
         if root.exists() {
-            debouncer.watcher().watch(&root, RecursiveMode::Recursive).ok();
+            debouncer
+                .watcher()
+                .watch(&root, RecursiveMode::Recursive)
+                .ok();
             debouncer.cache().add_root(&root, RecursiveMode::Recursive);
         }
     }
@@ -67,7 +73,10 @@ fn reindex_paths(engine: &Engine, paths: &[std::path::PathBuf]) -> bool {
 
 fn is_markdown(p: &Path) -> bool {
     matches!(
-        p.extension().and_then(|e| e.to_str()).map(|e| e.to_lowercase()).as_deref(),
+        p.extension()
+            .and_then(|e| e.to_str())
+            .map(|e| e.to_lowercase())
+            .as_deref(),
         Some("md") | Some("markdown")
     )
 }

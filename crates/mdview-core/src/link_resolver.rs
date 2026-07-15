@@ -103,7 +103,10 @@ pub fn resolve_link(
     index: &dyn IndexLookup,
 ) -> ResolvedLink {
     if is_external(href) {
-        return ResolvedLink { url: None, broken: false };
+        return ResolvedLink {
+            url: None,
+            broken: false,
+        };
     }
 
     // Split off anchor.
@@ -116,7 +119,10 @@ pub fn resolve_link(
 
     if path_part.is_empty() {
         // Pure anchor like `#section` already handled by is_external, but guard.
-        return ResolvedLink { url: None, broken: false };
+        return ResolvedLink {
+            url: None,
+            broken: false,
+        };
     }
 
     // Resolve to an absolute path.
@@ -145,12 +151,18 @@ pub fn resolve_link(
                     url.push('#');
                     url.push_str(a);
                 }
-                return ResolvedLink { url: Some(url), broken: false };
+                return ResolvedLink {
+                    url: Some(url),
+                    broken: false,
+                };
             }
         }
     }
 
-    ResolvedLink { url: None, broken: true }
+    ResolvedLink {
+        url: None,
+        broken: true,
+    }
 }
 
 /// Append `.md` unless the path already ends in a markdown extension.
@@ -218,7 +230,13 @@ mod tests {
         let root = "/proj";
         let idx = index(root, &["api/README.md"]);
         let src = PathBuf::from("/proj/docs/x.md");
-        let r = resolve_link(&src, "../api/README.md#installation", "p1", Path::new(root), &idx);
+        let r = resolve_link(
+            &src,
+            "../api/README.md#installation",
+            "p1",
+            Path::new(root),
+            &idx,
+        );
         assert_eq!(r.url.as_deref(), Some("/p/p1/api/README.md#installation"));
     }
 

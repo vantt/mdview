@@ -29,8 +29,8 @@ pub fn lock_path() -> PathBuf {
 }
 
 pub fn write_lock(info: &DaemonInfo) -> Result<()> {
-    let bytes = serde_json::to_vec_pretty(info)
-        .map_err(|e| crate::error::Error::Other(e.to_string()))?;
+    let bytes =
+        serde_json::to_vec_pretty(info).map_err(|e| crate::error::Error::Other(e.to_string()))?;
     write_atomic(&lock_path(), &bytes)
 }
 
@@ -59,8 +59,12 @@ pub fn health_check(host: &str, port: u16) -> bool {
     let Ok(mut stream) = TcpStream::connect(format!("{host}:{port}")) else {
         return false;
     };
-    stream.set_read_timeout(Some(Duration::from_millis(500))).ok();
-    stream.set_write_timeout(Some(Duration::from_millis(500))).ok();
+    stream
+        .set_read_timeout(Some(Duration::from_millis(500)))
+        .ok();
+    stream
+        .set_write_timeout(Some(Duration::from_millis(500)))
+        .ok();
     let req = format!("GET /health HTTP/1.1\r\nHost: {host}\r\nConnection: close\r\n\r\n");
     if stream.write_all(req.as_bytes()).is_err() {
         return false;
@@ -76,7 +80,12 @@ mod tests {
 
     #[test]
     fn daemon_info_serde_roundtrip() {
-        let info = DaemonInfo { pid: 42, host: "127.0.0.1".into(), port: 7700, started_at: "2026-07-15T00:00:00Z".into() };
+        let info = DaemonInfo {
+            pid: 42,
+            host: "127.0.0.1".into(),
+            port: 7700,
+            started_at: "2026-07-15T00:00:00Z".into(),
+        };
         let s = serde_json::to_string(&info).unwrap();
         let back: DaemonInfo = serde_json::from_str(&s).unwrap();
         assert_eq!(back.pid, 42);

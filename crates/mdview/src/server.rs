@@ -34,7 +34,11 @@ pub async fn serve() -> Result<()> {
     let (reload_tx, _) = broadcast::channel::<String>(32);
     let highlight_css = Arc::new(build_highlight_css(&engine));
 
-    let state = AppState { engine: engine.clone(), reload_tx: reload_tx.clone(), highlight_css };
+    let state = AppState {
+        engine: engine.clone(),
+        reload_tx: reload_tx.clone(),
+        highlight_css,
+    };
 
     // Filesystem watcher (kept alive for the process lifetime).
     let _watch = crate::watch::spawn_watchers(engine.clone(), reload_tx.clone())?;
@@ -194,8 +198,11 @@ async fn update_config(Form(form): Form<SettingsForm>) -> Response {
         }
     }
     if let Some(ex) = form.exclude_patterns {
-        cfg.indexing.exclude_patterns =
-            ex.lines().map(|l| l.trim().to_string()).filter(|l| !l.is_empty()).collect();
+        cfg.indexing.exclude_patterns = ex
+            .lines()
+            .map(|l| l.trim().to_string())
+            .filter(|l| !l.is_empty())
+            .collect();
     }
     cfg.mcp.enabled = form.mcp_enabled.is_some();
     if let Some(tr) = form.mcp_transport {
@@ -211,10 +218,16 @@ async fn css_asset() -> impl IntoResponse {
     ([(header::CONTENT_TYPE, "text/css")], views::APP_CSS)
 }
 async fn js_asset() -> impl IntoResponse {
-    ([(header::CONTENT_TYPE, "application/javascript")], views::APP_JS)
+    (
+        [(header::CONTENT_TYPE, "application/javascript")],
+        views::APP_JS,
+    )
 }
 async fn highlight_asset(State(st): State<AppState>) -> impl IntoResponse {
-    ([(header::CONTENT_TYPE, "text/css")], st.highlight_css.to_string())
+    (
+        [(header::CONTENT_TYPE, "text/css")],
+        st.highlight_css.to_string(),
+    )
 }
 
 async fn project_home(State(st): State<AppState>, Path(id): Path<String>) -> Response {
@@ -227,16 +240,27 @@ async fn project_home(State(st): State<AppState>, Path(id): Path<String>) -> Res
     }
 }
 
-async fn project_path(State(st): State<AppState>, Path((id, path)): Path<(String, String)>) -> Response {
+async fn project_path(
+    State(st): State<AppState>,
+    Path((id, path)): Path<(String, String)>,
+) -> Response {
     // Markdown file in the index → render it.
     if let Ok(Some(project)) = st.engine.get_project(&id) {
-        if st.engine.store.get_file(&id, &path).ok().flatten().is_some() {
+        if st
+            .engine
+            .store
+            .get_file(&id, &path)
+            .ok()
+            .flatten()
+            .is_some()
+        {
             return match st.engine.render_file(&id, &path) {
                 Ok(page) => {
                     let file = st.engine.store.get_file(&id, &path).unwrap().unwrap();
                     let files = st.engine.list_files(&id).unwrap_or_default();
                     let backlinks = st.engine.backlinks(&id, &path).unwrap_or_default();
-                    Html(views::file_page(&project, &file, &page, &files, &backlinks)).into_response()
+                    Html(views::file_page(&project, &file, &page, &files, &backlinks))
+                        .into_response()
                 }
                 Err(e) => internal_error(&e.to_string()),
             };
@@ -268,7 +292,9 @@ async fn search_page(
     let results = if query.q.trim().is_empty() {
         Vec::new()
     } else {
-        st.engine.search(&query.q, Some(&id), 30).unwrap_or_default()
+        st.engine
+            .search(&query.q, Some(&id), 30)
+            .unwrap_or_default()
     };
     Html(views::search_page(&project, &query.q, &results)).into_response()
 }
@@ -358,7 +384,12 @@ fn strip_comments(css: &str) -> String {
 }
 
 fn content_type(path: &std::path::Path) -> &'static str {
-    match path.extension().and_then(|e| e.to_str()).map(|e| e.to_lowercase()).as_deref() {
+    match path
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(|e| e.to_lowercase())
+        .as_deref()
+    {
         Some("png") => "image/png",
         Some("jpg") | Some("jpeg") => "image/jpeg",
         Some("gif") => "image/gif",
@@ -375,5 +406,9 @@ fn not_found(msg: &str) -> Response {
     (StatusCode::NOT_FOUND, Html(views::error_page(404, msg))).into_response()
 }
 fn internal_error(msg: &str) -> Response {
-    (StatusCode::INTERNAL_SERVER_ERROR, Html(views::error_page(500, msg))).into_response()
+    (
+        StatusCode::INTERNAL_SERVER_ERROR,
+        Html(views::error_page(500, msg)),
+    )
+        .into_response()
 }

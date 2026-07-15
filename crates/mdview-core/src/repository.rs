@@ -31,7 +31,9 @@ impl SqliteStore {
         conn.pragma_update(None, "journal_mode", "WAL").ok();
         conn.pragma_update(None, "foreign_keys", "ON").ok();
         conn.execute_batch(SCHEMA)?;
-        Ok(Self { conn: Mutex::new(conn) })
+        Ok(Self {
+            conn: Mutex::new(conn),
+        })
     }
 
     // ---- projects ----
@@ -42,21 +44,31 @@ impl SqliteStore {
             "INSERT INTO projects(id,name,root_path,created_at,last_seen_at)
              VALUES(?1,?2,?3,?4,?5)
              ON CONFLICT(id) DO UPDATE SET name=?2, root_path=?3, last_seen_at=?5",
-            params![p.id, p.name, p.root_path.to_string_lossy(), p.created_at, p.last_seen_at],
+            params![
+                p.id,
+                p.name,
+                p.root_path.to_string_lossy(),
+                p.created_at,
+                p.last_seen_at
+            ],
         )?;
         Ok(())
     }
 
     pub fn get_project(&self, id: &str) -> Result<Option<Project>> {
         let c = self.conn.lock().unwrap();
-        let mut stmt = c.prepare("SELECT id,name,root_path,created_at,last_seen_at FROM projects WHERE id=?1")?;
+        let mut stmt = c.prepare(
+            "SELECT id,name,root_path,created_at,last_seen_at FROM projects WHERE id=?1",
+        )?;
         let mut rows = stmt.query(params![id])?;
         Ok(rows.next()?.map(row_to_project))
     }
 
     pub fn find_project_by_root(&self, root: &Path) -> Result<Option<Project>> {
         let c = self.conn.lock().unwrap();
-        let mut stmt = c.prepare("SELECT id,name,root_path,created_at,last_seen_at FROM projects WHERE root_path=?1")?;
+        let mut stmt = c.prepare(
+            "SELECT id,name,root_path,created_at,last_seen_at FROM projects WHERE root_path=?1",
+        )?;
         let mut rows = stmt.query(params![root.to_string_lossy()])?;
         Ok(rows.next()?.map(row_to_project))
     }
@@ -87,11 +99,18 @@ impl SqliteStore {
              ON CONFLICT(project_id,rel_path) DO UPDATE SET
                abs_path=?3, title=?4, size_bytes=?5, modified_at=?6",
             params![
-                f.project_id, f.rel_path, f.abs_path.to_string_lossy(),
-                f.title, f.size_bytes as i64, f.modified_at
+                f.project_id,
+                f.rel_path,
+                f.abs_path.to_string_lossy(),
+                f.title,
+                f.size_bytes as i64,
+                f.modified_at
             ],
         )?;
-        c.execute("DELETE FROM files_fts WHERE project_id=?1 AND rel_path=?2", params![f.project_id, f.rel_path])?;
+        c.execute(
+            "DELETE FROM files_fts WHERE project_id=?1 AND rel_path=?2",
+            params![f.project_id, f.rel_path],
+        )?;
         c.execute(
             "INSERT INTO files_fts(project_id,rel_path,title,content) VALUES(?1,?2,?3,?4)",
             params![f.project_id, f.rel_path, f.title, content],
@@ -101,18 +120,35 @@ impl SqliteStore {
 
     pub fn delete_file(&self, project_id: &str, rel_path: &str) -> Result<()> {
         let c = self.conn.lock().unwrap();
-        c.execute("DELETE FROM files WHERE project_id=?1 AND rel_path=?2", params![project_id, rel_path])?;
-        c.execute("DELETE FROM files_fts WHERE project_id=?1 AND rel_path=?2", params![project_id, rel_path])?;
-        c.execute("DELETE FROM links WHERE project_id=?1 AND source_rel=?2", params![project_id, rel_path])?;
+        c.execute(
+            "DELETE FROM files WHERE project_id=?1 AND rel_path=?2",
+            params![project_id, rel_path],
+        )?;
+        c.execute(
+            "DELETE FROM files_fts WHERE project_id=?1 AND rel_path=?2",
+            params![project_id, rel_path],
+        )?;
+        c.execute(
+            "DELETE FROM links WHERE project_id=?1 AND source_rel=?2",
+            params![project_id, rel_path],
+        )?;
         Ok(())
     }
 
     // ---- links / backlinks (FR-18) ----
 
     /// Replace the set of outgoing internal links for a source file.
-    pub fn set_file_links(&self, project_id: &str, source_rel: &str, targets: &[String]) -> Result<()> {
+    pub fn set_file_links(
+        &self,
+        project_id: &str,
+        source_rel: &str,
+        targets: &[String],
+    ) -> Result<()> {
         let c = self.conn.lock().unwrap();
-        c.execute("DELETE FROM links WHERE project_id=?1 AND source_rel=?2", params![project_id, source_rel])?;
+        c.execute(
+            "DELETE FROM links WHERE project_id=?1 AND source_rel=?2",
+            params![project_id, source_rel],
+        )?;
         for t in targets {
             c.execute(
                 "INSERT OR IGNORE INTO links(project_id,source_rel,target_rel) VALUES(?1,?2,?3)",
@@ -162,7 +198,11 @@ impl SqliteStore {
 
     pub fn file_count(&self, project_id: &str) -> Result<usize> {
         let c = self.conn.lock().unwrap();
-        let n: i64 = c.query_row("SELECT COUNT(*) FROM files WHERE project_id=?1", params![project_id], |r| r.get(0))?;
+        let n: i64 = c.query_row(
+            "SELECT COUNT(*) FROM files WHERE project_id=?1",
+            params![project_id],
+            |r| r.get(0),
+        )?;
         Ok(n as usize)
     }
 
@@ -174,7 +214,12 @@ impl SqliteStore {
 
     // ---- search (FTS5) ----
 
-    pub fn search(&self, query: &str, project_id: Option<&str>, limit: usize) -> Result<Vec<SearchResult>> {
+    pub fn search(
+        &self,
+        query: &str,
+        project_id: Option<&str>,
+        limit: usize,
+    ) -> Result<Vec<SearchResult>> {
         let c = self.conn.lock().unwrap();
         let fts_query = fts_sanitize(query);
         if fts_query.is_empty() {
@@ -189,24 +234,21 @@ impl SqliteStore {
                    ORDER BY score
                    LIMIT ?3";
         let mut stmt = c.prepare(sql)?;
-        let rows = stmt.query_map(
-            params![fts_query, project_id, limit as i64],
-            |r| {
-                let project_id: String = r.get(0)?;
-                let rel_path: String = r.get(1)?;
-                let title: String = r.get(2)?;
-                let excerpt: String = r.get(3)?;
-                let score: f64 = r.get(4)?;
-                Ok(SearchResult {
-                    url: format!("/p/{project_id}/{rel_path}"),
-                    project_id,
-                    rel_path,
-                    title,
-                    excerpt,
-                    score,
-                })
-            },
-        )?;
+        let rows = stmt.query_map(params![fts_query, project_id, limit as i64], |r| {
+            let project_id: String = r.get(0)?;
+            let rel_path: String = r.get(1)?;
+            let title: String = r.get(2)?;
+            let excerpt: String = r.get(3)?;
+            let score: f64 = r.get(4)?;
+            Ok(SearchResult {
+                url: format!("/p/{project_id}/{rel_path}"),
+                project_id,
+                rel_path,
+                title,
+                excerpt,
+                score,
+            })
+        })?;
         Ok(rows.filter_map(|r| r.ok()).collect())
     }
 }
@@ -306,12 +348,20 @@ mod tests {
     fn project_and_file_roundtrip() {
         let s = SqliteStore::open_in_memory().unwrap();
         s.upsert_project(&sample_project()).unwrap();
-        s.upsert_file(&file("docs/a.md", "Alpha"), "alpha content here").unwrap();
-        s.upsert_file(&file("src/b.md", "Beta"), "beta words").unwrap();
+        s.upsert_file(&file("docs/a.md", "Alpha"), "alpha content here")
+            .unwrap();
+        s.upsert_file(&file("src/b.md", "Beta"), "beta words")
+            .unwrap();
 
         assert_eq!(s.file_count("p1").unwrap(), 2);
-        assert_eq!(s.get_file("p1", "docs/a.md").unwrap().unwrap().title, "Alpha");
-        assert!(s.file_abs_paths("p1").unwrap().contains(&PathBuf::from("/proj/docs/a.md")));
+        assert_eq!(
+            s.get_file("p1", "docs/a.md").unwrap().unwrap().title,
+            "Alpha"
+        );
+        assert!(s
+            .file_abs_paths("p1")
+            .unwrap()
+            .contains(&PathBuf::from("/proj/docs/a.md")));
 
         let found = s.find_project_by_root(Path::new("/proj")).unwrap();
         assert_eq!(found.unwrap().id, "p1");
@@ -321,19 +371,31 @@ mod tests {
     fn delete_file_removes_from_index_and_fts() {
         let s = SqliteStore::open_in_memory().unwrap();
         s.upsert_project(&sample_project()).unwrap();
-        s.upsert_file(&file("docs/a.md", "Alpha"), "unique_token_xyz").unwrap();
-        assert_eq!(s.search("unique_token_xyz", Some("p1"), 10).unwrap().len(), 1);
+        s.upsert_file(&file("docs/a.md", "Alpha"), "unique_token_xyz")
+            .unwrap();
+        assert_eq!(
+            s.search("unique_token_xyz", Some("p1"), 10).unwrap().len(),
+            1
+        );
         s.delete_file("p1", "docs/a.md").unwrap();
         assert_eq!(s.file_count("p1").unwrap(), 0);
-        assert_eq!(s.search("unique_token_xyz", Some("p1"), 10).unwrap().len(), 0);
+        assert_eq!(
+            s.search("unique_token_xyz", Some("p1"), 10).unwrap().len(),
+            0
+        );
     }
 
     #[test]
     fn fts_search_finds_by_content_and_title() {
         let s = SqliteStore::open_in_memory().unwrap();
         s.upsert_project(&sample_project()).unwrap();
-        s.upsert_file(&file("docs/a.md", "Deployment Guide"), "how to deploy the service").unwrap();
-        s.upsert_file(&file("docs/b.md", "Other"), "unrelated text").unwrap();
+        s.upsert_file(
+            &file("docs/a.md", "Deployment Guide"),
+            "how to deploy the service",
+        )
+        .unwrap();
+        s.upsert_file(&file("docs/b.md", "Other"), "unrelated text")
+            .unwrap();
 
         let by_content = s.search("deploy", Some("p1"), 10).unwrap();
         assert_eq!(by_content.len(), 1);

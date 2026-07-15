@@ -25,11 +25,18 @@ pub struct ViewFile {
 
 impl Engine {
     pub fn new(store: SqliteStore, config: Config) -> Self {
-        Self { store, config, render: RenderService::new() }
+        Self {
+            store,
+            config,
+            render: RenderService::new(),
+        }
     }
 
     fn max_bytes(&self) -> u64 {
-        self.config.indexing.max_file_size_mb.saturating_mul(1024 * 1024)
+        self.config
+            .indexing
+            .max_file_size_mb
+            .saturating_mul(1024 * 1024)
     }
 
     /// Canonicalize when possible; otherwise fall back to the given path.
@@ -46,9 +53,12 @@ impl Engine {
             return Ok(p);
         }
         let id = self.unique_id(&indexer::slug_from_root(&root))?;
-        let name = name
-            .map(|s| s.to_string())
-            .unwrap_or_else(|| root.file_name().and_then(|s| s.to_str()).unwrap_or(&id).to_string());
+        let name = name.map(|s| s.to_string()).unwrap_or_else(|| {
+            root.file_name()
+                .and_then(|s| s.to_str())
+                .unwrap_or(&id)
+                .to_string()
+        });
         let now = indexer::now_rfc3339();
         let project = Project {
             id,
@@ -154,8 +164,10 @@ impl Engine {
         let index = self.store.file_abs_paths(&project.id)?;
         for f in files {
             let content = std::fs::read_to_string(&f.abs_path).unwrap_or_default();
-            let targets = render::extract_internal_links(&content, &f.abs_path, &project.root_path, &index);
-            self.store.set_file_links(&project.id, &f.rel_path, &targets)?;
+            let targets =
+                render::extract_internal_links(&content, &f.abs_path, &project.root_path, &index);
+            self.store
+                .set_file_links(&project.id, &f.rel_path, &targets)?;
         }
         Ok(())
     }
@@ -177,9 +189,13 @@ impl Engine {
             .ok_or_else(|| Error::FileNotFound(rel_path.to_string()))?;
         let content = std::fs::read_to_string(&file.abs_path)?;
         let index = self.store.file_abs_paths(project_id)?;
-        Ok(self
-            .render
-            .render(&content, &file.abs_path, project_id, &project.root_path, &index))
+        Ok(self.render.render(
+            &content,
+            &file.abs_path,
+            project_id,
+            &project.root_path,
+            &index,
+        ))
     }
 
     pub fn list_projects(&self) -> Result<Vec<Project>> {
@@ -198,7 +214,12 @@ impl Engine {
         self.store.file_count(project_id)
     }
 
-    pub fn search(&self, query: &str, project_id: Option<&str>, limit: usize) -> Result<Vec<SearchResult>> {
+    pub fn search(
+        &self,
+        query: &str,
+        project_id: Option<&str>,
+        limit: usize,
+    ) -> Result<Vec<SearchResult>> {
         self.store.search(query, project_id, limit)
     }
 
@@ -232,7 +253,11 @@ mod tests {
     fn view_file_auto_creates_project_and_returns_url() {
         let dir = std::env::temp_dir().join(format!("mdview-eng-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
-        write(&dir, "docs/architecture.md", "# Arch\nsee [api](../src/api/README.md)");
+        write(
+            &dir,
+            "docs/architecture.md",
+            "# Arch\nsee [api](../src/api/README.md)",
+        );
         write(&dir, "src/api/README.md", "# API");
 
         let engine = Engine::new(SqliteStore::open_in_memory().unwrap(), Config::default());
@@ -244,15 +269,21 @@ mod tests {
         assert_eq!(engine.file_count(&vf.project_id).unwrap(), 2);
 
         // rendering rewrites the cross-folder link
-        let page = engine.render_file(&vf.project_id, "docs/architecture.md").unwrap();
-        assert!(page.html.contains(&format!("/p/{}/src/api/README.md", vf.project_id)));
+        let page = engine
+            .render_file(&vf.project_id, "docs/architecture.md")
+            .unwrap();
+        assert!(page
+            .html
+            .contains(&format!("/p/{}/src/api/README.md", vf.project_id)));
 
         // second call reuses the same project id
         let vf2 = engine.view_file(&dir, "src/api/README.md").unwrap();
         assert_eq!(vf.project_id, vf2.project_id);
 
         // backlinks: architecture.md links to the API readme (FR-18)
-        let back = engine.backlinks(&vf.project_id, "src/api/README.md").unwrap();
+        let back = engine
+            .backlinks(&vf.project_id, "src/api/README.md")
+            .unwrap();
         assert!(
             back.iter().any(|(rel, _)| rel == "docs/architecture.md"),
             "backlinks: {back:?}"

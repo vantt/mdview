@@ -54,7 +54,10 @@ pub fn run(as_json: bool, dry_run: bool, fix: bool) -> Result<()> {
             .iter()
             .map(|c| json!({ "check": c.name, "status": c.status.label(), "detail": c.detail }))
             .collect();
-        println!("{}", serde_json::to_string_pretty(&json!({ "checks": arr }))?);
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&json!({ "checks": arr }))?
+        );
     } else {
         println!("mdview doctor\n");
         for c in &checks {
@@ -74,15 +77,20 @@ pub fn run(as_json: bool, dry_run: bool, fix: bool) -> Result<()> {
 fn check_binary_in_path() -> Check {
     let found = std::env::var_os("PATH")
         .map(|paths| {
-            std::env::split_paths(&paths).any(|d| {
-                d.join("mdview").exists() || d.join("mdview.exe").exists()
-            })
+            std::env::split_paths(&paths)
+                .any(|d| d.join("mdview").exists() || d.join("mdview.exe").exists())
         })
         .unwrap_or(false);
     if found {
-        Check { name: "binary in PATH".into(), status: Status::Ok, detail: "mdview found on PATH".into() }
+        Check {
+            name: "binary in PATH".into(),
+            status: Status::Ok,
+            detail: "mdview found on PATH".into(),
+        }
     } else {
-        let exe = std::env::current_exe().map(|p| p.display().to_string()).unwrap_or_default();
+        let exe = std::env::current_exe()
+            .map(|p| p.display().to_string())
+            .unwrap_or_default();
         Check {
             name: "binary in PATH".into(),
             status: Status::Warn,
@@ -96,13 +104,29 @@ fn check_config(dry_run: bool) -> Check {
     if path.exists() {
         // Validate by loading (load is resilient; re-serialize to confirm shape).
         let _ = Config::load();
-        Check { name: "config".into(), status: Status::Ok, detail: path.display().to_string() }
+        Check {
+            name: "config".into(),
+            status: Status::Ok,
+            detail: path.display().to_string(),
+        }
     } else if dry_run {
-        Check { name: "config".into(), status: Status::Manual, detail: format!("missing: {} (would create default)", path.display()) }
+        Check {
+            name: "config".into(),
+            status: Status::Manual,
+            detail: format!("missing: {} (would create default)", path.display()),
+        }
     } else {
         match Config::default().save() {
-            Ok(_) => Check { name: "config".into(), status: Status::Fixed, detail: format!("created default {}", path.display()) },
-            Err(e) => Check { name: "config".into(), status: Status::Manual, detail: format!("could not create config: {e}") },
+            Ok(_) => Check {
+                name: "config".into(),
+                status: Status::Fixed,
+                detail: format!("created default {}", path.display()),
+            },
+            Err(e) => Check {
+                name: "config".into(),
+                status: Status::Manual,
+                detail: format!("could not create config: {e}"),
+            },
         }
     }
 }
@@ -112,7 +136,10 @@ fn check_daemon() -> Check {
         Some(info) => Check {
             name: "daemon".into(),
             status: Status::Ok,
-            detail: format!("running on http://{}:{} (pid {})", info.host, info.port, info.pid),
+            detail: format!(
+                "running on http://{}:{} (pid {})",
+                info.host, info.port, info.pid
+            ),
         },
         None => Check {
             name: "daemon".into(),
@@ -123,7 +150,9 @@ fn check_daemon() -> Check {
 }
 
 fn claude_config_path() -> PathBuf {
-    dirs::home_dir().unwrap_or_else(|| PathBuf::from(".")).join(".claude.json")
+    dirs::home_dir()
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join(".claude.json")
 }
 
 fn check_mcp_registration(dry_run: bool, fix: bool) -> Check {
@@ -142,13 +171,20 @@ fn check_mcp_registration(dry_run: bool, fix: bool) -> Check {
         .and_then(|m| m.get("mdview"))
         .is_some();
     if already {
-        return Check { name: "MCP registration".into(), status: Status::Ok, detail: format!("mdview registered in {}", path.display()) };
+        return Check {
+            name: "MCP registration".into(),
+            status: Status::Ok,
+            detail: format!("mdview registered in {}", path.display()),
+        };
     }
     if dry_run || !fix {
         return Check {
             name: "MCP registration".into(),
             status: Status::Manual,
-            detail: format!("not registered in {} — run `mdview doctor --fix`", path.display()),
+            detail: format!(
+                "not registered in {} — run `mdview doctor --fix`",
+                path.display()
+            ),
         };
     }
 
@@ -170,11 +206,20 @@ fn check_mcp_registration(dry_run: bool, fix: bool) -> Check {
             json!({ "command": exe, "args": ["mcp"] }),
         );
     }
-    match serde_json::to_vec_pretty(&root).map_err(anyhow::Error::from).and_then(|b| {
-        config::write_atomic(&path, &b).map_err(anyhow::Error::from)
-    }) {
-        Ok(_) => Check { name: "MCP registration".into(), status: Status::Fixed, detail: format!("registered mdview in {} (backup .bak)", path.display()) },
-        Err(e) => Check { name: "MCP registration".into(), status: Status::Manual, detail: format!("write failed: {e}") },
+    match serde_json::to_vec_pretty(&root)
+        .map_err(anyhow::Error::from)
+        .and_then(|b| config::write_atomic(&path, &b).map_err(anyhow::Error::from))
+    {
+        Ok(_) => Check {
+            name: "MCP registration".into(),
+            status: Status::Fixed,
+            detail: format!("registered mdview in {} (backup .bak)", path.display()),
+        },
+        Err(e) => Check {
+            name: "MCP registration".into(),
+            status: Status::Manual,
+            detail: format!("write failed: {e}"),
+        },
     }
 }
 
@@ -182,7 +227,11 @@ fn check_agent_instruction() -> Check {
     for name in ["AGENTS.md", "CLAUDE.md"] {
         if let Ok(text) = std::fs::read_to_string(name) {
             if text.contains("mdview_view_file") || text.contains("MDView") {
-                return Check { name: "agent instruction".into(), status: Status::Ok, detail: format!("{name} mentions mdview") };
+                return Check {
+                    name: "agent instruction".into(),
+                    status: Status::Ok,
+                    detail: format!("{name} mentions mdview"),
+                };
             }
         }
     }

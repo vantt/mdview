@@ -22,7 +22,9 @@ pub struct RenderService {
 
 impl Default for RenderService {
     fn default() -> Self {
-        Self { syntaxes: SyntaxSet::load_defaults_newlines() }
+        Self {
+            syntaxes: SyntaxSet::load_defaults_newlines(),
+        }
     }
 }
 
@@ -56,16 +58,34 @@ impl RenderService {
         let mut has_mermaid = false;
         let mut title = String::new();
 
-        self.walk(root, source_abs, project_id, project_root, index, &mut headings, &mut has_mermaid, &mut title);
+        self.walk(
+            root,
+            source_abs,
+            project_id,
+            project_root,
+            index,
+            &mut headings,
+            &mut has_mermaid,
+            &mut title,
+        );
 
         let mut html_bytes = Vec::new();
         comrak::format_html(root, &opts, &mut html_bytes).ok();
         let html = sanitize(&String::from_utf8_lossy(&html_bytes));
 
         if title.is_empty() {
-            title = source_abs.file_name().and_then(|s| s.to_str()).unwrap_or("untitled").to_string();
+            title = source_abs
+                .file_name()
+                .and_then(|s| s.to_str())
+                .unwrap_or("untitled")
+                .to_string();
         }
-        RenderedPage { html, title, headings, has_mermaid }
+        RenderedPage {
+            html,
+            title,
+            headings,
+            has_mermaid,
+        }
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -114,7 +134,13 @@ impl RenderService {
                 if link_resolver::is_external(&url) {
                     Action::None
                 } else {
-                    let r = link_resolver::resolve_link(source_abs, &url, project_id, project_root, index);
+                    let r = link_resolver::resolve_link(
+                        source_abs,
+                        &url,
+                        project_id,
+                        project_root,
+                        index,
+                    );
                     match r.url {
                         Some(new_url) => Action::Replace(link_node(&new_url)),
                         None => {
@@ -131,7 +157,8 @@ impl RenderService {
             Kind::Image(url) => {
                 if link_resolver::is_external(&url) {
                     Action::None
-                } else if let Some(new) = resolve_asset(&url, source_abs, project_id, project_root) {
+                } else if let Some(new) = resolve_asset(&url, source_abs, project_id, project_root)
+                {
                     Action::Replace(image_node(&new))
                 } else {
                     Action::None
@@ -140,7 +167,10 @@ impl RenderService {
             Kind::Code(lang, lit) => Action::Replace(html_block(self.highlight(&lang, &lit))),
             Kind::Mermaid(lit) => {
                 *has_mermaid = true;
-                Action::Replace(html_block(format!("<pre class=\"mermaid\">{}</pre>", html_escape(&lit))))
+                Action::Replace(html_block(format!(
+                    "<pre class=\"mermaid\">{}</pre>",
+                    html_escape(&lit)
+                )))
             }
             Kind::Heading(level) => {
                 let text = collect_text(node);
@@ -167,7 +197,16 @@ impl RenderService {
         }
 
         for child in node.children() {
-            self.walk(child, source_abs, project_id, project_root, index, headings, has_mermaid, title);
+            self.walk(
+                child,
+                source_abs,
+                project_id,
+                project_root,
+                index,
+                headings,
+                has_mermaid,
+                title,
+            );
         }
     }
 
@@ -178,12 +217,17 @@ impl RenderService {
             .find_syntax_by_token(lang)
             .or_else(|| self.syntaxes.find_syntax_by_extension(lang))
             .unwrap_or_else(|| self.syntaxes.find_syntax_plain_text());
-        let mut gen = ClassedHTMLGenerator::new_with_class_style(syntax, &self.syntaxes, CLASS_STYLE);
+        let mut gen =
+            ClassedHTMLGenerator::new_with_class_style(syntax, &self.syntaxes, CLASS_STYLE);
         for line in LinesWithEndings::from(code) {
             let _ = gen.parse_html_for_line_which_includes_newline(line);
         }
         let inner = gen.finalize();
-        let lang_class = if lang.is_empty() { String::new() } else { format!(" language-{}", html_escape(lang)) };
+        let lang_class = if lang.is_empty() {
+            String::new()
+        } else {
+            format!(" language-{}", html_escape(lang))
+        };
         format!("<pre class=\"code\"><code class=\"code{lang_class}\">{inner}</code></pre>")
     }
 }
@@ -202,7 +246,9 @@ pub fn extract_internal_links(
     let mut out = Vec::new();
     for node in root.descendants() {
         if let NodeValue::Link(l) = &node.data.borrow().value {
-            if let Some(rel) = link_resolver::resolve_to_rel(source_abs, &l.url, project_root, index) {
+            if let Some(rel) =
+                link_resolver::resolve_to_rel(source_abs, &l.url, project_root, index)
+            {
                 out.push(rel);
             }
         }
@@ -234,14 +280,23 @@ fn comrak_options() -> Options<'static> {
 }
 
 fn link_node(new_url: &str) -> NodeValue {
-    NodeValue::Link(comrak::nodes::NodeLink { url: new_url.to_string(), title: String::new() })
+    NodeValue::Link(comrak::nodes::NodeLink {
+        url: new_url.to_string(),
+        title: String::new(),
+    })
 }
 fn image_node(new_url: &str) -> NodeValue {
-    NodeValue::Image(comrak::nodes::NodeLink { url: new_url.to_string(), title: String::new() })
+    NodeValue::Image(comrak::nodes::NodeLink {
+        url: new_url.to_string(),
+        title: String::new(),
+    })
 }
 
 fn html_block(literal: String) -> NodeValue {
-    NodeValue::HtmlBlock(NodeHtmlBlock { literal, block_type: 0 })
+    NodeValue::HtmlBlock(NodeHtmlBlock {
+        literal,
+        block_type: 0,
+    })
 }
 
 fn collect_text<'a>(node: &'a AstNode<'a>) -> String {
@@ -272,7 +327,12 @@ pub fn slugify(text: &str) -> String {
     out.trim_matches('-').to_string()
 }
 
-fn resolve_asset(href: &str, source_abs: &Path, project_id: &str, project_root: &Path) -> Option<String> {
+fn resolve_asset(
+    href: &str,
+    source_abs: &Path,
+    project_id: &str,
+    project_root: &Path,
+) -> Option<String> {
     let path_part = href.split('#').next().unwrap_or(href);
     let path_part = path_part.split('?').next().unwrap_or(path_part);
     let abs = if let Some(rest) = path_part.strip_prefix('/') {
@@ -297,7 +357,10 @@ fn resolve_asset(href: &str, source_abs: &Path, project_id: &str, project_root: 
 }
 
 fn html_escape(s: &str) -> String {
-    s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;").replace('"', "&quot;")
+    s.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
 }
 
 fn sanitize(html: &str) -> String {
@@ -332,14 +395,23 @@ mod tests {
         let page = svc().render(md, &root.join("docs/x.md"), "p1", &root, &index);
         assert_eq!(page.title, "Hello World");
         assert!(page.html.contains("/p/p1/api/README.md"), "{}", page.html);
-        assert_eq!(page.headings.first().map(|h| h.slug.as_str()), Some("hello-world"));
+        assert_eq!(
+            page.headings.first().map(|h| h.slug.as_str()),
+            Some("hello-world")
+        );
     }
 
     #[test]
     fn broken_internal_link_gets_class() {
         let root = PathBuf::from("/proj");
         let index: HashSet<PathBuf> = HashSet::new();
-        let page = svc().render("[gone](./missing.md)", &root.join("a.md"), "p1", &root, &index);
+        let page = svc().render(
+            "[gone](./missing.md)",
+            &root.join("a.md"),
+            "p1",
+            &root,
+            &index,
+        );
         assert!(page.html.contains("broken-link"), "{}", page.html);
         assert!(page.html.contains(">gone<"), "{}", page.html);
     }
@@ -348,7 +420,13 @@ mod tests {
     fn external_link_survives_sanitize() {
         let root = PathBuf::from("/proj");
         let index: HashSet<PathBuf> = HashSet::new();
-        let page = svc().render("[x](https://a.com)", &root.join("a.md"), "p1", &root, &index);
+        let page = svc().render(
+            "[x](https://a.com)",
+            &root.join("a.md"),
+            "p1",
+            &root,
+            &index,
+        );
         assert!(page.html.contains("https://a.com"));
         assert!(!page.html.contains("broken-link"));
     }
@@ -357,7 +435,13 @@ mod tests {
     fn mermaid_block_marked_and_wrapped() {
         let root = PathBuf::from("/proj");
         let index: HashSet<PathBuf> = HashSet::new();
-        let page = svc().render("```mermaid\ngraph TD; A-->B;\n```", &root.join("a.md"), "p1", &root, &index);
+        let page = svc().render(
+            "```mermaid\ngraph TD; A-->B;\n```",
+            &root.join("a.md"),
+            "p1",
+            &root,
+            &index,
+        );
         assert!(page.has_mermaid);
         assert!(page.html.contains("class=\"mermaid\""), "{}", page.html);
     }
@@ -366,7 +450,13 @@ mod tests {
     fn code_block_gets_class_based_highlight() {
         let root = PathBuf::from("/proj");
         let index: HashSet<PathBuf> = HashSet::new();
-        let page = svc().render("```rust\nfn main() {}\n```", &root.join("a.md"), "p1", &root, &index);
+        let page = svc().render(
+            "```rust\nfn main() {}\n```",
+            &root.join("a.md"),
+            "p1",
+            &root,
+            &index,
+        );
         assert!(page.html.contains("<pre class=\"code\">"), "{}", page.html);
         assert!(!page.html.contains("style=\"color"));
     }
@@ -375,7 +465,13 @@ mod tests {
     fn strips_script_xss() {
         let root = PathBuf::from("/proj");
         let index: HashSet<PathBuf> = HashSet::new();
-        let page = svc().render("<script>alert(1)</script>\n\nhi", &root.join("a.md"), "p1", &root, &index);
+        let page = svc().render(
+            "<script>alert(1)</script>\n\nhi",
+            &root.join("a.md"),
+            "p1",
+            &root,
+            &index,
+        );
         assert!(!page.html.contains("<script"));
     }
 

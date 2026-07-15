@@ -5,7 +5,7 @@ use crate::error::{Error, Result};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Config {
     pub server: ServerConfig,
@@ -54,12 +54,19 @@ pub struct SearchConfig {
 
 impl Default for ServerConfig {
     fn default() -> Self {
-        Self { port: 7700, host: "127.0.0.1".into(), open_browser_on_start: false }
+        Self {
+            port: 7700,
+            host: "127.0.0.1".into(),
+            open_browser_on_start: false,
+        }
     }
 }
 impl Default for McpConfig {
     fn default() -> Self {
-        Self { enabled: true, transport: "stdio".into() }
+        Self {
+            enabled: true,
+            transport: "stdio".into(),
+        }
     }
 }
 impl Default for IndexingConfig {
@@ -79,29 +86,25 @@ impl Default for IndexingConfig {
 }
 impl Default for RendererConfig {
     fn default() -> Self {
-        Self { theme: "system".into(), syntax_highlight_theme: "github-dark".into() }
+        Self {
+            theme: "system".into(),
+            syntax_highlight_theme: "github-dark".into(),
+        }
     }
 }
 impl Default for SearchConfig {
     fn default() -> Self {
-        Self { enable_fts: true, enable_semantic: false }
-    }
-}
-impl Default for Config {
-    fn default() -> Self {
         Self {
-            server: ServerConfig::default(),
-            mcp: McpConfig::default(),
-            indexing: IndexingConfig::default(),
-            renderer: RendererConfig::default(),
-            search: SearchConfig::default(),
+            enable_fts: true,
+            enable_semantic: false,
         }
     }
 }
-
 /// `~/.mdview/` — the app data directory (created on demand).
 pub fn data_dir() -> PathBuf {
-    dirs::home_dir().unwrap_or_else(|| PathBuf::from(".")).join(".mdview")
+    dirs::home_dir()
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join(".mdview")
 }
 
 pub fn config_path() -> PathBuf {
@@ -141,8 +144,8 @@ impl Config {
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)?;
         }
-        let text = toml::to_string_pretty(self)
-            .map_err(|e| Error::Config(format!("serialize: {e}")))?;
+        let text =
+            toml::to_string_pretty(self).map_err(|e| Error::Config(format!("serialize: {e}")))?;
         write_atomic(path, text.as_bytes())
     }
 }
