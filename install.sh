@@ -18,7 +18,7 @@ err()  { printf 'error: %s\n' "$*" >&2; exit 1; }
 detect_target() {
   os="$(uname -s)"; arch="$(uname -m)"
   case "$os" in
-    Linux)  os_part="unknown-linux-gnu" ;;
+    Linux)  os_part="unknown-linux-musl" ;;
     Darwin) os_part="apple-darwin" ;;
     *) err "unsupported OS: $os (build from source: cargo install --git https://github.com/$REPO)" ;;
   esac
