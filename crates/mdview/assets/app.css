@@ -63,6 +63,27 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
 .tree-item a:hover { background: var(--card); text-decoration: none; }
 .tree-item.active a { background: var(--accent); color: #fff; }
 
+/* Chapter sidebar (breadcrumb-zoom): one folder at a time. */
+.chapter { display: flex; flex-direction: column; gap: 1px; }
+.chap-crumbs { display: flex; flex-wrap: wrap; align-items: center; gap: 2px; margin-bottom: 8px; font-size: 12px; }
+.chap-seg {
+  background: none; border: 0; padding: 1px 4px; border-radius: 4px; cursor: pointer;
+  color: var(--muted); font: inherit; font-size: 12px;
+}
+.chap-seg:hover { background: var(--card); color: var(--fg); }
+.chap-seg:last-child { color: var(--fg); font-weight: 600; }
+.chap-sep { opacity: .5; }
+.chap-up, .chap-folder, .chap-file {
+  display: block; width: 100%; text-align: left; box-sizing: border-box;
+  padding: 4px 8px; border: 0; border-radius: 5px; background: none;
+  color: var(--fg); font: inherit; font-size: 13px; cursor: pointer; word-break: break-word;
+}
+.chap-up { color: var(--muted); }
+.chap-folder { font-weight: 600; }
+.chap-folder::before { content: "📁 "; }
+.chap-up:hover, .chap-folder:hover, .chap-file:hover { background: var(--card); text-decoration: none; }
+.chap-file.active { background: var(--accent); color: #fff; }
+
 .content { flex: 1; min-width: 0; }
 .markdown-body { max-width: 860px; margin: 0 auto; padding: 28px 32px; }
 .markdown-body h1, .markdown-body h2 { border-bottom: 1px solid var(--border); padding-bottom: .3em; }

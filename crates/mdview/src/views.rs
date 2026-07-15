@@ -55,10 +55,9 @@ pub fn project_list_page(projects: &[(Project, usize)]) -> String {
         ));
     }
     let body = format!(
-        r#"<header class="topbar"><h1>mdview</h1>
-  <a class="nav-link" href="/settings">Settings</a>{toggle}</header>
+        r#"{topbar}
 <main class="container"><h2>Projects</h2>{rows}</main>"#,
-        toggle = theme_toggle(),
+        topbar = topbar(""),
         rows = rows
     );
     layout("Projects", "", &body)
@@ -90,11 +89,7 @@ window.addEventListener('DOMContentLoaded', renderMermaid);
         ""
     };
     let body = format!(
-        r#"<header class="topbar">
-  <a href="/" class="home">mdview</a>
-  <span class="crumb">{pname} / {rel}</span>
-  {toggle}
-</header>
+        r#"{topbar}
 <div class="layout">
   <aside class="sidebar">{tree}</aside>
   <main class="content">
@@ -103,9 +98,11 @@ window.addEventListener('DOMContentLoaded', renderMermaid);
   </main>
   {right}
 </div>"#,
-        pname = esc(&project.name),
-        rel = esc(&file.rel_path),
-        toggle = theme_toggle(),
+        topbar = topbar(&format!(
+            "<span class=\"crumb\">{pname} / {rel}</span>",
+            pname = esc(&project.name),
+            rel = esc(&file.rel_path),
+        )),
         tree = tree,
         breadcrumb = breadcrumb,
         html = page.html,
@@ -166,33 +163,92 @@ fn breadcrumb(project: &Project, rel_path: &str) -> String {
     format!("<nav class=\"breadcrumb\">{crumbs}</nav>")
 }
 
+/// The parent folder of a relative path (`""` for a root-level file).
+fn parent_dir(rel: &str) -> &str {
+    match rel.rfind('/') {
+        Some(i) => &rel[..i],
+        None => "",
+    }
+}
+
+/// The last path segment of a relative path.
+fn base_name(rel: &str) -> &str {
+    match rel.rfind('/') {
+        Some(i) => &rel[i + 1..],
+        None => rel,
+    }
+}
+
+/// Chapter sidebar (C2, per D 99e8df73): the search box, plus a `#chapter`
+/// container the client script renders into — always one folder's contents with
+/// a zoomable breadcrumb. The full file list ships as JSON so the zoom is
+/// client-side (no extra routes); a minimal current-folder list is server-
+/// rendered inside `#chapter` as a no-JS fallback.
 fn file_tree(project: &Project, files: &[IndexedFile], active: &str) -> String {
-    let mut out = format!(
-        "<form class=\"search\" action=\"/p/{pid}/_search\" method=\"get\">\
-         <input name=\"q\" placeholder=\"Search…\" autocomplete=\"off\"></form>\
-         <div class=\"tree-head\">{name}</div><ul class=\"tree\">",
-        pid = esc(&project.id),
-        name = esc(&project.name)
-    );
-    for f in files {
-        let cls = if f.rel_path == active {
-            "tree-item active"
+    // JSON payload for the client renderer: one {p: rel_path, t: title} per file.
+    let payload: Vec<_> = files
+        .iter()
+        .map(|f| serde_json::json!({ "p": f.rel_path, "t": f.title }))
+        .collect();
+    // Escape `<` so a title containing "</script>" can't break out of the tag.
+    let json = serde_json::to_string(&payload)
+        .unwrap_or_else(|_| "[]".into())
+        .replace('<', "\\u003c");
+
+    // No-JS fallback: the files directly in the active file's folder, by title.
+    let active_dir = parent_dir(active);
+    let mut fallback = String::new();
+    for f in files.iter().filter(|f| parent_dir(&f.rel_path) == active_dir) {
+        let label = if f.title.is_empty() {
+            base_name(&f.rel_path)
         } else {
-            "tree-item"
+            &f.title
         };
-        out.push_str(&format!(
-            "<li class=\"{cls}\"><a href=\"/p/{pid}/{rel}\">{label}</a></li>",
+        let cls = if f.rel_path == active {
+            "chap-file active"
+        } else {
+            "chap-file"
+        };
+        fallback.push_str(&format!(
+            "<a class=\"{cls}\" href=\"/p/{pid}/{rel}\">{label}</a>",
             pid = esc(&project.id),
             rel = esc(&f.rel_path),
-            label = esc(&f.rel_path),
+            label = esc(label),
         ));
     }
-    out.push_str("</ul>");
-    out
+
+    format!(
+        "<form class=\"search\" action=\"/p/{pid}/_search\" method=\"get\">\
+         <input name=\"q\" placeholder=\"Search…\" autocomplete=\"off\"></form>\
+         <nav class=\"chapter\" id=\"chapter\" data-pid=\"{pid}\" data-root=\"{root}\" \
+         data-current=\"{cur}\">{fallback}</nav>\
+         <script type=\"application/json\" id=\"filelist\">{json}</script>",
+        pid = esc(&project.id),
+        root = esc(&project.name),
+        cur = esc(active),
+        fallback = fallback,
+        json = json,
+    )
 }
 
 fn theme_toggle() -> &'static str {
     r#"<button id="theme-toggle" class="theme-toggle" title="Toggle theme">◐</button>"#
+}
+
+/// Shared top bar for every page: brand, a page-specific center slot (crumb or
+/// empty), the Settings link, and the theme toggle. Keeps the Settings link on
+/// all pages and stops each view re-inventing its own header.
+fn topbar(center: &str) -> String {
+    format!(
+        r#"<header class="topbar">
+  <a href="/" class="home">mdview</a>
+  {center}
+  <a class="nav-link" href="/settings">Settings</a>
+  {toggle}
+</header>"#,
+        center = center,
+        toggle = theme_toggle(),
+    )
 }
 
 pub fn search_page(project: &Project, query: &str, results: &[SearchResult]) -> String {
@@ -217,18 +273,19 @@ pub fn search_page(project: &Project, query: &str, results: &[SearchResult]) -> 
         }
     }
     let body = format!(
-        r#"<header class="topbar"><a href="/" class="home">mdview</a>
-  <span class="crumb">{name} · search</span>{toggle}</header>
+        r#"{topbar}
 <main class="container">
   <form class="search wide" action="/p/{pid}/_search" method="get">
     <input name="q" value="{q}" placeholder="Search…" autofocus autocomplete="off">
   </form>
   {items}
 </main>"#,
-        name = esc(&project.name),
+        topbar = topbar(&format!(
+            "<span class=\"crumb\">{name} · search</span>",
+            name = esc(&project.name)
+        )),
         pid = esc(&project.id),
         q = esc(query),
-        toggle = theme_toggle(),
         items = items,
     );
     layout(&format!("search: {query}"), "", &body)
@@ -252,8 +309,7 @@ pub fn settings_page(cfg: &Config, saved: bool) -> String {
     let excludes = cfg.indexing.exclude_patterns.join("\n");
 
     let body = format!(
-        r#"<header class="topbar"><a href="/" class="home">mdview</a>
-  <span class="crumb">Settings</span>{toggle}</header>
+        r#"{topbar}
 <main class="container">
   <h2>Settings</h2>
   {banner}
@@ -293,7 +349,7 @@ pub fn settings_page(cfg: &Config, saved: bool) -> String {
     <button type="submit">Save</button>
   </form>
 </main>"#,
-        toggle = theme_toggle(),
+        topbar = topbar("<span class=\"crumb\">Settings</span>"),
         banner = banner,
         port = cfg.server.port,
         host = esc(&cfg.server.host),
@@ -315,8 +371,9 @@ pub fn settings_page(cfg: &Config, saved: bool) -> String {
 
 pub fn error_page(status: u16, msg: &str) -> String {
     let body = format!(
-        r#"<header class="topbar"><a href="/" class="home">mdview</a></header>
+        r#"{topbar}
 <main class="container"><h2>{status}</h2><p class="muted">{msg}</p></main>"#,
+        topbar = topbar(""),
         status = status,
         msg = esc(msg)
     );
