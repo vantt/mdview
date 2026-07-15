@@ -85,6 +85,7 @@ impl RenderService {
             title,
             headings,
             has_mermaid,
+            source: source.to_string(),
         }
     }
 
@@ -276,6 +277,9 @@ fn comrak_options() -> Options<'static> {
     // Add id="slug" to headings so the TOC (FR-18) can anchor to them.
     o.extension.header_ids = Some(String::new());
     o.render.unsafe_ = true;
+    // Emit data-sourcepos="L:C-L:C" on block elements so the client can map a
+    // DOM selection back to source lines (copy-as-markdown).
+    o.render.sourcepos = true;
     o
 }
 
@@ -399,6 +403,31 @@ mod tests {
             page.headings.first().map(|h| h.slug.as_str()),
             Some("hello-world")
         );
+    }
+
+    #[test]
+    fn emits_data_sourcepos_on_blocks() {
+        let root = PathBuf::from("/proj");
+        let index: HashSet<PathBuf> = HashSet::new();
+        let md = "# Title\n\nfirst para\n\nsecond para";
+        let page = svc().render(md, &root.join("a.md"), "p1", &root, &index);
+        // block elements carry data-sourcepos so the client can map DOM→lines
+        assert!(page.html.contains("data-sourcepos=\""), "{}", page.html);
+        // the second paragraph starts on line 5 of the source
+        assert!(
+            page.html.contains("data-sourcepos=\"5:1-5:11\""),
+            "{}",
+            page.html
+        );
+    }
+
+    #[test]
+    fn carries_raw_source() {
+        let root = PathBuf::from("/proj");
+        let index: HashSet<PathBuf> = HashSet::new();
+        let md = "# Title\n\nbody text";
+        let page = svc().render(md, &root.join("a.md"), "p1", &root, &index);
+        assert_eq!(page.source, md);
     }
 
     #[test]

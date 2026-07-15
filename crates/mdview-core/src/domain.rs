@@ -65,4 +65,7 @@ pub struct RenderedPage {
     pub headings: Vec<Heading>,
     /// True if the page contains mermaid blocks (client must load mermaid.js).
     pub has_mermaid: bool,
+    /// The raw markdown source, carried so the viewer can map a DOM selection
+    /// back to source lines (copy-as-markdown) via the `data-sourcepos` attrs.
+    pub source: String,
 }
