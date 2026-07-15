@@ -45,3 +45,23 @@ bee-compounding appends hard-won patterns here; keep it short and current.
   still-uncommitted content), or (b) do the whole rewrite on a fresh clone and
   never `reset --hard` the real working directory at all. (2026-07-15,
   `docs/history/gitignore-purge-bee-distill-history/plan.md`)
+- **A path-based security check (extension allowlist, exclusion, permission)
+  must run on the canonicalized path, never on the raw request/URL segment.**
+  `asset_path` checks the file extension on `canonical` (post-symlink-
+  resolution), not `rel_path` — a symlink named e.g. `pretty.png` pointing at
+  `.env` would canonicalize to the real target and bypass a check done on the
+  pre-resolution name, silently reopening whatever the check exists to close.
+  Any future path-based guard in this repo needs the same ordering, proven by
+  a `#[cfg(unix)]` symlink regression test, not just a traversal test.
+  (2026-07-16, `20260716-fix-review-p1-findings.md`)
+- **The `mdview` binary crate layer (`cli.rs`, `mcp.rs`, `server.rs`,
+  `views.rs`, `watch.rs`) has a standing habit of manual/live-E2E-only
+  verification — `mdview-core` does not.** Three behavior-change cells in
+  this layer were capped with a prose `verify` field ("live E2E, fake
+  EDITOR") instead of a runnable command, and the same failure mode almost
+  recurred inside the very fix pass meant to close them. When capping a
+  `behavior_change` cell touching this layer, treat "verify must be a
+  runnable command" (AGENTS.md critical rule 2) as load-bearing and convert
+  to a `#[cfg(test)]` unit test wherever the logic doesn't actually require a
+  live server — most of it doesn't. (2026-07-16,
+  `20260716-fix-review-p1-findings.md`)

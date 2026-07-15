@@ -36,8 +36,15 @@ launcher — CLI, MCP, future desktop — coordinates through `~/.mdview/daemon.
   marked for client rendering, output sanitized so untrusted agent markdown is
   safe to view.
 - **Web interface** — a project list, and per-file pages with a file tree,
-  themed rendering, and live reload. Assets/images are served from disk with a
-  path-traversal guard.
+  themed rendering, and live reload. Non-markdown assets (images referenced
+  from a rendered file, or any other file inside a registered project) are
+  served from disk only when the file's extension is on a fixed, short
+  allowlist of media types (the same types the renderer already recognizes for
+  content-type detection: image formats and PDF) and the file is not inside a
+  directory excluded from indexing; anything else — including dotfiles,
+  extensionless files, and files in an excluded directory — is refused. This
+  is on top of the existing path-traversal guard (a request can never resolve
+  outside the project root, symlinks included).
 - **Live reload** — a filesystem watcher (debounced) updates the index on change
   and pushes a reload signal over WebSocket; the browser reloads the page.
 - **Search** — full-text (keyword) across a project or all projects.
