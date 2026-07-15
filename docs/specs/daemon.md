@@ -23,6 +23,8 @@ serves (see the web-interface and agent-integration areas for that).
   a non-default host/port.
 - `mdview status` → reports whether a daemon is currently running and where.
 - `mdview stop` → stops the running daemon.
+- `mdview restart` → stops the running daemon (if any) and starts a fresh
+  detached one; used to apply config changes to the live server.
 
 ## Data Dictionary
 
@@ -73,6 +75,16 @@ serves (see the web-interface and agent-integration areas for that).
 - **What changes:** the running daemon is terminated and its record removed.
 - **Afterwards:** `mdview status` reports "not running"; the next `open`/agent
   call auto-starts a new one.
+
+### Restart (`mdview restart`)
+
+- **What it does:** stops the running daemon (if any), waits for it to exit, then
+  starts a fresh **detached** daemon that outlives the command — the way to apply
+  a config change (host, port, theme) to the live server in one step.
+- **No daemon running:** it simply starts one (nothing to stop).
+- **Afterwards:** a new daemon (a different process id) is serving on the
+  configured host/port; unlike `serve`, the command returns instead of staying in
+  the foreground.
 
 ## Actors & Access
 
