@@ -75,6 +75,19 @@ content itself.
 - **Afterwards:** the operator jumps directly to a file by approximate name
   without browsing the sidebar or running a content search.
 
+### Copy as markdown (file pages)
+
+- **Triggers:** selecting text inside a rendered file and copying it (the normal
+  copy gesture).
+- **What it does:** instead of the rendered HTML/plain text, the clipboard
+  receives the **raw markdown** of the source lines the selection spans. The
+  granularity is whole source lines of the blocks the selection touches — a
+  partial selection inside a block still yields that block's full source lines.
+- **Fallback:** copying from outside the rendered article, or from a region that
+  maps to no source, behaves as an ordinary copy.
+- **Afterwards:** the operator (often an agent) pastes back authorable markdown,
+  not rendered output — round-tripping documentation without de-rendering by hand.
+
 ## Actors & Access
 
 Not applicable in the role sense — a single local operator in a browser; no
@@ -92,6 +105,9 @@ file list (paths + titles); no other actor consumes it.
 - **R3.** The fuzzy file-jump palette ranks files by name/path, never by
   content; it is the "jump to a file I can half-name" affordance and is kept
   distinct from full-text (content) search, which stays a separate results page.
+- **R4.** Copying a selection from a rendered file yields the raw markdown of the
+  spanned source lines, not the rendered output; the mapping is by source line
+  range (block granularity), and a selection that maps to nothing copies normally.
 
 ## Edge Cases Settled
 
