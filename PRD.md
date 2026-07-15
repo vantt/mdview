@@ -536,7 +536,7 @@ Desktop = binary `mdview-desktop` (Tauri v2), mỏng, tái dùng pattern từ ma
 - [x] Breadcrumb navigation
 - [x] Broken link highlighting
 - [x] Light/dark theme (no-flash)
-- [ ] Màn hình Settings (`/settings`, FR-22b) + `/api/config` (PUT) — còn lại
+- [x] Màn hình Settings (`/settings`, FR-22b) + `/api/config` (GET/POST)
 
 ### Phase 4 — Production Hardiness + Desktop (2-3 tuần)
 - [ ] **Desktop shell `mdview-desktop` (Tauri)**: attach/spawn daemon, tray, single-instance (§7.5)
