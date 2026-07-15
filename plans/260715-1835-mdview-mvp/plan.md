@@ -1,6 +1,7 @@
 # Plan: mdview MVP implementation
 
-**Status:** in-progress (autonomous run, gate-bypass full) · **Branch:** feat/mvp-implementation
+**Status:** MVP DONE + verified end-to-end (autonomous run, gate-bypass full) · **Branch:** feat/mvp-implementation
+**Result:** S0-S11 complete. 21 core tests green; HTTP/MCP/CLI/doctor verified by driving the binary. Remaining: desktop shell (Phase 4), scoped live-reload, UX polish.
 **Source of truth:** PRD.md · **Porting picks:** docs/distillery/porting-log.md (12 planned)
 
 ## Kiến trúc (PRD §7.4 — ports & adapters)
