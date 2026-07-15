@@ -41,6 +41,14 @@ mdview doctor                        # diagnose integration, --fix to repair
 Open <http://localhost:7700> to browse projects; click through links across
 folders without broken links. Edits on disk live-reload the page.
 
+**On a remote server over SSH?** Forward the port and browse locally:
+```sh
+ssh -L 7700:localhost:7700 user@host   # then open http://localhost:7700
+```
+
+See the **[full usage guide](docs/usage.md)** for SSH workflows, MCP setup,
+settings, and the desktop app.
+
 ## Agent integration (MCP)
 
 `mdview doctor --fix` registers the MCP server with Claude Code. The single tool
