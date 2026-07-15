@@ -121,6 +121,52 @@ pub fn run(cli: Cli) -> Result<()> {
     }
 }
 
+/// Resolved editor to spawn: the program name, its leading args (from
+/// splitting a "program --flag"-shaped editor string), and the raw combined
+/// string (unsplit, for error messages).
+struct ResolvedEditor {
+    display: String,
+    program: String,
+    args: Vec<String>,
+}
+
+/// Resolve which editor to spawn: prefer `visual` (`$VISUAL`), then `editor`
+/// (`$EDITOR`), else a platform default (`notepad` on Windows, `vi`
+/// elsewhere). Editors passed with args (e.g. "code --wait") are split on
+/// whitespace; the config path is appended separately by the caller.
+fn resolve_editor(visual: Option<String>, editor: Option<String>) -> ResolvedEditor {
+    let editor = visual
+        .or(editor)
+        .unwrap_or_else(|| if cfg!(windows) { "notepad" } else { "vi" }.to_string());
+    let mut parts = editor.split_whitespace();
+    let program = parts.next().unwrap_or("vi").to_string();
+    let args: Vec<String> = parts.map(str::to_string).collect();
+    ResolvedEditor {
+        display: editor,
+        program,
+        args,
+    }
+}
+
+/// Classify the post-edit re-read of the config file into the message
+/// `cmd_config_edit` prints: valid TOML (saved), invalid TOML (warning with
+/// the parse error), or an unreadable file (re-read error).
+fn classify_config_edit_outcome(path: &Path, read_result: std::io::Result<String>) -> String {
+    match read_result {
+        Ok(text) => match toml::from_str::<Config>(&text) {
+            Ok(_) => format!(
+                "Saved {}.\nRestart the daemon to apply: mdview restart",
+                path.display()
+            ),
+            Err(e) => format!(
+                "Warning: {} is not valid TOML ({e}).\nmdview will ignore it and fall back to defaults until you fix it.",
+                path.display()
+            ),
+        },
+        Err(e) => format!("Could not re-read {}: {e}", path.display()),
+    }
+}
+
 fn cmd_config_edit() -> Result<()> {
     let path = mdview_core::config::config_path();
     // Materialize the file with current (or default) values so the editor opens
@@ -129,20 +175,12 @@ fn cmd_config_edit() -> Result<()> {
         .save()
         .with_context(|| format!("writing {}", path.display()))?;
 
-    // Prefer $VISUAL, then $EDITOR, else a sensible platform default.
-    let editor = std::env::var("VISUAL")
-        .or_else(|_| std::env::var("EDITOR"))
-        .unwrap_or_else(|_| if cfg!(windows) { "notepad" } else { "vi" }.to_string());
-
-    // Support editors passed with args (e.g. "code --wait") by splitting on
-    // whitespace; the config path is the final argument.
-    let mut parts = editor.split_whitespace();
-    let program = parts.next().unwrap_or("vi");
-    let status = std::process::Command::new(program)
-        .args(parts)
+    let resolved = resolve_editor(std::env::var("VISUAL").ok(), std::env::var("EDITOR").ok());
+    let status = std::process::Command::new(&resolved.program)
+        .args(&resolved.args)
         .arg(&path)
         .status()
-        .with_context(|| format!("launching editor '{editor}'"))?;
+        .with_context(|| format!("launching editor '{}'", resolved.display))?;
     if !status.success() {
         println!("Editor exited without success; config left unchanged on disk.");
         return Ok(());
@@ -150,19 +188,10 @@ fn cmd_config_edit() -> Result<()> {
 
     // Validate what the user saved: a broken TOML would otherwise be silently
     // ignored (Config::load falls back to defaults), so warn loudly instead.
-    match std::fs::read_to_string(&path) {
-        Ok(text) => match toml::from_str::<Config>(&text) {
-            Ok(_) => println!(
-                "Saved {}.\nRestart the daemon to apply: mdview restart",
-                path.display()
-            ),
-            Err(e) => println!(
-                "Warning: {} is not valid TOML ({e}).\nmdview will ignore it and fall back to defaults until you fix it.",
-                path.display()
-            ),
-        },
-        Err(e) => println!("Could not re-read {}: {e}", path.display()),
-    }
+    println!(
+        "{}",
+        classify_config_edit_outcome(&path, std::fs::read_to_string(&path))
+    );
     Ok(())
 }
 
@@ -397,4 +426,63 @@ fn cmd_restart() -> Result<()> {
     }
     println!("Started daemon; not yet confirmed up (check `mdview status`).");
     Ok(())
+}
+
+#[cfg(test)]
+mod config_edit_tests {
+    use super::*;
+
+    #[test]
+    fn visual_takes_precedence_over_editor() {
+        let resolved = resolve_editor(Some("code".to_string()), Some("vim".to_string()));
+        assert_eq!(resolved.program, "code");
+        assert!(resolved.args.is_empty());
+    }
+
+    #[test]
+    fn platform_default_when_neither_set() {
+        let resolved = resolve_editor(None, None);
+        let expected = if cfg!(windows) { "notepad" } else { "vi" };
+        assert_eq!(resolved.program, expected);
+        assert!(resolved.args.is_empty());
+    }
+
+    #[test]
+    fn editor_falls_back_when_visual_unset() {
+        let resolved = resolve_editor(None, Some("vim".to_string()));
+        assert_eq!(resolved.program, "vim");
+        assert!(resolved.args.is_empty());
+    }
+
+    #[test]
+    fn editor_with_args_splits_program_and_args() {
+        let resolved = resolve_editor(Some("code --wait".to_string()), None);
+        assert_eq!(resolved.program, "code");
+        assert_eq!(resolved.args, vec!["--wait".to_string()]);
+        assert_eq!(resolved.display, "code --wait");
+    }
+
+    #[test]
+    fn valid_toml_reports_saved() {
+        let path = Path::new("/tmp/mdview-test-config.toml");
+        let msg = classify_config_edit_outcome(path, Ok(String::new()));
+        assert!(msg.starts_with("Saved "));
+        assert!(msg.contains("Restart the daemon to apply: mdview restart"));
+    }
+
+    #[test]
+    fn invalid_toml_reports_warning() {
+        let path = Path::new("/tmp/mdview-test-config.toml");
+        let msg = classify_config_edit_outcome(path, Ok("not = [valid".to_string()));
+        assert!(msg.starts_with("Warning: "));
+        assert!(msg.contains("is not valid TOML"));
+    }
+
+    #[test]
+    fn unreadable_file_reports_read_error() {
+        let path = Path::new("/tmp/mdview-test-config.toml");
+        let err = std::io::Error::new(std::io::ErrorKind::NotFound, "no such file");
+        let msg = classify_config_edit_outcome(path, Err(err));
+        assert!(msg.starts_with("Could not re-read "));
+    }
 }
