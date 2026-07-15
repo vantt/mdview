@@ -61,6 +61,20 @@ content itself.
   project's entire file list, and can move up or down the folder hierarchy
   without ever seeing the whole tree at once.
 
+### Fuzzy file-jump palette (file pages)
+
+- **Triggers:** pressing the jump shortcut (Cmd+K on macOS, Ctrl+K elsewhere)
+  on any file page opens a centered overlay with a single text input; pressing
+  it again, or Escape, or clicking outside the box, closes it.
+- **What it does:** as the operator types, the project's files are ranked by a
+  fuzzy match of the query against each file's **name and path** (not its
+  content) and the top matches are listed live, each showing its title and its
+  path. This is distinct from full-text search, which matches file *content*.
+- **Navigation:** Arrow keys move the highlighted match; Enter opens the
+  highlighted file; clicking a match opens it. An empty query shows no matches.
+- **Afterwards:** the operator jumps directly to a file by approximate name
+  without browsing the sidebar or running a content search.
+
 ## Actors & Access
 
 Not applicable in the role sense — a single local operator in a browser; no
@@ -75,6 +89,9 @@ file list (paths + titles); no other actor consumes it.
   time (breadcrumb-zoom), never the project's full flat file list; files are
   labelled by title, and moving between folders is done by zooming the
   breadcrumb in and out, not by scrolling one long list.
+- **R3.** The fuzzy file-jump palette ranks files by name/path, never by
+  content; it is the "jump to a file I can half-name" affordance and is kept
+  distinct from full-text (content) search, which stays a separate results page.
 
 ## Edge Cases Settled
 
