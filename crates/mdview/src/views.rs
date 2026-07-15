@@ -76,9 +76,7 @@ pub fn file_page(
     // Raw markdown source for copy-as-markdown: the client maps a DOM selection
     // (via data-sourcepos line ranges) back to these source lines. Escape `<`
     // so a source containing "</script>" can't break out of the tag.
-    let source_json = serde_json::to_string(&page.source)
-        .unwrap_or_else(|_| "\"\"".into())
-        .replace('<', "\\u003c");
+    let source_json = escape_json_for_script(&page.source);
     let head_extra = if page.has_mermaid {
         // PRD §9: Mermaid via CDN for AI-generated docs.
         r#"<script type="module">
@@ -117,6 +115,15 @@ window.addEventListener('DOMContentLoaded', renderMermaid);
         right = right,
     );
     layout(&page.title, head_extra, &body)
+}
+
+/// Serialize `source` as a JSON string literal safe to embed inside a
+/// `<script>` tag: escapes `<` to `<` so a source containing a literal
+/// "</script>" can't break out of the tag.
+fn escape_json_for_script(source: &str) -> String {
+    serde_json::to_string(source)
+        .unwrap_or_else(|_| "\"\"".into())
+        .replace('<', "\\u003c")
 }
 
 /// Right sidebar: table of contents + backlinks (FR-18). Empty string if neither.
@@ -396,6 +403,30 @@ fn esc(s: &str) -> String {
         .replace('<', "&lt;")
         .replace('>', "&gt;")
         .replace('"', "&quot;")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn escape_json_for_script_neutralizes_script_breakout() {
+        let source = "before </script><script>alert(1)</script> after";
+        let escaped = escape_json_for_script(source);
+        assert!(
+            !escaped.contains('<'),
+            "escaped blob must contain no raw '<': {escaped}"
+        );
+    }
+
+    #[test]
+    fn escape_json_for_script_round_trips_to_original_source() {
+        let source = "line one\n</script>\nline three with <tag> and \"quotes\"";
+        let escaped = escape_json_for_script(source);
+        let round_tripped: String =
+            serde_json::from_str(&escaped).expect("escaped blob must still be valid JSON");
+        assert_eq!(round_tripped, source);
+    }
 }
 
 pub const APP_CSS: &str = include_str!("../assets/app.css");
