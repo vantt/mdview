@@ -98,6 +98,15 @@ integration area.
 - **R2.** Server, Indexing, and MCP setting changes only take effect after the
   running server is stopped and restarted; the settings page states this
   explicitly at save time.
+- **R3.** When Host is a wildcard bind (any-interface, e.g. `0.0.0.0`) **and**
+  Display hostname is blank, the `mdview_view_file` MCP tool returns **one
+  viewable link per reachable machine IP** (loopback and link-local excluded)
+  instead of a single unusable wildcard link — so a caller on another host can
+  pick an address that routes to it. A non-blank Display hostname (R1) or a
+  specific (non-wildcard) Host still yields a single link. This is the same
+  display-only substitution as R1: it never changes the real bind/connect
+  address. The tool's structured result keeps the original single `url` field
+  (the first link) for compatibility and adds a `urls` list of all links.
 
 ## Edge Cases Settled
 
@@ -128,7 +137,8 @@ No settled screenshot captured for `/settings` yet — see Open Gaps.
   `update_config` (routes `/settings`, `/api/config`).
 - `crates/mdview/src/views.rs` — `settings_page` (form rendering).
 - `crates/mdview/src/runtime.rs` — `ensure_daemon_base`/`display_base_url`
-  (Display hostname substitution into returned URLs).
+  (Display hostname substitution into returned URLs); `ensure_daemon_bases`/
+  `build_display_urls`/`machine_ipv4s` (R3 multi-IP link list for wildcard bind).
 - `crates/mdview-core/src/daemon.rs` — `DaemonInfo`/`base_url`/`health_check`
   (the real bind/connect host, unaffected by Display hostname).
 - `crates/mdview/src/cli.rs` — `Command::Serve { port, host }`, `cmd_serve`
