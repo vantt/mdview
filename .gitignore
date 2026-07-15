@@ -13,3 +13,6 @@
 # DISTILL:START
 /upstreams/
 # DISTILL:END
+
+# Rust
+/target

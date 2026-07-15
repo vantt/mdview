@@ -269,6 +269,12 @@ mdview search "query" [--project my-app]
 # Xem status
 mdview status
 
+# Re-scan reconcile index (FR-09b)
+mdview refresh [<project-id>]
+
+# Chẩn đoán & tự fix integration (FR-33)
+mdview doctor [--json] [--dry-run] [--fix]
+
 # Xóa project
 mdview unregister <project-id>
 
@@ -302,6 +308,21 @@ Run: `mdview open <absolute-path>`
 ```
 
 ---
+
+### 5.8 Installation & Doctor
+
+Mục tiêu: end-user cài đặt **nhanh và dễ nhất có thể**, và sau khi cài tự tích hợp được vào Claude/Claude Code không cần chỉnh tay.
+
+**FR-32. One-command install.** Script `install.sh` (`curl … | bash`) tự: phát hiện OS/arch (Linux x86_64/aarch64, macOS), tải binary release mới nhất từ GitHub, đặt vào PATH (env override → `/usr/local/bin` → `~/.local/bin` → `~/.mdview/bin`), cảnh báo nếu dir không nằm trong PATH, rồi gợi ý chạy `mdview doctor`. Kèm kênh khác: Homebrew tap, `cargo install mdview`, và Tauri bundle cho desktop (NFR-04). Tham khảo mdserve multi-channel-install.
+
+**FR-33. `mdview doctor` — tự chẩn đoán & fix integration.** Sau khi cài, `mdview doctor` kiểm tra và **tự sửa an toàn** các điểm tích hợp, mỗi mục trả `OK | FIXED | MANUAL` (kèm lệnh gợi ý):
+- Binary `mdview` có trong PATH.
+- `~/.mdview/config.toml` hợp lệ (tạo mặc định nếu thiếu).
+- Server sống (`/health`) + `~/.mdview/daemon.lock` hợp lệ; port cấu hình rảnh.
+- **MCP registration:** phát hiện & ghi entry `mdview` vào file cấu hình MCP của Claude Code (`~/.claude.json`, project `.mcp.json`, hoặc `claude_desktop_config.json` tuỳ client) — **merge idempotent, backup trước khi sửa**, không phá config sẵn có.
+- **Agent instruction:** kiểm tra AGENTS.md/CLAUDE.md có snippet MDView (§5.7); offer chèn.
+
+Flags: `--json` (machine output), `--dry-run` (chỉ báo, không sửa), `--fix` (tự sửa; mặc định hỏi/không sửa mục ghi đè). Idempotent — chạy nhiều lần an toàn.
 
 ## 6. Non-Functional Requirements
 
