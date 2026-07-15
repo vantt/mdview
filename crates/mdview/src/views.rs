@@ -73,6 +73,12 @@ pub fn file_page(
     let tree = file_tree(project, files, &file.rel_path);
     let right = right_panel(project, page, backlinks);
     let breadcrumb = breadcrumb(project, &file.rel_path);
+    // Raw markdown source for copy-as-markdown: the client maps a DOM selection
+    // (via data-sourcepos line ranges) back to these source lines. Escape `<`
+    // so a source containing "</script>" can't break out of the tag.
+    let source_json = serde_json::to_string(&page.source)
+        .unwrap_or_else(|_| "\"\"".into())
+        .replace('<', "\\u003c");
     let head_extra = if page.has_mermaid {
         // PRD §9: Mermaid via CDN for AI-generated docs.
         r#"<script type="module">
@@ -95,6 +101,7 @@ window.addEventListener('DOMContentLoaded', renderMermaid);
   <main class="content">
     {breadcrumb}
     <article class="markdown-body">{html}</article>
+    <script type="application/json" id="mdsource">{source_json}</script>
   </main>
   {right}
 </div>"#,
@@ -106,6 +113,7 @@ window.addEventListener('DOMContentLoaded', renderMermaid);
         tree = tree,
         breadcrumb = breadcrumb,
         html = page.html,
+        source_json = source_json,
         right = right,
     );
     layout(&page.title, head_extra, &body)

@@ -226,6 +226,58 @@
     });
   })();
 
+  // Copy-as-markdown: when the user copies a selection inside the rendered
+  // article, substitute the RAW markdown for the selected block range (mapped
+  // via data-sourcepos line numbers) instead of the rendered HTML/text.
+  (function () {
+    var article = document.querySelector(".markdown-body");
+    var srcEl = document.getElementById("mdsource");
+    if (!article || !srcEl) return;
+
+    var source;
+    try { source = JSON.parse(srcEl.textContent || '""'); } catch (e) { return; }
+    if (typeof source !== "string" || !source.length) return;
+    var lines = source.split("\n");
+
+    // Parse comrak's data-sourcepos "startLine:col-endLine:col" → [start, end].
+    function rangeOf(el) {
+      var sp = el.getAttribute("data-sourcepos");
+      if (!sp) return null;
+      var m = /^(\d+):\d+-(\d+):\d+$/.exec(sp);
+      if (!m) return null;
+      return [parseInt(m[1], 10), parseInt(m[2], 10)];
+    }
+
+    document.addEventListener("copy", function (e) {
+      var sel = window.getSelection();
+      if (!sel || sel.rangeCount === 0 || sel.isCollapsed) return;
+
+      // Only act when the selection lives inside the rendered article.
+      var anchor = sel.anchorNode;
+      if (!anchor || !article.contains(anchor)) return;
+
+      // Collect the source line range across every mapped block the selection
+      // touches (partial containment), then union to a single [min, max].
+      var blocks = article.querySelectorAll("[data-sourcepos]");
+      var min = Infinity, max = -Infinity;
+      for (var i = 0; i < blocks.length; i++) {
+        if (!sel.containsNode(blocks[i], true)) continue;
+        var r = rangeOf(blocks[i]);
+        if (!r) continue;
+        if (r[0] < min) min = r[0];
+        if (r[1] > max) max = r[1];
+      }
+      if (min === Infinity || max < min) return; // nothing mapped → default copy
+
+      var md = lines.slice(min - 1, max).join("\n");
+      if (!md) return;
+      if (e.clipboardData) {
+        e.clipboardData.setData("text/plain", md);
+        e.preventDefault();
+      }
+    });
+  })();
+
   // Live reload: reload-signal over WebSocket, full-page reload (PRD FR-19, Phase 1).
   function connect() {
     var proto = location.protocol === "https:" ? "wss:" : "ws:";
