@@ -1,6 +1,10 @@
 [workspace]
 resolver = "2"
 members = ["crates/mdview-core", "crates/mdview"]
+# Desktop shell (Tauri) is excluded from the default workspace build because it
+# requires system libraries (webkit2gtk/gtk3 on Linux) not present everywhere.
+# Build it explicitly from its own directory — see crates/mdview-desktop/README.md.
+exclude = ["crates/mdview-desktop"]
 
 [workspace.package]
 version = "0.1.0"
