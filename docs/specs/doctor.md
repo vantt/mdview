@@ -38,7 +38,7 @@ one-line detail):
 | 2 | Config | The configuration file exists and loads | Yes — see Rule R2 below (not gated by `--fix`) |
 | 3 | Daemon | A viewer server is currently running and answers its health check | No — reported WARN; the operator starts one with `mdview serve` |
 | 4 | MCP registration | mdview is registered as an MCP server for Claude Code | Yes, with `--fix` |
-| 5 | Agent instruction | AGENTS.md and/or CLAUDE.md, in the current directory, mention mdview's file-viewing tool | Yes, with `--fix` (per D 864f6f00) |
+| 5 | Agent instruction | AGENTS.md and CLAUDE.md, in the current directory, carry mdview's current instruction block (marker-delimited) | Yes, with `--fix` |
 
 ## Behaviors & Operations
 
@@ -61,14 +61,17 @@ one-line detail):
   - MCP registration, if not already registered: mdview is added to the
     Claude Code MCP server list, leaving every other registered server
     untouched.
-  - Agent instruction, for each of AGENTS.md and CLAUDE.md that is missing the
-    mdview mention: the integration snippet is added to that file, creating
-    it if it does not exist yet. The two files are handled independently — a
-    file that already mentions mdview is left completely untouched.
-- **Side effects:** before changing a file that already exists, both the MCP
-  registration and the Agent instruction fixes save an untouched copy of it
-  first (see Rule R1); a file that is newly created has no such copy, since
-  there was nothing to preserve.
+  - Agent instruction, for each of AGENTS.md and CLAUDE.md whose managed block
+    is missing or out of date: mdview's instruction snippet is written as a
+    marker-delimited block (`<!-- mdview:START -->` … `<!-- mdview:END -->`).
+    If the markers already exist, only the text between them is replaced in
+    place; otherwise the block is appended, creating the file if it does not
+    exist yet. Content outside the markers is never touched. The two files are
+    handled independently.
+- **Side effects:** the MCP-registration fix saves an untouched copy of
+  `.claude.json` before changing it (see Rule R1). The Agent-instruction fix
+  writes no `.bak`: the marker block bounds exactly what it edits, so
+  everything the operator wrote outside the markers is preserved directly.
 - **Afterwards:** re-running `--fix` immediately reports OK for everything
   just fixed — running it twice in a row never duplicates content or fixes
   the same thing again.
@@ -80,11 +83,13 @@ remote caller and no distinct roles.
 
 ## Business Rules
 
-- **R1 (per D 864f6f00).** Before the Agent-instruction fix writes to an
-  AGENTS.md or CLAUDE.md that already has content, that original content is
-  preserved first (as `<file>.bak`) so nothing an operator wrote is lost; a
-  file that doesn't exist yet is simply created with no such copy. This
-  mirrors how the MCP-registration fix already protected `.claude.json`.
+- **R1.** The MCP-registration fix preserves the original `.claude.json` as a
+  `.bak` before changing it, so nothing an operator configured is lost. The
+  Agent-instruction fix does not need this: it edits only the text between its
+  `<!-- mdview:START -->` / `<!-- mdview:END -->` markers and leaves all other
+  content in place, so there is nothing to preserve separately. (Supersedes the
+  `.bak`-for-agent-instruction clause of D 864f6f00, which predated the marker
+  block.)
 - **R2.** The Config check is the one check `--fix` does not gate: whenever
   the command is run without `--dry-run`, a missing configuration file is
   always replaced with a fresh default one, whether or not `--fix` was passed.
@@ -98,9 +103,10 @@ remote caller and no distinct roles.
 - Running `mdview doctor --fix` twice in a row is a no-op the second time for
   every check that passed the first time: no duplicated content, no repeated
   registration entry.
-- An AGENTS.md/CLAUDE.md that already mentions mdview (in either file) is
-  never rewritten by the Agent-instruction fix, even if the *other* file of
-  the pair still needs it — each file's outcome is decided independently.
+- An AGENTS.md/CLAUDE.md whose managed block is already current is left
+  untouched; one whose block is present but out of date is rewritten in place
+  (only the marker region changes, never a duplicate). Each file of the pair
+  is decided independently.
 
 ## Open Gaps
 
