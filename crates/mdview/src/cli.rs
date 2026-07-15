@@ -390,20 +390,35 @@ fn stop_daemon() -> Option<(u32, bool)> {
     Some((info.pid, ok))
 }
 
-fn cmd_stop() -> Result<()> {
-    match stop_daemon() {
-        Some((pid, true)) => println!("Stopped daemon (pid {pid})."),
-        Some((pid, false)) => println!("Could not stop pid {pid}. It may already be gone."),
-        None => println!("No daemon running."),
+/// Map `stop_daemon()`'s outcome to `cmd_stop`'s exact printed message: a
+/// successful kill, a failed kill (process likely already gone), or no
+/// daemon recorded at all.
+fn stop_outcome_message(outcome: Option<(u32, bool)>) -> String {
+    match outcome {
+        Some((pid, true)) => format!("Stopped daemon (pid {pid})."),
+        Some((pid, false)) => format!("Could not stop pid {pid}. It may already be gone."),
+        None => "No daemon running.".to_string(),
     }
+}
+
+/// Map `stop_daemon()`'s outcome to `cmd_restart`'s exact printed message
+/// for the stop phase: a daemon was found and a stop was attempted (the
+/// kill result itself doesn't change the message here, since restart
+/// proceeds to spawn either way), or no daemon was running to begin with.
+fn restart_stop_message(outcome: Option<(u32, bool)>) -> String {
+    match outcome {
+        Some((pid, _)) => format!("Stopped daemon (pid {pid})."),
+        None => "No daemon was running.".to_string(),
+    }
+}
+
+fn cmd_stop() -> Result<()> {
+    println!("{}", stop_outcome_message(stop_daemon()));
     Ok(())
 }
 
 fn cmd_restart() -> Result<()> {
-    match stop_daemon() {
-        Some((pid, _)) => println!("Stopped daemon (pid {pid})."),
-        None => println!("No daemon was running."),
-    }
+    println!("{}", restart_stop_message(stop_daemon()));
     // Wait for the old process to actually exit so the port and lock are free.
     for _ in 0..30 {
         if runtime::running_daemon().is_none() {
@@ -484,5 +499,48 @@ mod config_edit_tests {
         let err = std::io::Error::new(std::io::ErrorKind::NotFound, "no such file");
         let msg = classify_config_edit_outcome(path, Err(err));
         assert!(msg.starts_with("Could not re-read "));
+    }
+}
+
+#[cfg(test)]
+mod stop_restart_message_tests {
+    use super::*;
+
+    #[test]
+    fn stop_outcome_message_reports_success() {
+        assert_eq!(
+            stop_outcome_message(Some((1234, true))),
+            "Stopped daemon (pid 1234)."
+        );
+    }
+
+    #[test]
+    fn stop_outcome_message_reports_failed_kill() {
+        assert_eq!(
+            stop_outcome_message(Some((1234, false))),
+            "Could not stop pid 1234. It may already be gone."
+        );
+    }
+
+    #[test]
+    fn stop_outcome_message_reports_no_daemon() {
+        assert_eq!(stop_outcome_message(None), "No daemon running.");
+    }
+
+    #[test]
+    fn restart_stop_message_reports_stopped_regardless_of_kill_result() {
+        assert_eq!(
+            restart_stop_message(Some((1234, true))),
+            "Stopped daemon (pid 1234)."
+        );
+        assert_eq!(
+            restart_stop_message(Some((1234, false))),
+            "Stopped daemon (pid 1234)."
+        );
+    }
+
+    #[test]
+    fn restart_stop_message_reports_no_daemon_was_running() {
+        assert_eq!(restart_stop_message(None), "No daemon was running.");
     }
 }
