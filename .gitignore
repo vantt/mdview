@@ -1,0 +1,15 @@
+# BEE:START
+.bee/state.json
+.bee/reservations.json
+.bee/workers/
+.bee/logs/
+.bee/capture-queue.jsonl
+.bee/feedback-digest.json
+.bee/.inject-cache.json
+.bee/HANDOFF.json
+.bee/spikes/
+.bee/manifest-hash.json
+# BEE:END
+# DISTILL:START
+/upstreams/
+# DISTILL:END
