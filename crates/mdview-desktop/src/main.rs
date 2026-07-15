@@ -20,6 +20,20 @@ fn main() {
     // Single daemon owns the registry; the window is just a client.
     let base = ensure_daemon();
 
+    // A native window needs a graphical display. Over a plain SSH session there
+    // is none, and GTK init would panic with a cryptic error. Detect that and
+    // point the user at the web UI (the daemon is already running) instead.
+    #[cfg(target_os = "linux")]
+    if std::env::var_os("DISPLAY").is_none() && std::env::var_os("WAYLAND_DISPLAY").is_none() {
+        eprintln!("mdview-desktop needs a graphical display, but none was found");
+        eprintln!("(DISPLAY / WAYLAND_DISPLAY unset — e.g. a plain SSH session).\n");
+        eprintln!("The mdview server is running — just open it in a browser:");
+        eprintln!("    {base}\n");
+        eprintln!("To get the native window, run this on a desktop session, or over");
+        eprintln!("SSH with X forwarding: ssh -X <host>");
+        std::process::exit(0);
+    }
+
     tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
             // Second launch → focus the existing window instead of opening another.
@@ -116,7 +130,11 @@ fn spawn_mdview_serve() -> std::io::Result<()> {
 fn find_mdview() -> PathBuf {
     if let Ok(exe) = std::env::current_exe() {
         if let Some(dir) = exe.parent() {
-            let sibling = dir.join(if cfg!(windows) { "mdview.exe" } else { "mdview" });
+            let sibling = dir.join(if cfg!(windows) {
+                "mdview.exe"
+            } else {
+                "mdview"
+            });
             if sibling.exists() {
                 return sibling;
             }
