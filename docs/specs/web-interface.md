@@ -88,6 +88,17 @@ content itself.
 - **Afterwards:** the operator (often an agent) pastes back authorable markdown,
   not rendered output — round-tripping documentation without de-rendering by hand.
 
+### Mermaid diagram zoom / pan / fullscreen (file pages)
+
+- **Triggers:** a rendered file containing a Mermaid diagram; the diagram is
+  drawn client-side, then gains interactive controls.
+- **What it offers:** hovering a diagram reveals a small toolbar — zoom in, zoom
+  out, reset, and fullscreen. The mouse wheel zooms toward the cursor; dragging
+  pans; reset restores the original view; fullscreen expands the diagram to fill
+  the screen (Escape/toggle exits).
+- **Afterwards:** the operator can read a large or dense diagram that would
+  otherwise overflow its box, without leaving the page.
+
 ## Actors & Access
 
 Not applicable in the role sense — a single local operator in a browser; no
