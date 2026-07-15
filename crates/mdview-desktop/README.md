@@ -6,12 +6,12 @@ opens a native window pointing at the daemon URL, keeps running in the system
 tray when the window is closed, and coordinates a single instance. See PRD.md
 §7.1/§7.5 for the design.
 
-> **Status: written, not yet compiled/verified.** This crate depends on Tauri,
-> which needs platform webview system libraries. The environment where it was
-> authored lacked them (`webkit2gtk-4.1-dev` etc.) and had no way to install
-> them, so — unlike the rest of mdview — this crate has **not** been built or
-> run here. Build it on a machine with the prerequisites below; expect to fix
-> minor Tauri API details on first compile.
+> **Status: compiles, links, and runs** (verified on Linux once webkit2gtk/gtk3/
+> dbus dev libs were installed). On a headless machine the process starts and
+> only stops at GTK init because there is no display — expected. The GUI window
+> itself has not been visually exercised (no display in the build environment);
+> run it on a desktop session to see the window. Bundling (.dmg/.deb/.AppImage/
+> .exe) still needs icons + `bundle.active = true`.
 
 It is intentionally **excluded from the root Cargo workspace** so the verified
 core/CLI build never depends on these system libraries.
