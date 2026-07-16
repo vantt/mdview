@@ -277,7 +277,9 @@ pub fn spawn_daemon_detached() -> Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::{acquire_spawn_gate_at, bind_fallback, build_display_urls, is_wildcard, DaemonInfo, Gate};
+    use super::{
+        acquire_spawn_gate_at, bind_fallback, build_display_urls, is_wildcard, DaemonInfo, Gate,
+    };
     use mdview_core::config::Config;
     use std::time::Duration;
 
@@ -427,9 +429,6 @@ mod tests {
         let mut cfg = Config::default();
         cfg.server.port = 7700;
         cfg.server.host = "127.0.0.1".into();
-        assert_eq!(
-            bind_fallback(None, &cfg),
-            ("127.0.0.1".to_string(), 7700)
-        );
+        assert_eq!(bind_fallback(None, &cfg), ("127.0.0.1".to_string(), 7700));
     }
 }
