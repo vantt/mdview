@@ -339,6 +339,13 @@
 }
 
 /* ── Mermaid pan/zoom + fullscreen toolbar ───────────────────── */
+/* A diagram is not code: keep mermaid off the editorial signature-dark code
+   panel so it renders on a normal, scheme-appropriate surface. */
+.fg-prose pre.mermaid,
+pre.mermaid.zoomable {
+  background: var(--color-surface);
+  color: var(--color-text);
+}
 pre.mermaid.zoomable {
   position: relative;
   overflow: hidden;
