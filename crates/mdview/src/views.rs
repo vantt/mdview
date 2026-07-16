@@ -8,18 +8,18 @@ use mdview_core::domain::{IndexedFile, Project, RenderedPage, SearchResult};
 pub fn layout(title: &str, head_extra: &str, body: &str) -> String {
     format!(
         r#"<!doctype html>
-<html lang="en">
+<html lang="en" data-theme="atelier" class="fg-root">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{title} · mdview</title>
 <script>
-// No-flash: apply saved theme before body renders.
+// No-flash: apply saved scheme before body renders.
 (function() {{
   try {{
     var t = localStorage.getItem('mdview-theme') || 'system';
     var dark = t === 'dark' || (t === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
-    document.documentElement.setAttribute('data-theme', dark ? 'dark' : 'light');
+    document.documentElement.setAttribute('data-scheme', dark ? 'dark' : 'light');
   }} catch (e) {{}}
 }})();
 </script>
@@ -38,14 +38,14 @@ pub fn layout(title: &str, head_extra: &str, body: &str) -> String {
 pub fn project_list_page(projects: &[(Project, usize)]) -> String {
     let mut rows = String::new();
     if projects.is_empty() {
-        rows.push_str("<p class=\"muted\">Chưa có project nào. Đăng ký: <code>mdview register &lt;dir&gt;</code> hoặc gọi MCP <code>mdview_view_file</code>.</p>");
+        rows.push_str("<p class=\"fg-empty\">Chưa có project nào. Đăng ký: <code>mdview register &lt;dir&gt;</code> hoặc gọi MCP <code>mdview_view_file</code>.</p>");
     }
     for (p, count) in projects {
         rows.push_str(&format!(
-            r#"<a class="card" href="/p/{id}/">
-  <div class="card-title">{name}</div>
-  <div class="muted">{root}</div>
-  <div class="muted">{count} markdown files · {seen}</div>
+            r#"<a class="fg-card" href="/p/{id}/">
+  <div class="fg-card__title">{name}</div>
+  <div class="fg-card__sub">{root}</div>
+  <div class="fg-card__sub">{count} markdown files · {seen}</div>
 </a>"#,
             id = esc(&p.id),
             name = esc(&p.name),
@@ -56,7 +56,7 @@ pub fn project_list_page(projects: &[(Project, usize)]) -> String {
     }
     let body = format!(
         r#"{topbar}
-<main class="container"><h2>Projects</h2>{rows}</main>"#,
+<main class="fg-page"><h2 class="fg-pagehead__title">Projects</h2>{rows}</main>"#,
         topbar = topbar(""),
         rows = rows
     );
@@ -83,7 +83,7 @@ pub fn file_page(
 import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs';
 window.__mermaid = mermaid;
 function renderMermaid() {
-  var dark = document.documentElement.getAttribute('data-theme') === 'dark';
+  var dark = document.documentElement.getAttribute('data-scheme') === 'dark';
   mermaid.initialize({ startOnLoad: false, theme: dark ? 'dark' : 'default' });
   mermaid.run({ querySelector: 'pre.mermaid' });
 }
@@ -98,7 +98,9 @@ window.addEventListener('DOMContentLoaded', renderMermaid);
   <aside class="sidebar">{tree}</aside>
   <main class="content">
     {breadcrumb}
-    <article class="markdown-body">{html}</article>
+    <div class="fg-reading">
+      <article class="fg-prose">{html}</article>
+    </div>
     <script type="application/json" id="mdsource">{source_json}</script>
   </main>
   {right}
@@ -240,8 +242,8 @@ fn file_tree(project: &Project, files: &[IndexedFile], active: &str) -> String {
     }
 
     format!(
-        "<form class=\"search\" action=\"/p/{pid}/_search\" method=\"get\">\
-         <input name=\"q\" placeholder=\"Search…\" autocomplete=\"off\"></form>\
+        "<form action=\"/p/{pid}/_search\" method=\"get\">\
+         <input class=\"fg-input\" name=\"q\" placeholder=\"Search…\" autocomplete=\"off\"></form>\
          <nav class=\"chapter\" id=\"chapter\" data-pid=\"{pid}\" data-root=\"{root}\" \
          data-current=\"{cur}\">{fallback}</nav>\
          <script type=\"application/json\" id=\"filelist\">{json}</script>",
@@ -254,7 +256,7 @@ fn file_tree(project: &Project, files: &[IndexedFile], active: &str) -> String {
 }
 
 fn theme_toggle() -> &'static str {
-    r#"<button id="theme-toggle" class="theme-toggle" title="Toggle theme">◐</button>"#
+    r#"<button id="theme-toggle" class="theme-toggle fg-btn fg-btn--ghost" title="Toggle theme">◐</button>"#
 }
 
 /// Shared top bar for every page: brand, a page-specific center slot (crumb or
@@ -276,17 +278,17 @@ fn topbar(center: &str) -> String {
 pub fn search_page(project: &Project, query: &str, results: &[SearchResult]) -> String {
     let mut items = String::new();
     if query.trim().is_empty() {
-        items.push_str("<p class=\"muted\">Type a query to search this project.</p>");
+        items.push_str("<p class=\"fg-empty\">Type a query to search this project.</p>");
     } else if results.is_empty() {
         items.push_str(&format!(
-            "<p class=\"muted\">No matches for “{}”.</p>",
+            "<p class=\"fg-empty\">No matches for “{}”.</p>",
             esc(query)
         ));
     } else {
         for r in results {
             items.push_str(&format!(
-                "<a class=\"result\" href=\"{url}\"><div class=\"result-title\">{title}</div>\
-                 <div class=\"muted\">{rel}</div><div class=\"excerpt\">{excerpt}</div></a>",
+                "<a class=\"fg-card\" href=\"{url}\"><div class=\"fg-card__title\">{title}</div>\
+                 <div class=\"fg-card__sub\">{rel}</div><div class=\"fg-card__sub\">{excerpt}</div></a>",
                 url = esc(&r.url),
                 title = esc(&r.title),
                 rel = esc(&r.rel_path),
@@ -296,9 +298,9 @@ pub fn search_page(project: &Project, query: &str, results: &[SearchResult]) -> 
     }
     let body = format!(
         r#"{topbar}
-<main class="container">
-  <form class="search wide" action="/p/{pid}/_search" method="get">
-    <input name="q" value="{q}" placeholder="Search…" autofocus autocomplete="off">
+<main class="fg-page">
+  <form action="/p/{pid}/_search" method="get">
+    <input class="fg-input" name="q" value="{q}" placeholder="Search…" autofocus autocomplete="off">
   </form>
   {items}
 </main>"#,
@@ -316,13 +318,13 @@ pub fn search_page(project: &Project, query: &str, results: &[SearchResult]) -> 
 /// FTS snippets contain `<mark>…</mark>`. Escape everything, then restore marks.
 fn highlight_excerpt(excerpt: &str) -> String {
     esc(excerpt)
-        .replace("&lt;mark&gt;", "<mark>")
+        .replace("&lt;mark&gt;", "<mark class=\"fg-mark\">")
         .replace("&lt;/mark&gt;", "</mark>")
 }
 
 pub fn settings_page(cfg: &Config, saved: bool) -> String {
     let banner = if saved {
-        "<div class=\"banner\">Saved. Server &amp; indexing changes apply after restart (<code>mdview stop &amp;&amp; mdview serve</code>).</div>"
+        "<div class=\"fg-banner fg-banner--success\"><span class=\"fg-banner__dot\"></span><span class=\"fg-banner__body\">Saved. Server &amp; indexing changes apply after restart (<code>mdview stop &amp;&amp; mdview serve</code>).</span></div>"
     } else {
         ""
     };
@@ -332,43 +334,72 @@ pub fn settings_page(cfg: &Config, saved: bool) -> String {
 
     let body = format!(
         r#"{topbar}
-<main class="container">
-  <h2>Settings</h2>
+<main class="fg-page">
+  <h2 class="fg-pagehead__title">Settings</h2>
   {banner}
-  <form class="settings" method="post" action="/api/config">
-    <fieldset><legend>Server <span class="tag">restart</span></legend>
-      <label>Port <input type="number" name="port" value="{port}" min="1" max="65535"></label>
-      <label>Host <input name="host" value="{host}"> <span class="hint">127.0.0.1 (local) or 0.0.0.0 (LAN)</span></label>
-      <label>Display hostname <input name="host_name" value="{host_name}"> <span class="hint">optional — used in rendered links instead of the IP/host above</span></label>
-      <label class="cb"><input type="checkbox" name="open_browser" {open}> Open browser on start</label>
+  <form method="post" action="/api/config">
+    <fieldset><legend>Server <span class="fg-chip fg-chip--neutral">restart</span></legend>
+      <div class="fg-field">
+        <label class="fg-field__label">Port</label>
+        <input class="fg-input" type="number" name="port" value="{port}" min="1" max="65535">
+      </div>
+      <div class="fg-field">
+        <label class="fg-field__label">Host</label>
+        <input class="fg-input" name="host" value="{host}">
+        <span class="fg-field__hint">127.0.0.1 (local) or 0.0.0.0 (LAN)</span>
+      </div>
+      <div class="fg-field">
+        <label class="fg-field__label">Display hostname</label>
+        <input class="fg-input" name="host_name" value="{host_name}">
+        <span class="fg-field__hint">optional — used in rendered links instead of the IP/host above</span>
+      </div>
+      <label class="fg-check"><input type="checkbox" name="open_browser" {open}><span class="fg-check__text">Open browser on start</span></label>
     </fieldset>
     <fieldset><legend>Renderer</legend>
-      <label>Theme
-        <select name="theme">
-          <option value="system" {t_sys}>System</option>
-          <option value="light" {t_light}>Light</option>
-          <option value="dark" {t_dark}>Dark</option>
-        </select>
-      </label>
-      <label>Syntax highlight theme <input name="syntax_theme" value="{syntax}"></label>
+      <div class="fg-field">
+        <label class="fg-field__label">Theme</label>
+        <div class="fg-select">
+          <select name="theme">
+            <option value="system" {t_sys}>System</option>
+            <option value="light" {t_light}>Light</option>
+            <option value="dark" {t_dark}>Dark</option>
+          </select>
+          <span class="fg-select__chev">▾</span>
+        </div>
+      </div>
+      <div class="fg-field">
+        <label class="fg-field__label">Syntax highlight theme</label>
+        <input class="fg-input" name="syntax_theme" value="{syntax}">
+      </div>
     </fieldset>
-    <fieldset><legend>Indexing <span class="tag">restart</span></legend>
-      <label>Debounce (ms) <input type="number" name="debounce_ms" value="{debounce}" min="0"></label>
-      <label>Max file size (MB) <input type="number" name="max_file_size_mb" value="{maxmb}" min="1"></label>
-      <label>Exclude patterns (one per line)
-        <textarea name="exclude_patterns" rows="5">{excludes}</textarea>
-      </label>
+    <fieldset><legend>Indexing <span class="fg-chip fg-chip--neutral">restart</span></legend>
+      <div class="fg-field">
+        <label class="fg-field__label">Debounce (ms)</label>
+        <input class="fg-input" type="number" name="debounce_ms" value="{debounce}" min="0">
+      </div>
+      <div class="fg-field">
+        <label class="fg-field__label">Max file size (MB)</label>
+        <input class="fg-input" type="number" name="max_file_size_mb" value="{maxmb}" min="1">
+      </div>
+      <div class="fg-field">
+        <label class="fg-field__label">Exclude patterns (one per line)</label>
+        <textarea class="fg-input fg-input--area" name="exclude_patterns" rows="5">{excludes}</textarea>
+      </div>
     </fieldset>
-    <fieldset><legend>MCP <span class="tag">restart</span></legend>
-      <label class="cb"><input type="checkbox" name="mcp_enabled" {mcp_on}> Enabled</label>
-      <label>Transport
-        <select name="mcp_transport">
-          <option value="stdio" {tr_stdio}>stdio</option>
-          <option value="http" {tr_http}>http</option>
-        </select>
-      </label>
+    <fieldset><legend>MCP <span class="fg-chip fg-chip--neutral">restart</span></legend>
+      <label class="fg-check"><input type="checkbox" name="mcp_enabled" {mcp_on}><span class="fg-check__text">Enabled</span></label>
+      <div class="fg-field">
+        <label class="fg-field__label">Transport</label>
+        <div class="fg-select">
+          <select name="mcp_transport">
+            <option value="stdio" {tr_stdio}>stdio</option>
+            <option value="http" {tr_http}>http</option>
+          </select>
+          <span class="fg-select__chev">▾</span>
+        </div>
+      </div>
     </fieldset>
-    <button type="submit">Save</button>
+    <button type="submit" class="fg-btn fg-btn--primary">Save</button>
   </form>
 </main>"#,
         topbar = topbar("<span class=\"crumb\">Settings</span>"),
@@ -394,7 +425,7 @@ pub fn settings_page(cfg: &Config, saved: bool) -> String {
 pub fn error_page(status: u16, msg: &str) -> String {
     let body = format!(
         r#"{topbar}
-<main class="container"><h2>{status}</h2><p class="muted">{msg}</p></main>"#,
+<main class="fg-page"><h2 class="fg-pagehead__title">{status}</h2><p class="fg-empty">{msg}</p></main>"#,
         topbar = topbar(""),
         status = status,
         msg = esc(msg)
@@ -409,7 +440,17 @@ fn esc(s: &str) -> String {
         .replace('"', "&quot;")
 }
 
-pub const APP_CSS: &str = include_str!("../assets/app.css");
+pub const APP_CSS: &str = concat!(
+    include_str!("../assets/atelier/contract.css"),
+    "\n",
+    include_str!("../assets/atelier/components.css"),
+    "\n",
+    include_str!("../assets/atelier/editorial.css"),
+    "\n",
+    include_str!("../assets/atelier/atelier.css"),
+    "\n",
+    include_str!("../assets/app.css"),
+);
 pub const APP_JS: &str = include_str!("../assets/app.js");
 
 #[cfg(test)]
