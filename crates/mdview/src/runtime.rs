@@ -16,9 +16,6 @@ pub fn build_engine() -> Result<Engine> {
     Ok(Engine::new(store, config))
 }
 
-/// Ensure a daemon is running and resolve its real bind `(host, port)` — the
-/// connectivity values, spawning a daemon if none is up. This is the shared
-/// basis for the *display* URL builders below; it never mutates connectivity.
 /// How long a spawn-gate lock may sit before its owner is presumed dead and the
 /// gate is stolen — comfortably longer than the readiness poll below.
 const SPAWN_GATE_STALE: Duration = Duration::from_secs(15);
@@ -88,6 +85,9 @@ fn acquire_spawn_gate_at(path: &std::path::Path, stale_after: Duration) -> Gate 
     }
 }
 
+/// Ensure a daemon is running and resolve its real bind `(host, port)` — the
+/// connectivity values, spawning a daemon if none is up. This is the shared
+/// basis for the *display* URL builders below; it never mutates connectivity.
 fn ensure_bind() -> (String, u16) {
     if let Some(info) = daemon::running_daemon() {
         return (info.host, info.port);
@@ -216,21 +216,18 @@ fn build_display_urls(
 /// and the daemon outlives whatever process spawned it. Without the detach the
 /// daemon shares its spawner's session/process-group and dies with it (SIGHUP
 /// when the terminal/session closes, or a process-group-directed SIGTERM).
-pub fn spawn_daemon_detached() -> Result<()> {
-    let exe = std::env::current_exe()?;
-    let mut cmd = std::process::Command::new(exe);
-    cmd.arg("serve")
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null());
-
+/// Apply the platform detach settings to `cmd` so a spawned child outlives its
+/// spawner: a new session on Unix (`setsid`), a detached console + new process
+/// group on Windows. Extracted from `spawn_daemon_detached` so the detach itself
+/// is testable without launching the full daemon.
+fn apply_detach(cmd: &mut std::process::Command) {
     #[cfg(unix)]
     {
         use std::os::unix::process::CommandExt;
         // SAFETY: setsid() is async-signal-safe and is the only call made in the
-        // forked child before exec. It puts the daemon in its own new session
-        // (as session leader), detaching it from the spawner's controlling
-        // terminal and process group so neither a SIGHUP on session close nor a
+        // forked child before exec. It puts the child in its own new session (as
+        // session leader), detaching it from the spawner's controlling terminal
+        // and process group so neither a SIGHUP on session close nor a
         // process-group-directed signal can reach it.
         unsafe {
             cmd.pre_exec(|| {
@@ -251,7 +248,16 @@ pub fn spawn_daemon_detached() -> Result<()> {
         const CREATE_NEW_PROCESS_GROUP: u32 = 0x0000_0200;
         cmd.creation_flags(DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP);
     }
+}
 
+pub fn spawn_daemon_detached() -> Result<()> {
+    let exe = std::env::current_exe()?;
+    let mut cmd = std::process::Command::new(exe);
+    cmd.arg("serve")
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null());
+    apply_detach(&mut cmd);
     cmd.spawn()?;
     Ok(())
 }
@@ -306,6 +312,37 @@ mod tests {
             Gate::Acquired(_)
         ));
         std::fs::remove_dir_all(path.parent().unwrap()).ok();
+    }
+
+    // The daemon-detach behavior (setsid) had no automated guard — the function
+    // was once "detached" in name only. This exercises the real `apply_detach`
+    // on a throwaway child and asserts it lands in its own session.
+    #[cfg(unix)]
+    #[test]
+    fn apply_detach_puts_child_in_its_own_session() {
+        use std::process::{Command, Stdio};
+        let mut cmd = Command::new("sleep");
+        cmd.arg("0.4")
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null());
+        super::apply_detach(&mut cmd);
+        let mut child = cmd.spawn().expect("spawn sleep");
+        let pid = child.id() as i32;
+        // pre_exec runs setsid before exec; give the child a moment to get there.
+        std::thread::sleep(Duration::from_millis(80));
+        let child_sid = unsafe { libc::getsid(pid) };
+        let my_sid = unsafe { libc::getsid(0) };
+        // Reap the child before asserting so a failed assert can't leak a process.
+        child.kill().ok();
+        child.wait().ok();
+        // A detached child leads its own session: getsid(child) == child pid, and
+        // it differs from the test process's session.
+        assert_eq!(child_sid, pid, "detached child must lead its own session");
+        assert_ne!(
+            child_sid, my_sid,
+            "detached child must not share our session"
+        );
     }
 
     fn ips(v: &[&str]) -> Vec<String> {

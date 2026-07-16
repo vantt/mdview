@@ -188,10 +188,7 @@ async fn update_config(Form(form): Form<SettingsForm>) -> Response {
             cfg.server.host = h.to_string();
         }
     }
-    cfg.server.host_name = form
-        .host_name
-        .map(|h| h.trim().to_string())
-        .filter(|h| !h.is_empty());
+    cfg.server.host_name = normalize_host_name(form.host_name);
     cfg.server.open_browser_on_start = form.open_browser.is_some();
     if let Some(t) = form.theme {
         if ["light", "dark", "system"].contains(&t.as_str()) {
@@ -469,6 +466,13 @@ fn asset_response(path: &std::path::Path, bytes: Vec<u8>) -> Response {
         .into_response()
 }
 
+/// Normalize a submitted `host_name`: trim it and treat blank/whitespace-only as
+/// unset. The settings form always sends the field (empty when cleared), so this
+/// maps `""`/`"  "` → `None` and keeps the display override off `http://:PORT`.
+fn normalize_host_name(raw: Option<String>) -> Option<String> {
+    raw.map(|h| h.trim().to_string()).filter(|h| !h.is_empty())
+}
+
 /// True when `host` is a loopback bind (safe default). A wildcard (`0.0.0.0`/`::`)
 /// or a concrete LAN IP is not loopback and exposes the no-auth server to the
 /// network — the trigger for the startup warning.
@@ -534,6 +538,17 @@ mod asset_response_tests {
         assert_eq!(h.get(header::CONTENT_TYPE).unwrap(), "image/png");
         assert_eq!(h.get(header::CONTENT_SECURITY_POLICY).unwrap(), "sandbox");
         assert_eq!(h.get(header::X_CONTENT_TYPE_OPTIONS).unwrap(), "nosniff");
+    }
+
+    #[test]
+    fn host_name_form_value_normalizes_blank_to_none() {
+        assert_eq!(normalize_host_name(None), None);
+        assert_eq!(normalize_host_name(Some(String::new())), None);
+        assert_eq!(normalize_host_name(Some("   ".into())), None);
+        assert_eq!(
+            normalize_host_name(Some("  host.local ".into())),
+            Some("host.local".to_string())
+        );
     }
 
     #[test]

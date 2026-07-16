@@ -396,6 +396,18 @@ mod tests {
             let link = dir.join("images/bypass.png");
             std::os::unix::fs::symlink(&target, &link).unwrap();
             assert!(engine.asset_path(&project.id, "images/bypass.png").is_err());
+
+            // The highest-value vector: a symlink with an *allowed* extension
+            // pointing at a readable file *outside* the project root. Its
+            // extension passes, so only the containment guard (starts_with on
+            // the canonical path) rejects it — lock that in.
+            let outside =
+                std::env::temp_dir().join(format!("mdview-outside-{}.png", std::process::id()));
+            std::fs::write(&outside, "out-of-root-bytes").unwrap();
+            let esc_link = dir.join("images/escape.png");
+            std::os::unix::fs::symlink(&outside, &esc_link).unwrap();
+            assert!(engine.asset_path(&project.id, "images/escape.png").is_err());
+            std::fs::remove_file(&outside).ok();
         }
 
         std::fs::remove_dir_all(&dir).ok();
