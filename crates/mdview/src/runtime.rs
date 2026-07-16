@@ -23,13 +23,19 @@ fn ensure_bind() -> (String, u16) {
     if let Some(info) = daemon::running_daemon() {
         return (info.host, info.port);
     }
-    let _ = spawn_daemon_detached();
+    if let Err(e) = spawn_daemon_detached() {
+        eprintln!("mdview: failed to auto-spawn daemon: {e}");
+    }
     for _ in 0..20 {
         std::thread::sleep(Duration::from_millis(100));
         if let Some(info) = daemon::running_daemon() {
             return (info.host, info.port);
         }
     }
+    // Daemon never answered: surface it rather than silently handing back a
+    // config-default URL that looks live. The URL is still returned for the
+    // caller to print, but the operator now sees why it may not respond.
+    eprintln!("mdview: daemon did not become ready in time; the viewer URL may not respond yet.");
     let cfg = Config::load();
     (cfg.server.host, cfg.server.port)
 }

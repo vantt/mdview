@@ -386,7 +386,15 @@ fn stop_daemon() -> Option<(u32, bool)> {
         .status()
         .map(|s| s.success())
         .unwrap_or(false);
-    runtime::remove_lock();
+    // Clear the lock unless the daemon is genuinely orphaned — a kill that
+    // failed while the daemon still answers on its port. Deleting the lock in
+    // that case would strand a live daemon that `stop`/`status` can no longer
+    // reach and let `restart` spawn a second one. A failed kill on an already
+    // dead process (health check fails) is a stale lock and is cleared.
+    let orphaned = !ok && runtime::running_daemon().is_some();
+    if !orphaned {
+        runtime::remove_lock();
+    }
     Some((info.pid, ok))
 }
 
