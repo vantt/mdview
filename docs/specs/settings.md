@@ -1,8 +1,8 @@
 ---
 area: settings
-updated: 2026-07-15
-sources: [mdview-hostname-doctor-fix]
-decisions: [07c1ac9f]
+updated: 2026-07-16
+sources: [mdview-hostname-doctor-fix, hostname-port-truth]
+decisions: [07c1ac9f, bcfcf737]
 coverage: partial
 ---
 
@@ -107,14 +107,18 @@ integration area.
   running server is stopped and restarted; the settings page states this
   explicitly at save time.
 - **R3.** When Host is a wildcard bind (any-interface, e.g. `0.0.0.0`) **and**
-  Display hostname is blank, the `mdview_view_file` MCP tool returns **one
-  viewable link per reachable machine IP** (loopback and link-local excluded)
-  instead of a single unusable wildcard link — so a caller on another host can
-  pick an address that routes to it. A non-blank Display hostname (R1) or a
-  specific (non-wildcard) Host still yields a single link. This is the same
+  Display hostname is blank, every link-returning entry point — the
+  `mdview_view_file` MCP tool, and the CLI `mdview open`/`mdview restart`
+  commands (per D bcfcf737) — returns **one viewable link per reachable
+  machine IP** (loopback and link-local excluded) instead of a single
+  unusable wildcard link, so a caller on another host can pick an address
+  that routes to it. A non-blank Display hostname (R1) or a specific
+  (non-wildcard) Host still yields a single link everywhere. This is the same
   display-only substitution as R1: it never changes the real bind/connect
-  address. The tool's structured result keeps the original single `url` field
-  (the first link) for compatibility and adds a `urls` list of all links.
+  address. Every one of these entry points keeps a single primary link (the
+  first one) for compatibility with a caller expecting one link, and adds the
+  full list alongside it: the MCP tool's structured result keeps `url` and
+  adds `urls`; the CLI's `--json` output does the same.
 
 ## Edge Cases Settled
 
@@ -144,10 +148,16 @@ No settled screenshot captured for `/settings` yet — see Open Gaps.
 - `crates/mdview/src/server.rs` — `settings_page_handler`, `SettingsForm`,
   `update_config` (routes `/settings`, `/api/config`).
 - `crates/mdview/src/views.rs` — `settings_page` (form rendering).
-- `crates/mdview/src/runtime.rs` — `ensure_daemon_base`/`display_base_url`
-  (Display hostname substitution into returned URLs); `ensure_daemon_bases`/
-  `build_display_urls`/`machine_ipv4s` (R3 multi-IP link list for wildcard bind).
+- `crates/mdview/src/runtime.rs` — `ensure_daemon_bases`/`build_display_urls`/
+  `machine_ipv4s` (single entry point for both Display hostname substitution
+  and R3's multi-IP link list; used by every link-returning caller — the
+  single-URL `ensure_daemon_base`/`display_base_url` helpers were retired
+  once the last single-URL caller switched over).
 - `crates/mdview-core/src/daemon.rs` — `DaemonInfo`/`base_url`/`health_check`
   (the real bind/connect host, unaffected by Display hostname).
 - `crates/mdview/src/cli.rs` — `Command::Serve { port, host }`, `cmd_serve`
-  (CLI override path).
+  (CLI override path); `cmd_open`/`cmd_restart` (R3 multi-IP `--json` output:
+  `url` + `urls`).
+- `crates/mdview/tests/e2e_open.rs` — end-to-end coverage: a real daemon is
+  started and `mdview open --json` is asserted to return the daemon's actual
+  bound port, not a stale configured one.

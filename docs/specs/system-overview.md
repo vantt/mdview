@@ -58,6 +58,12 @@ launcher — CLI, MCP, future desktop — coordinates through `~/.mdview/daemon.
 - **CLI** — `serve` (daemon), plus `register / open / list / search / status /
   refresh / unregister / stop`, `doctor`, and `version` (prints the single-source
   app version, same as `--version`).
+- **Installation** — the install script resolves which released version it is
+  about to install (a specific requested version, or the latest release) and
+  echoes that resolved version to the operator before/while installing, so the
+  operator always knows which version they ended up with — the same
+  single-source version reported everywhere else (CLI, settings page,
+  `/health`).
 - **Settings** — view and change the server binding, renderer theme, indexing
   behavior, and MCP transport, from a web page or `serve` CLI overrides.
   Server/Indexing/MCP changes need a restart to take effect. An optional

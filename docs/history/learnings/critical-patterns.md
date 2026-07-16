@@ -33,6 +33,28 @@ bee-compounding appends hard-won patterns here; keep it short and current.
   <repo>/Cargo.toml --bin mdview -- <args>` — cwd of the child process is the
   scratch dir, so cwd-relative behavior (e.g. `doctor`'s AGENTS.md/CLAUDE.md
   handling) is exercised correctly. (2026-07-15, same learnings file)
+  **This manual recipe is for an agent interactively probing behavior**
+  (exploring, a validating-phase spike) — it is not something `cargo test
+  --workspace` can run or fail on. When a cell needs *automated, CI-safe* e2e
+  coverage of a binary in this repo, use `env!("CARGO_BIN_EXE_<bin-name>")`
+  inside a real `#[test]` under `crates/<crate>/tests/` instead — it spawns
+  the actual compiled binary as part of the normal test run, satisfying
+  "verify must be a runnable command" (AGENTS.md critical rule 2) for genuine
+  e2e behavior, not just unit-level. (2026-07-16,
+  `20260716-hostname-port-truth.md`)
+- **A cell that forbids a live-timing test on a polling/timeout code path
+  must explicitly authorize extracting the fallback decision into a pure,
+  parameter-injected helper function** — a cold worker cannot infer that a
+  refactor is the only way to satisfy "prove this without a live sleep."
+  Two independent review-tier subagents (plan-checker, cell-reviewer) caught
+  this gap from different angles on the same cell during validating: the fix
+  was `fn bind_fallback(lock: Option<DaemonInfo>, cfg: &Config) -> (String,
+  u16)` in `runtime.rs`, unit-tested with in-memory values only — never
+  writing the real global lock path (`~/.mdview/daemon.lock`) from a test,
+  and never sleeping the real poll window. Any future cell testing a
+  timing/polling branch needs the same explicit extraction step written into
+  its `action`, not just implied by its `plan.md`. (2026-07-16,
+  `20260716-hostname-port-truth.md`)
 - **After a `git filter-repo` history rewrite + force-push, syncing the local
   working directory with `git reset --hard origin/<branch>` silently deletes
   any file that was tracked-and-clean (no uncommitted diff) at the old HEAD

@@ -1,8 +1,8 @@
 ---
 area: daemon
-updated: 2026-07-15
-sources: [daemon-auto-spawn-detach]
-decisions: [625c69fa]
+updated: 2026-07-16
+sources: [daemon-auto-spawn-detach, hostname-port-truth]
+decisions: [625c69fa, 1c8473f4]
 coverage: partial
 ---
 
@@ -35,6 +35,7 @@ serves (see the web-interface and agent-integration areas for that).
 | 3 | Port | Port the daemon listens on (auto-increments if taken) | 1–65535 | 7700 |
 | — | Daemon record (not shown) | The on-disk marker identifying the one live daemon: its process id, host, port, start time | — | — |
 | — | Readiness wait (not shown) | How long an auto-start waits for the new daemon to answer before giving up and returning a best-effort URL | ~2 seconds | — |
+| — | Best-effort URL (not shown) | The URL returned when the readiness wait expires without the daemon confirming it answers. Per D 1c8473f4: if the daemon's on-disk record already exists at that point (it was written the moment the daemon bound its port, before the daemon starts answering health checks), the returned port is that **real bound port**, even though liveness isn't yet confirmed. Only when no record exists at all does it fall back to the configured port. | real bound port (record present) or configured port (no record) | — |
 
 ## Behaviors & Operations
 
@@ -112,6 +113,12 @@ serves (see the web-interface and agent-integration areas for that).
   daemon can start.
 - `mdview serve` while one is already running → no-op with a message, never a
   duplicate daemon.
+- Configured port already in use (auto-increment landed on a different port)
+  **and** the new daemon is still within its readiness wait when a caller asks
+  for a URL → the caller still gets the real auto-incremented port (via the
+  daemon record, per D 1c8473f4), not the originally-configured one. Before
+  this fix, a caller unlucky enough to ask during that window could receive a
+  URL pointing at the wrong port.
 
 ## Open Gaps
 
@@ -127,8 +134,10 @@ Not applicable — background process, no screen.
 
 ## Pointers (implementation)
 
-- `crates/mdview/src/runtime.rs` — `ensure_daemon_base` (auto-start + readiness
-  wait), `spawn_daemon_detached` (session detach: Unix `setsid`, Windows
+- `crates/mdview/src/runtime.rs` — `ensure_bind`/`ensure_daemon_bases`
+  (auto-start + readiness wait; `bind_fallback` is the pure function deciding
+  real-record-port vs. configured-port on a readiness timeout, per D 1c8473f4),
+  `spawn_daemon_detached` (session detach: Unix `setsid`, Windows
   `DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP`).
 - `crates/mdview-core/src/daemon.rs` — the daemon record (`~/.mdview/daemon.lock`),
   `running_daemon`, `health_check`.
