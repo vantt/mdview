@@ -19,12 +19,102 @@ pub fn build_engine() -> Result<Engine> {
 /// Ensure a daemon is running and resolve its real bind `(host, port)` — the
 /// connectivity values, spawning a daemon if none is up. This is the shared
 /// basis for the *display* URL builders below; it never mutates connectivity.
+/// How long a spawn-gate lock may sit before its owner is presumed dead and the
+/// gate is stolen — comfortably longer than the readiness poll below.
+const SPAWN_GATE_STALE: Duration = Duration::from_secs(15);
+
+/// The spawn-gate lock path: a sibling of the daemon lock. Its existence means
+/// "some invocation is currently spawning the daemon".
+fn spawn_gate_path() -> std::path::PathBuf {
+    daemon::lock_path().with_extension("spawning")
+}
+
+/// Outcome of trying to become the daemon spawner.
+enum Gate {
+    /// We own the gate and must do the spawn. The guard is held only for its
+    /// `Drop` (which removes the gate file), never read — hence `dead_code`.
+    Acquired(#[allow(dead_code)] SpawnGate),
+    /// Another live invocation holds the gate — wait for the daemon, don't spawn.
+    Held,
+    /// The gate file could not be used at all — caller should spawn unguarded.
+    Unavailable,
+}
+
+/// RAII guard that removes the spawn-gate file when the spawner is done.
+struct SpawnGate {
+    path: std::path::PathBuf,
+}
+
+impl Drop for SpawnGate {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.path);
+    }
+}
+
+/// Atomically claim the spawn gate at `path` via `create_new` (O_EXCL), so
+/// exactly one racer wins. An existing gate older than `stale_after` is assumed
+/// abandoned (its owner died mid-spawn) and stolen.
+fn acquire_spawn_gate_at(path: &std::path::Path, stale_after: Duration) -> Gate {
+    let claim = |p: &std::path::Path| {
+        std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(p)
+    };
+    match claim(path) {
+        Ok(_) => Gate::Acquired(SpawnGate {
+            path: path.to_path_buf(),
+        }),
+        Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
+            let stale = std::fs::metadata(path)
+                .and_then(|m| m.modified())
+                .ok()
+                .and_then(|t| t.elapsed().ok())
+                .map(|age| age > stale_after)
+                .unwrap_or(true); // unreadable/future mtime → treat as stale
+            if !stale {
+                return Gate::Held;
+            }
+            let _ = std::fs::remove_file(path);
+            match claim(path) {
+                Ok(_) => Gate::Acquired(SpawnGate {
+                    path: path.to_path_buf(),
+                }),
+                Err(_) => Gate::Held, // lost the steal race to another invocation
+            }
+        }
+        // Directory missing/unwritable etc. — the gate is unusable here.
+        Err(_) => Gate::Unavailable,
+    }
+}
+
 fn ensure_bind() -> (String, u16) {
     if let Some(info) = daemon::running_daemon() {
         return (info.host, info.port);
     }
-    if let Err(e) = spawn_daemon_detached() {
-        eprintln!("mdview: failed to auto-spawn daemon: {e}");
+    // Serialize the cold-start spawn: parallel `open`/`view_file` invocations
+    // must not each launch a daemon (two daemons fight over the port and the
+    // SQLite registry, and the loser becomes an unkillable orphan). Only the
+    // gate holder spawns; if the gate is unusable we degrade to the old
+    // unguarded spawn — never worse than before. `_gate` is held across the
+    // whole readiness wait so no second invocation spawns during the window.
+    let _gate = acquire_spawn_gate_at(&spawn_gate_path(), SPAWN_GATE_STALE);
+    match &_gate {
+        Gate::Acquired(_) => {
+            // Re-check under the gate: another spawner may have just finished.
+            if let Some(info) = daemon::running_daemon() {
+                return (info.host, info.port);
+            }
+            if let Err(e) = spawn_daemon_detached() {
+                eprintln!("mdview: failed to auto-spawn daemon: {e}");
+            }
+        }
+        Gate::Held => {} // another invocation is spawning; just wait below.
+        Gate::Unavailable => {
+            if let Err(e) = spawn_daemon_detached() {
+                eprintln!("mdview: failed to auto-spawn daemon: {e}");
+            }
+        }
     }
     for _ in 0..20 {
         std::thread::sleep(Duration::from_millis(100));
@@ -168,7 +258,55 @@ pub fn spawn_daemon_detached() -> Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::{build_display_urls, is_wildcard};
+    use super::{acquire_spawn_gate_at, build_display_urls, is_wildcard, Gate};
+    use std::time::Duration;
+
+    fn gate_tmp(label: &str) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "mdview-gate-{label}-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        dir.join("daemon.spawning")
+    }
+
+    #[test]
+    fn spawn_gate_grants_one_holder_then_blocks_until_released() {
+        let path = gate_tmp("excl");
+        let g1 = acquire_spawn_gate_at(&path, Duration::from_secs(15));
+        assert!(matches!(g1, Gate::Acquired(_)));
+        assert!(path.exists());
+        // A second racer, while the gate is held and fresh, must be blocked.
+        assert!(matches!(
+            acquire_spawn_gate_at(&path, Duration::from_secs(15)),
+            Gate::Held
+        ));
+        // Dropping the guard releases the gate file...
+        drop(g1);
+        assert!(!path.exists());
+        // ...and it can be claimed again.
+        assert!(matches!(
+            acquire_spawn_gate_at(&path, Duration::from_secs(15)),
+            Gate::Acquired(_)
+        ));
+        std::fs::remove_dir_all(path.parent().unwrap()).ok();
+    }
+
+    #[test]
+    fn spawn_gate_steals_a_stale_lock() {
+        let path = gate_tmp("stale");
+        std::fs::write(&path, b"").unwrap();
+        // stale_after = 0 → an existing gate is immediately abandoned and stolen.
+        assert!(matches!(
+            acquire_spawn_gate_at(&path, Duration::from_secs(0)),
+            Gate::Acquired(_)
+        ));
+        std::fs::remove_dir_all(path.parent().unwrap()).ok();
+    }
 
     fn ips(v: &[&str]) -> Vec<String> {
         v.iter().map(|s| s.to_string()).collect()
