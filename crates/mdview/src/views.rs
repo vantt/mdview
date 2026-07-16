@@ -350,7 +350,7 @@ pub fn settings_page(cfg: &Config, saved: bool) -> String {
       </div>
       <div class="fg-field">
         <label class="fg-field__label">Display hostname</label>
-        <input class="fg-input" name="host_name" value="{host_name}">
+        <input class="fg-input" name="hostname" value="{hostname}">
         <span class="fg-field__hint">optional — used in rendered links instead of the IP/host above</span>
       </div>
       <label class="fg-check"><input type="checkbox" name="open_browser" {open}><span class="fg-check__text">Open browser on start</span></label>
@@ -408,7 +408,7 @@ pub fn settings_page(cfg: &Config, saved: bool) -> String {
         version = env!("CARGO_PKG_VERSION"),
         port = cfg.server.port,
         host = esc(&cfg.server.host),
-        host_name = esc(cfg.server.host_name.as_deref().unwrap_or("")),
+        hostname = esc(cfg.server.hostname.as_deref().unwrap_or("")),
         open = checked(cfg.server.open_browser_on_start),
         t_sys = sel(&cfg.renderer.theme, "system"),
         t_light = sel(&cfg.renderer.theme, "light"),

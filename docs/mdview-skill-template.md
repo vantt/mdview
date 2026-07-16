@@ -39,7 +39,7 @@ Pick the best available method:
 Tell the user: "You can view this at: `<url>`".
 
 When more than one URL comes back — the daemon is bound to `0.0.0.0` with no
-configured `host_name`, so it lists every reachable IP — show all of them and
+configured `hostname`, so it lists every reachable IP — show all of them and
 let the user pick whichever is reachable from their browser. The URL host is a
 display value only; the daemon still binds and is health-checked on its real
 address.

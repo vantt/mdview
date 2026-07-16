@@ -174,7 +174,7 @@ async fn settings_page_handler(Query(flag): Query<SavedFlag>) -> Response {
 struct SettingsForm {
     port: Option<u16>,
     host: Option<String>,
-    host_name: Option<String>,
+    hostname: Option<String>,
     open_browser: Option<String>,
     theme: Option<String>,
     syntax_theme: Option<String>,
@@ -198,7 +198,7 @@ async fn update_config(Form(form): Form<SettingsForm>) -> Response {
             cfg.server.host = h.to_string();
         }
     }
-    cfg.server.host_name = normalize_host_name(form.host_name);
+    cfg.server.hostname = normalize_hostname(form.hostname);
     cfg.server.open_browser_on_start = form.open_browser.is_some();
     if let Some(t) = form.theme {
         if ["light", "dark", "system"].contains(&t.as_str()) {
@@ -476,10 +476,10 @@ fn asset_response(path: &std::path::Path, bytes: Vec<u8>) -> Response {
         .into_response()
 }
 
-/// Normalize a submitted `host_name`: trim it and treat blank/whitespace-only as
+/// Normalize a submitted `hostname`: trim it and treat blank/whitespace-only as
 /// unset. The settings form always sends the field (empty when cleared), so this
 /// maps `""`/`"  "` → `None` and keeps the display override off `http://:PORT`.
-fn normalize_host_name(raw: Option<String>) -> Option<String> {
+fn normalize_hostname(raw: Option<String>) -> Option<String> {
     raw.map(|h| h.trim().to_string()).filter(|h| !h.is_empty())
 }
 
@@ -564,12 +564,12 @@ mod asset_response_tests {
     }
 
     #[test]
-    fn host_name_form_value_normalizes_blank_to_none() {
-        assert_eq!(normalize_host_name(None), None);
-        assert_eq!(normalize_host_name(Some(String::new())), None);
-        assert_eq!(normalize_host_name(Some("   ".into())), None);
+    fn hostname_form_value_normalizes_blank_to_none() {
+        assert_eq!(normalize_hostname(None), None);
+        assert_eq!(normalize_hostname(Some(String::new())), None);
+        assert_eq!(normalize_hostname(Some("   ".into())), None);
         assert_eq!(
-            normalize_host_name(Some("  host.local ".into())),
+            normalize_hostname(Some("  host.local ".into())),
             Some("host.local".to_string())
         );
     }

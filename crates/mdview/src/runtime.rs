@@ -132,7 +132,7 @@ fn ensure_bind() -> (String, u16) {
 
 /// Ensure a daemon is running and return its base URL (spawns one if needed).
 ///
-/// The returned host is a display value: when `config.server.host_name` is
+/// The returned host is a display value: when `config.server.hostname` is
 /// set it replaces the bind/connect host in the URL text only — the daemon
 /// still binds and is health-checked on its real host/IP (`DaemonInfo.host`).
 pub fn ensure_daemon_base() -> String {
@@ -149,7 +149,7 @@ pub fn ensure_daemon_base() -> String {
 pub fn ensure_daemon_bases() -> Vec<String> {
     let (host, port) = ensure_bind();
     let cfg = Config::load();
-    let host_name = cfg.server.host_name.as_deref();
+    let host_name = cfg.server.hostname.as_deref();
     build_display_urls(host_name, &host, port, &machine_ipv4s())
 }
 
@@ -157,7 +157,7 @@ fn display_base_url(bind_host: &str, port: u16) -> String {
     let cfg = Config::load();
     let host = cfg
         .server
-        .host_name
+        .hostname
         .as_deref()
         .map(str::trim)
         .filter(|h| !h.is_empty())
