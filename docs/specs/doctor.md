@@ -39,6 +39,7 @@ one-line detail):
 | 3 | Daemon | A viewer server is currently running and answers its health check | No — reported WARN; the operator starts one with `mdview serve` |
 | 4 | MCP registration | mdview is registered as an MCP server for Claude Code | Yes, with `--fix` |
 | 5 | Agent instruction | AGENTS.md and CLAUDE.md, in the current directory, carry mdview's current instruction block (marker-delimited) | Yes, with `--fix` |
+| 6 | Skill | The global Claude Code skill `~/.claude/skills/mdview/SKILL.md` (the `/mdview <path>` command) is installed and matches the shipped template | Yes, with `--fix` |
 
 ## Behaviors & Operations
 
@@ -68,6 +69,12 @@ one-line detail):
     place; otherwise the block is appended, creating the file if it does not
     exist yet. Content outside the markers is never touched. The two files are
     handled independently.
+  - Skill, if the global `~/.claude/skills/mdview/SKILL.md` is missing or does
+    not match the shipped template: the file (and its parent directories) is
+    created/overwritten with the current template. Unlike the Agent-instruction
+    block, mdview owns this file entirely, so the check is a whole-file content
+    match and the fix is a full rewrite — it is global (per-user), not tied to
+    the current directory.
 - **Side effects:** the MCP-registration fix saves an untouched copy of
   `.claude.json` before changing it (see Rule R1). The Agent-instruction fix
   writes no `.bak`: the marker block bounds exactly what it edits, so

@@ -48,6 +48,7 @@ pub fn run(as_json: bool, dry_run: bool, fix: bool) -> Result<()> {
     checks.push(daemon);
     checks.push(check_mcp_registration(dry_run, fix));
     checks.push(check_agent_instruction(dry_run, fix));
+    checks.push(check_skill(dry_run, fix));
 
     if as_json {
         let arr: Vec<Value> = checks
@@ -348,6 +349,65 @@ fn check_agent_instruction(dry_run: bool, fix: bool) -> Check {
     }
 }
 
+/// The mdview Claude Code skill (`/mdview <path>`), installed globally so it
+/// works in any project. mdview owns this file entirely, so the check is a
+/// whole-file content match rather than a shared marker block.
+const SKILL_TEMPLATE: &str = include_str!("../../../docs/mdview-skill-template.md");
+
+/// `~/.claude/skills/mdview/SKILL.md` — the global (not per-project) skill file.
+fn skill_path() -> PathBuf {
+    dirs::home_dir()
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join(".claude/skills/mdview/SKILL.md")
+}
+
+fn check_skill(dry_run: bool, fix: bool) -> Check {
+    check_skill_at(&skill_path(), dry_run, fix)
+}
+
+/// Install/verify the global mdview skill at `path`. Split from `check_skill` so
+/// the write/idempotency logic is testable without touching the real HOME.
+fn check_skill_at(path: &std::path::Path, dry_run: bool, fix: bool) -> Check {
+    let in_sync = std::fs::read_to_string(path)
+        .map(|t| t == SKILL_TEMPLATE)
+        .unwrap_or(false);
+    if in_sync {
+        return Check {
+            name: "skill".into(),
+            status: Status::Ok,
+            detail: "global /mdview skill is installed and current".into(),
+        };
+    }
+    if dry_run || !fix {
+        return Check {
+            name: "skill".into(),
+            status: Status::Manual,
+            detail: format!(
+                "global /mdview skill missing or outdated at {} — run `mdview doctor --fix`",
+                path.display()
+            ),
+        };
+    }
+    let write = || -> Result<()> {
+        if let Some(dir) = path.parent() {
+            std::fs::create_dir_all(dir)?;
+        }
+        config::write_atomic(path, SKILL_TEMPLATE.as_bytes()).map_err(anyhow::Error::from)
+    };
+    match write() {
+        Ok(()) => Check {
+            name: "skill".into(),
+            status: Status::Fixed,
+            detail: format!("installed global /mdview skill at {}", path.display()),
+        },
+        Err(e) => Check {
+            name: "skill".into(),
+            status: Status::Manual,
+            detail: format!("write failed: {e}"),
+        },
+    }
+}
+
 #[cfg(test)]
 mod agent_instruction_tests {
     use super::*;
@@ -368,6 +428,39 @@ mod agent_instruction_tests {
         let s = agent_instruction_snippet();
         assert!(s.starts_with("## Documentation Viewing (MDView)"));
         assert!(!s.contains("Copy this snippet"));
+    }
+
+    #[test]
+    fn skill_template_is_a_valid_skill_file() {
+        assert!(SKILL_TEMPLATE.starts_with("---"));
+        assert!(SKILL_TEMPLATE.contains("name: mdview"));
+        // Carries the CLI-vs-MCP guidance the feature is about.
+        assert!(SKILL_TEMPLATE.contains("mdview_view_file"));
+        assert!(SKILL_TEMPLATE.contains("mdview open"));
+    }
+
+    #[test]
+    fn skill_installs_then_reports_in_sync_idempotently() {
+        let base = tmp_path("skill");
+        let path = base.join("skills/mdview/SKILL.md");
+        // Missing → Manual on a dry run (no write).
+        assert!(matches!(
+            check_skill_at(&path, true, false).status,
+            Status::Manual
+        ));
+        assert!(!path.exists());
+        // --fix installs the file with the template content verbatim.
+        assert!(matches!(
+            check_skill_at(&path, false, true).status,
+            Status::Fixed
+        ));
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), SKILL_TEMPLATE);
+        // Re-running is a no-op: the file is already in sync.
+        assert!(matches!(
+            check_skill_at(&path, false, true).status,
+            Status::Ok
+        ));
+        std::fs::remove_dir_all(&base).ok();
     }
 
     #[test]
