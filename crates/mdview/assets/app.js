@@ -4,13 +4,13 @@
 
   function applyTheme(t) {
     var dark = t === "dark" || (t === "system" && window.matchMedia("(prefers-color-scheme: dark)").matches);
-    document.documentElement.setAttribute("data-theme", dark ? "dark" : "light");
+    document.documentElement.setAttribute("data-scheme", dark ? "dark" : "light");
   }
 
   var toggle = document.getElementById("theme-toggle");
   if (toggle) {
     toggle.addEventListener("click", function () {
-      var cur = document.documentElement.getAttribute("data-theme");
+      var cur = document.documentElement.getAttribute("data-scheme");
       var next = cur === "dark" ? "light" : "dark";
       try { localStorage.setItem("mdview-theme", next); } catch (e) {}
       applyTheme(next);
