@@ -55,6 +55,15 @@ pub async fn serve() -> Result<()> {
     })?;
     tracing::info!("mdview serving on http://{addr}");
     println!("mdview serving on http://{addr}");
+    if !is_loopback_host(&cfg.host) {
+        eprintln!(
+            "warning: mdview is bound to a non-loopback address ({}) and has NO \
+             authentication — anyone who can reach this port can read every \
+             indexed file and each project's filesystem path. Bind 127.0.0.1 \
+             unless you intend LAN exposure.",
+            cfg.host
+        );
+    }
 
     let app = router(state);
     let result = axum::serve(listener, app)
@@ -274,7 +283,7 @@ async fn project_path(
         // Otherwise serve as a static asset (image, etc.) with traversal guard.
         if let Ok(abs) = st.engine.asset_path(&id, &path) {
             if let Ok(bytes) = std::fs::read(&abs) {
-                return ([(header::CONTENT_TYPE, content_type(&abs))], bytes).into_response();
+                return asset_response(&abs, bytes);
             }
         }
     }
@@ -438,6 +447,36 @@ fn content_type(path: &std::path::Path) -> &'static str {
     }
 }
 
+/// Build the HTTP response for a static project asset.
+///
+/// Assets are project-supplied bytes served on a no-auth origin and do NOT pass
+/// through the markdown sanitizer. `X-Content-Type-Options: nosniff` plus a
+/// fully-restrictive `Content-Security-Policy: sandbox` stop a project-supplied
+/// `.svg` (served as `image/svg+xml`) from executing script when navigated to
+/// directly, while still letting it render inside an `<img>`.
+fn asset_response(path: &std::path::Path, bytes: Vec<u8>) -> Response {
+    (
+        [
+            (header::CONTENT_TYPE, content_type(path)),
+            (header::X_CONTENT_TYPE_OPTIONS, "nosniff"),
+            (header::CONTENT_SECURITY_POLICY, "sandbox"),
+        ],
+        bytes,
+    )
+        .into_response()
+}
+
+/// True when `host` is a loopback bind (safe default). A wildcard (`0.0.0.0`/`::`)
+/// or a concrete LAN IP is not loopback and exposes the no-auth server to the
+/// network — the trigger for the startup warning.
+fn is_loopback_host(host: &str) -> bool {
+    matches!(host, "localhost")
+        || host
+            .parse::<std::net::IpAddr>()
+            .map(|ip| ip.is_loopback())
+            .unwrap_or(false)
+}
+
 fn not_found(msg: &str) -> Response {
     (StatusCode::NOT_FOUND, Html(views::error_page(404, msg))).into_response()
 }
@@ -447,4 +486,39 @@ fn internal_error(msg: &str) -> Response {
         Html(views::error_page(500, msg)),
     )
         .into_response()
+}
+
+#[cfg(test)]
+mod asset_response_tests {
+    use super::*;
+
+    #[test]
+    fn svg_asset_is_sandboxed_and_nosniff() {
+        // A project-supplied .svg must be served with headers that neutralize
+        // script execution on direct navigation (the XSS vector).
+        let resp = asset_response(std::path::Path::new("diagram.svg"), b"<svg/>".to_vec());
+        let h = resp.headers();
+        assert_eq!(h.get(header::CONTENT_TYPE).unwrap(), "image/svg+xml");
+        assert_eq!(h.get(header::CONTENT_SECURITY_POLICY).unwrap(), "sandbox");
+        assert_eq!(h.get(header::X_CONTENT_TYPE_OPTIONS).unwrap(), "nosniff");
+    }
+
+    #[test]
+    fn png_asset_also_carries_security_headers() {
+        let resp = asset_response(std::path::Path::new("logo.png"), b"x".to_vec());
+        let h = resp.headers();
+        assert_eq!(h.get(header::CONTENT_TYPE).unwrap(), "image/png");
+        assert_eq!(h.get(header::CONTENT_SECURITY_POLICY).unwrap(), "sandbox");
+        assert_eq!(h.get(header::X_CONTENT_TYPE_OPTIONS).unwrap(), "nosniff");
+    }
+
+    #[test]
+    fn loopback_detection_flags_wildcard_and_lan_as_exposed() {
+        assert!(is_loopback_host("127.0.0.1"));
+        assert!(is_loopback_host("localhost"));
+        assert!(is_loopback_host("::1"));
+        assert!(!is_loopback_host("0.0.0.0"));
+        assert!(!is_loopback_host("192.168.1.10"));
+        assert!(!is_loopback_host("::"));
+    }
 }

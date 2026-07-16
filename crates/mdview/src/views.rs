@@ -117,13 +117,18 @@ window.addEventListener('DOMContentLoaded', renderMermaid);
     layout(&page.title, head_extra, &body)
 }
 
+/// Escape `<` in an already-serialized JSON blob so a literal `</script>` in
+/// the data cannot break out of the `<script>` tag it is embedded in. Shared by
+/// every place that inlines JSON into a page, so the guard can never diverge.
+fn escape_script_breakout(json: &str) -> String {
+    json.replace('<', "\\u003c")
+}
+
 /// Serialize `source` as a JSON string literal safe to embed inside a
 /// `<script>` tag: escapes `<` to `<` so a source containing a literal
 /// "</script>" can't break out of the tag.
 fn escape_json_for_script(source: &str) -> String {
-    serde_json::to_string(source)
-        .unwrap_or_else(|_| "\"\"".into())
-        .replace('<', "\\u003c")
+    escape_script_breakout(&serde_json::to_string(source).unwrap_or_else(|_| "\"\"".into()))
 }
 
 /// Right sidebar: table of contents + backlinks (FR-18). Empty string if neither.
@@ -206,9 +211,8 @@ fn file_tree(project: &Project, files: &[IndexedFile], active: &str) -> String {
         .map(|f| serde_json::json!({ "p": f.rel_path, "t": f.title }))
         .collect();
     // Escape `<` so a title containing "</script>" can't break out of the tag.
-    let json = serde_json::to_string(&payload)
-        .unwrap_or_else(|_| "[]".into())
-        .replace('<', "\\u003c");
+    let json =
+        escape_script_breakout(&serde_json::to_string(&payload).unwrap_or_else(|_| "[]".into()));
 
     // No-JS fallback: the files directly in the active file's folder, by title.
     let active_dir = parent_dir(active);
@@ -411,6 +415,16 @@ pub const APP_JS: &str = include_str!("../assets/app.js");
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn escape_script_breakout_neutralizes_closing_tag_in_array_json() {
+        // The sidebar #filelist payload is a JSON array; a file title of
+        // "</script>..." must not survive as a raw "<".
+        let json = r#"[{"p":"a.md","t":"x</script><script>alert(1)</script>"}]"#;
+        let escaped = escape_script_breakout(json);
+        assert!(!escaped.contains('<'), "raw '<' leaked: {escaped}");
+        assert!(escaped.contains("\\u003c"));
+    }
 
     #[test]
     fn escape_json_for_script_neutralizes_script_breakout() {
