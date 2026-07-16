@@ -127,7 +127,20 @@ fn ensure_bind() -> (String, u16) {
     // caller to print, but the operator now sees why it may not respond.
     eprintln!("mdview: daemon did not become ready in time; the viewer URL may not respond yet.");
     let cfg = Config::load();
-    (cfg.server.host, cfg.server.port)
+    bind_fallback(daemon::read_lock(), &cfg)
+}
+
+/// Pure fallback decision for `ensure_bind()`'s timeout branch (unit-tested,
+/// no I/O). `serve()` writes the daemon lock with the real bound `(host,
+/// port)` immediately after `bind_with_retry` succeeds — before the daemon
+/// answers its own health check — so a lock found here holds the real bound
+/// port even though `running_daemon()`'s poll timed out. Only the configured
+/// port is used when no lock exists at all (the daemon was never spawned).
+fn bind_fallback(lock: Option<DaemonInfo>, cfg: &Config) -> (String, u16) {
+    match lock {
+        Some(info) => (info.host, info.port),
+        None => (cfg.server.host.clone(), cfg.server.port),
+    }
 }
 
 /// Ensure a daemon is running and return its base URL (spawns one if needed).
@@ -264,7 +277,8 @@ pub fn spawn_daemon_detached() -> Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::{acquire_spawn_gate_at, build_display_urls, is_wildcard, Gate};
+    use super::{acquire_spawn_gate_at, bind_fallback, build_display_urls, is_wildcard, DaemonInfo, Gate};
+    use mdview_core::config::Config;
     use std::time::Duration;
 
     fn gate_tmp(label: &str) -> std::path::PathBuf {
@@ -389,5 +403,33 @@ mod tests {
         assert!(is_wildcard("[::]"));
         assert!(!is_wildcard("127.0.0.1"));
         assert!(!is_wildcard("192.168.1.1"));
+    }
+
+    #[test]
+    fn bind_fallback_prefers_the_lock_port_over_the_config_port() {
+        let mut cfg = Config::default();
+        cfg.server.port = 7700;
+        cfg.server.host = "127.0.0.1".into();
+        let lock = DaemonInfo {
+            pid: 1234,
+            host: "127.0.0.1".into(),
+            port: 7701, // bind_with_retry auto-incremented past the configured port
+            started_at: "2026-07-16T00:00:00Z".into(),
+        };
+        assert_eq!(
+            bind_fallback(Some(lock), &cfg),
+            ("127.0.0.1".to_string(), 7701)
+        );
+    }
+
+    #[test]
+    fn bind_fallback_uses_config_port_when_no_lock_exists() {
+        let mut cfg = Config::default();
+        cfg.server.port = 7700;
+        cfg.server.host = "127.0.0.1".into();
+        assert_eq!(
+            bind_fallback(None, &cfg),
+            ("127.0.0.1".to_string(), 7700)
+        );
     }
 }
