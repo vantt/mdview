@@ -143,39 +143,17 @@ fn bind_fallback(lock: Option<DaemonInfo>, cfg: &Config) -> (String, u16) {
     }
 }
 
-/// Ensure a daemon is running and return its base URL (spawns one if needed).
-///
-/// The returned host is a display value: when `config.server.hostname` is
-/// set it replaces the bind/connect host in the URL text only — the daemon
-/// still binds and is health-checked on its real host/IP (`DaemonInfo.host`).
-pub fn ensure_daemon_base() -> String {
-    let (host, port) = ensure_bind();
-    display_base_url(&host, port)
-}
-
-/// Like [`ensure_daemon_base`], but returns *every* viewable base URL. When the
-/// daemon binds a wildcard host (`0.0.0.0` / `::`) and no `host_name` override
-/// is set, this is one URL per reachable machine IP so a caller (e.g. a remote
-/// agent) can pick an address that routes to it. Otherwise it is the single URL
-/// [`ensure_daemon_base`] would return. Display values only — connectivity
+/// Ensure a daemon is running and return every viewable base URL (spawns one
+/// if needed). When the daemon binds a wildcard host (`0.0.0.0` / `::`) and
+/// no `hostname` override is set, this is one URL per reachable machine IP so
+/// a caller (e.g. a remote agent) can pick an address that routes to it.
+/// Otherwise it is a single URL. Display values only — connectivity
 /// (`DaemonInfo.host`, health) is never derived from this.
 pub fn ensure_daemon_bases() -> Vec<String> {
     let (host, port) = ensure_bind();
     let cfg = Config::load();
     let host_name = cfg.server.hostname.as_deref();
     build_display_urls(host_name, &host, port, &machine_ipv4s())
-}
-
-fn display_base_url(bind_host: &str, port: u16) -> String {
-    let cfg = Config::load();
-    let host = cfg
-        .server
-        .hostname
-        .as_deref()
-        .map(str::trim)
-        .filter(|h| !h.is_empty())
-        .unwrap_or(bind_host);
-    format!("http://{host}:{port}")
 }
 
 /// True if `host` is a wildcard "any interface" bind address, whose literal

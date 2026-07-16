@@ -252,17 +252,39 @@ fn cmd_open(path: &Path, json: bool) -> Result<()> {
     let root = find_project_root(&engine, &abs);
     let rel = indexer::rel_path_str(&root, &abs);
     let vf = engine.view_file(&root, &rel)?;
-    let base = runtime::ensure_daemon_base();
-    let full = format!("{base}{}", vf.url);
+    let urls: Vec<String> = runtime::ensure_daemon_bases()
+        .iter()
+        .map(|base| format!("{base}{}", vf.url))
+        .collect();
     if json {
-        println!(
-            "{}",
-            serde_json::json!({ "url": full, "project_id": vf.project_id })
-        );
+        println!("{}", open_json(&urls, &vf.project_id));
+    } else if urls.len() > 1 {
+        println!("{}", format_url_choices(&urls));
     } else {
-        println!("{full}");
+        println!("{}", urls.first().cloned().unwrap_or_default());
     }
     Ok(())
+}
+
+/// Pure JSON-shape builder for `cmd_open --json` (unit-tested without a live
+/// daemon): `url` stays the primary (first) URL for back-compat, `urls` is
+/// the full list mirroring the MCP `structuredContent` contract
+/// (decision `d88c028b`).
+fn open_json(urls: &[String], project_id: &str) -> serde_json::Value {
+    let primary = urls.first().cloned().unwrap_or_default();
+    serde_json::json!({ "url": primary, "urls": urls, "project_id": project_id })
+}
+
+/// Multi-line "pick a reachable IP" framing for text-mode output when
+/// `ensure_daemon_bases()` returns more than one URL, matching the format
+/// `mcp.rs::handle_tool_call` already uses (D3: CLI/MCP text parity).
+fn format_url_choices(urls: &[String]) -> String {
+    let lines = urls
+        .iter()
+        .map(|u| format!("  {u}"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    format!("Viewable at (pick a reachable IP):\n{lines}")
 }
 
 /// Find the registered project root containing `file`, else the nearest ancestor
@@ -446,11 +468,11 @@ fn cmd_restart() -> Result<()> {
     for _ in 0..30 {
         std::thread::sleep(std::time::Duration::from_millis(100));
         if let Some(info) = runtime::running_daemon() {
-            println!(
-                "Started daemon (pid {}) at {}",
-                info.pid,
-                runtime::ensure_daemon_base()
-            );
+            let primary = runtime::ensure_daemon_bases()
+                .into_iter()
+                .next()
+                .unwrap_or_default();
+            println!("Started daemon (pid {}) at {}", info.pid, primary);
             return Ok(());
         }
     }
@@ -557,5 +579,49 @@ mod stop_restart_message_tests {
     #[test]
     fn restart_stop_message_reports_no_daemon_was_running() {
         assert_eq!(restart_stop_message(None), "No daemon was running.");
+    }
+}
+
+#[cfg(test)]
+mod open_url_shape_tests {
+    use super::*;
+
+    fn urls(v: &[&str]) -> Vec<String> {
+        v.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn open_json_single_url_sets_url_and_urls_consistently() {
+        let u = urls(&["http://127.0.0.1:7700"]);
+        let v = open_json(&u, "proj1");
+        assert_eq!(v["url"], "http://127.0.0.1:7700");
+        assert_eq!(v["urls"], serde_json::json!(["http://127.0.0.1:7700"]));
+        assert_eq!(v["project_id"], "proj1");
+    }
+
+    #[test]
+    fn open_json_multi_url_keeps_primary_as_first_and_lists_all() {
+        let u = urls(&["http://192.168.1.5:7700", "http://10.0.0.2:7700"]);
+        let v = open_json(&u, "proj1");
+        assert_eq!(v["url"], "http://192.168.1.5:7700");
+        assert_eq!(v["urls"], serde_json::json!(u));
+        assert_eq!(v["url"], v["urls"][0]);
+    }
+
+    #[test]
+    fn open_json_empty_urls_defaults_primary_to_empty_string() {
+        let v = open_json(&[], "proj1");
+        assert_eq!(v["url"], "");
+        assert_eq!(v["urls"], serde_json::json!(Vec::<String>::new()));
+    }
+
+    #[test]
+    fn format_url_choices_lists_every_url_indented_with_pick_framing() {
+        let u = urls(&["http://192.168.1.5:7700", "http://10.0.0.2:7700"]);
+        let text = format_url_choices(&u);
+        assert_eq!(
+            text,
+            "Viewable at (pick a reachable IP):\n  http://192.168.1.5:7700\n  http://10.0.0.2:7700"
+        );
     }
 }
