@@ -25,9 +25,10 @@ jobs:
           - target: aarch64-unknown-linux-musl
             os: ubuntu-latest
             cross: true
-          - target: x86_64-apple-darwin
-            os: macos-13
-            cross: false
+          # Intel macOS (x86_64-apple-darwin) intentionally dropped: the macos-13
+          # runner is scarce and repeatedly stalls the whole release. Intel Macs
+          # build from source via install.sh's cargo fallback (an aarch64 binary
+          # cannot run on Intel; Rosetta only goes x86 -> Apple Silicon).
           - target: aarch64-apple-darwin
             os: macos-14
             cross: false
