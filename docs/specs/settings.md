@@ -1,7 +1,7 @@
 ---
 area: settings
 updated: 2026-07-16
-sources: [mdview-hostname-doctor-fix, hostname-port-truth]
+sources: [mdview-hostname-doctor-fix, hostname-port-truth, ui-polish-settings-sidebar]
 decisions: [07c1ac9f, bcfcf737]
 coverage: partial
 ---
@@ -21,7 +21,8 @@ authentication — anyone who can reach the settings page can change it.
 - `/settings?saved=1` → the same page with a "Saved" confirmation banner,
   reached automatically right after a successful save.
 - The settings page shows the running application version (`mdview v<version>`)
-  in a footer — the same single-source version reported by the CLI and `/health`.
+  beside the page title — the same single-source version reported by the CLI
+  and `/health`.
 - Save button on the settings page → posts the form, then redirects back to
   `/settings?saved=1`.
 - Start-up CLI overrides (`serve --host <host> --port <port>`) → persist the
@@ -58,9 +59,12 @@ authentication — anyone who can reach the settings page can change it.
 - **What happens:** the page is built from whatever is on disk right now, not
   from the currently-running server's in-memory copy.
 - **Side effects:** none.
-- **Afterwards:** the operator sees every current value pre-filled, plus a
+- **Afterwards:** the operator sees every current value pre-filled, grouped
+  into Server, MCP, Renderer, and Indexing sections in that order, plus a
   note that Server/Indexing/MCP changes need a restart (`mdview stop && mdview
-  serve`) to take effect.
+  serve`) to take effect. Host and Port are shown side by side as a pair, as
+  are Debounce and Max file size — the rest of each section's fields (Display
+  hostname, Exclude patterns, etc.) each take their own row.
 
 ### Save settings
 

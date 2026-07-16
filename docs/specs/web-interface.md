@@ -1,8 +1,8 @@
 ---
 area: web-interface
-updated: 2026-07-15
-sources: [file-nav-ux]
-decisions: [12d62831, 99e8df73]
+updated: 2026-07-16
+sources: [file-nav-ux, ui-polish-settings-sidebar]
+decisions: [12d62831, 99e8df73, 184c77b0]
 coverage: partial
 ---
 
@@ -17,10 +17,16 @@ content itself.
 
 - Any page (project list, a rendered file, search results, settings, an error
   page) → shows the shared top bar.
+- Opening `/` (or clicking the brand) → the project list.
 - Opening a file's page → shows the chapter sidebar focused on that file's
-  folder.
+  folder, a reading breadcrumb above the article, and (when the file has
+  headings and/or is linked from elsewhere) a right-hand panel.
 - Clicking "Settings" in the top bar → the settings page.
 - Clicking the brand ("mdview") → the project list.
+- Clicking a heading link in the right-hand "On this page" list, or a
+  "Linked from" entry → jumps to that heading, or opens the linking file.
+- Scrolling a file's content → the right-hand "On this page" list tracks
+  which heading is currently in view.
 
 ## Data Dictionary
 
@@ -33,8 +39,56 @@ content itself.
 | 5 | Chapter focus (file pages) | Which single folder the sidebar is currently showing | a folder within the project; starts at the viewed file's folder |
 | 6 | Chapter breadcrumb | The ancestor path of the focused folder, each segment selectable | project root → … → focused folder |
 | 7 | File label | How a file is named in the sidebar | its title (first H1); the file name when it has no title |
+| 8 | Project card (project list) | One registered project | shows the project's name, its indexed markdown file count, and when it was last seen — never the project's filesystem path (per R5) |
+| 9 | Reading breadcrumb (file pages) | Orientation trail above the article, distinct from the chapter sidebar's zoom breadcrumb | project name → each path segment of the file, in order; segments are not independently clickable (orientation only) |
+| 10 | "On this page" (TOC) | Right-hand list of the current file's headings (levels 1-4) | one entry per heading, indented by level, linking to that heading |
+| 11 | "Linked from" (backlinks) | Right-hand list of other files that link to the one being viewed | empty when nothing links here; hidden entirely when both this and the TOC are empty |
 
 ## Behaviors & Operations
+
+### Project list
+
+- **Triggers:** opening `/` or clicking the brand from anywhere.
+- **What it shows:** one card per registered project, each linking to that
+  project's default file. A card shows the project's name, its indexed
+  markdown file count, and when it was last seen. It never shows the
+  project's filesystem path (per R5).
+- **Side effects:** none.
+- **Afterwards:** the operator picks a project by name without seeing where
+  it lives on disk.
+
+### Reading breadcrumb (file pages)
+
+- **Triggers:** viewing any file.
+- **What it shows:** the project name followed by each path segment of the
+  file being viewed, for orientation above the article. This is distinct
+  from the chapter sidebar's zoom breadcrumb (element 6), which is
+  interactive and scoped to folders, not the file path.
+- **Afterwards:** the operator can see where the current file sits in the
+  project without it crowding the article title directly below it.
+
+### Right panel — table of contents + backlinks (file pages)
+
+- **Triggers:** viewing a file that has headings (levels 1-4) and/or is
+  linked from other files in the project.
+- **What it shows:** an "On this page" list of the file's headings (when any
+  exist), and a "Linked from" list of files that link to this one (when any
+  exist). The panel does not render at all when both are empty.
+- **What it does while scrolling:** the "On this page" entry matching the
+  heading currently in view is visually marked, tracking the reader's
+  position down the article.
+- **Afterwards:** the operator can jump to any heading or an inbound link,
+  and always sees at a glance which section of the article they're in.
+
+### Chapter sidebar search
+
+- **Triggers:** typing in the search box above the chapter sidebar's file
+  tree, then submitting.
+- **What it does:** navigates to the current project's full-text search
+  results page for that query (see the search results page, not covered by
+  this spec).
+- **Afterwards:** the search box sits with clear spacing above the file
+  tree, so the two are not read as one continuous block.
 
 ### Top bar (all pages)
 
@@ -119,6 +173,12 @@ file list (paths + titles); no other actor consumes it.
 - **R4.** Copying a selection from a rendered file yields the raw markdown of the
   spanned source lines, not the rendered output; the mapping is by source line
   range (block granularity), and a selection that maps to nothing copies normally.
+- **R5 (per D 184c77b0).** A project's filesystem root path is never shown on
+  the project list page — only its name, indexed file count, and last-seen
+  time. There is no authentication (per settings.md) and a wildcard/LAN-
+  reachable bind is a supported mode (settings.md R3), so the operator's local
+  path is treated the same way as any other local-only detail: never exposed
+  to whoever can reach the page.
 
 ## Edge Cases Settled
 
@@ -140,17 +200,26 @@ file list (paths + titles); no other actor consumes it.
   not a settled product rule, just current behavior.
 - Whether search results and the project list should also adopt any of this
   folder-scoped navigation is not decided.
+- The "On this page" current-heading marker's behavior before the reader has
+  scrolled past the first heading, or when no heading is currently within the
+  tracked viewport band, was not exercised this session — unverified.
 
 ## Visuals
 
-No settled screenshot captured yet — the top bar and chapter sidebar are new
-this session; a snapshot under `docs/specs/visuals/web-interface/` is an open
-item.
+No settled screenshot captured yet — the top bar, chapter sidebar, project
+list, reading breadcrumb, and right panel have all changed across sessions; a
+snapshot under `docs/specs/visuals/web-interface/` is an open item.
 
 ## Pointers (implementation)
 
 - `crates/mdview/src/views.rs` — `topbar()` (shared header), `file_tree`
-  (chapter sidebar: ships the file list as JSON + focus data), page functions.
+  (chapter sidebar: ships the file list as JSON + focus data), `project_list_page`,
+  `breadcrumb()` (reading breadcrumb), `right_panel()` (TOC + backlinks), page
+  functions.
 - `crates/mdview/assets/app.js` — chapter renderer (breadcrumb zoom in/out,
-  files by title).
-- `crates/mdview/assets/app.css` — `.chapter` / `.chap-*` styles.
+  files by title), TOC scrollspy (`IntersectionObserver` over the article's
+  headings, toggles the matching TOC link's active state).
+- `crates/mdview/assets/app.css` — `.chapter` / `.chap-*` styles, `.toc` /
+  `.backlinks`, `.breadcrumb`, `.fg-sidebar-search`.
+- `crates/mdview/assets/atelier/components.css` — `.fg-input` / `.fg-select`
+  (shared form-field skeleton used by the sidebar search box too).

@@ -44,12 +44,10 @@ pub fn project_list_page(projects: &[(Project, usize)]) -> String {
         rows.push_str(&format!(
             r#"<a class="fg-card" href="/p/{id}/">
   <div class="fg-card__title">{name}</div>
-  <div class="fg-card__sub">{root}</div>
   <div class="fg-card__sub">{count} markdown files · {seen}</div>
 </a>"#,
             id = esc(&p.id),
             name = esc(&p.name),
-            root = esc(&p.root_path.to_string_lossy()),
             count = count,
             seen = esc(&p.last_seen_at),
         ));
@@ -242,7 +240,7 @@ fn file_tree(project: &Project, files: &[IndexedFile], active: &str) -> String {
     }
 
     format!(
-        "<form action=\"/p/{pid}/_search\" method=\"get\">\
+        "<form class=\"fg-sidebar-search\" action=\"/p/{pid}/_search\" method=\"get\">\
          <input class=\"fg-input\" name=\"q\" placeholder=\"Search…\" autocomplete=\"off\"></form>\
          <nav class=\"chapter\" id=\"chapter\" data-pid=\"{pid}\" data-root=\"{root}\" \
          data-current=\"{cur}\">{fallback}</nav>\
@@ -335,18 +333,20 @@ pub fn settings_page(cfg: &Config, saved: bool) -> String {
     let body = format!(
         r#"{topbar}
 <main class="fg-page">
-  <h2 class="fg-pagehead__title">Settings</h2>
+  <h2 class="fg-pagehead__title">Settings <span class="t-caption fg-settings__version">mdview v{version}</span></h2>
   {banner}
   <form class="fg-settings" method="post" action="/api/config">
     <fieldset><legend>Server <span class="fg-chip fg-chip--neutral">restart</span></legend>
-      <div class="fg-field">
-        <label class="fg-field__label">Port</label>
-        <input class="fg-input" type="number" name="port" value="{port}" min="1" max="65535">
-      </div>
-      <div class="fg-field">
-        <label class="fg-field__label">Host</label>
-        <input class="fg-input" name="host" value="{host}">
-        <span class="fg-field__hint">127.0.0.1 (local) or 0.0.0.0 (LAN)</span>
+      <div class="fg-field-row">
+        <div class="fg-field">
+          <label class="fg-field__label">Host</label>
+          <input class="fg-input" name="host" value="{host}">
+          <span class="fg-field__hint">127.0.0.1 (local) or 0.0.0.0 (LAN)</span>
+        </div>
+        <div class="fg-field">
+          <label class="fg-field__label">Port</label>
+          <input class="fg-input" type="number" name="port" value="{port}" min="1" max="65535">
+        </div>
       </div>
       <div class="fg-field">
         <label class="fg-field__label">Display hostname</label>
@@ -354,6 +354,19 @@ pub fn settings_page(cfg: &Config, saved: bool) -> String {
         <span class="fg-field__hint">optional — used in rendered links instead of the IP/host above</span>
       </div>
       <label class="fg-check"><input type="checkbox" name="open_browser" {open}><span class="fg-check__text">Open browser on start</span></label>
+    </fieldset>
+    <fieldset><legend>MCP <span class="fg-chip fg-chip--neutral">restart</span></legend>
+      <label class="fg-check"><input type="checkbox" name="mcp_enabled" {mcp_on}><span class="fg-check__text">Enabled</span></label>
+      <div class="fg-field">
+        <label class="fg-field__label">Transport</label>
+        <div class="fg-select">
+          <select name="mcp_transport">
+            <option value="stdio" {tr_stdio}>stdio</option>
+            <option value="http" {tr_http}>http</option>
+          </select>
+          <span class="fg-select__chev">▾</span>
+        </div>
+      </div>
     </fieldset>
     <fieldset><legend>Renderer</legend>
       <div class="fg-field">
@@ -373,35 +386,23 @@ pub fn settings_page(cfg: &Config, saved: bool) -> String {
       </div>
     </fieldset>
     <fieldset><legend>Indexing <span class="fg-chip fg-chip--neutral">restart</span></legend>
-      <div class="fg-field">
-        <label class="fg-field__label">Debounce (ms)</label>
-        <input class="fg-input" type="number" name="debounce_ms" value="{debounce}" min="0">
-      </div>
-      <div class="fg-field">
-        <label class="fg-field__label">Max file size (MB)</label>
-        <input class="fg-input" type="number" name="max_file_size_mb" value="{maxmb}" min="1">
+      <div class="fg-field-row">
+        <div class="fg-field">
+          <label class="fg-field__label">Debounce (ms)</label>
+          <input class="fg-input" type="number" name="debounce_ms" value="{debounce}" min="0">
+        </div>
+        <div class="fg-field">
+          <label class="fg-field__label">Max file size (MB)</label>
+          <input class="fg-input" type="number" name="max_file_size_mb" value="{maxmb}" min="1">
+        </div>
       </div>
       <div class="fg-field">
         <label class="fg-field__label">Exclude patterns (one per line)</label>
         <textarea class="fg-input fg-input--area" name="exclude_patterns" rows="5">{excludes}</textarea>
       </div>
     </fieldset>
-    <fieldset><legend>MCP <span class="fg-chip fg-chip--neutral">restart</span></legend>
-      <label class="fg-check"><input type="checkbox" name="mcp_enabled" {mcp_on}><span class="fg-check__text">Enabled</span></label>
-      <div class="fg-field">
-        <label class="fg-field__label">Transport</label>
-        <div class="fg-select">
-          <select name="mcp_transport">
-            <option value="stdio" {tr_stdio}>stdio</option>
-            <option value="http" {tr_http}>http</option>
-          </select>
-          <span class="fg-select__chev">▾</span>
-        </div>
-      </div>
-    </fieldset>
     <button type="submit" class="fg-btn fg-btn--primary">Save</button>
   </form>
-  <footer class="t-caption">mdview v{version}</footer>
 </main>"#,
         topbar = topbar("<span class=\"crumb\">Settings</span>"),
         banner = banner,

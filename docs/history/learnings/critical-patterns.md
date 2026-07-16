@@ -33,6 +33,16 @@ bee-compounding appends hard-won patterns here; keep it short and current.
   <repo>/Cargo.toml --bin mdview -- <args>` — cwd of the child process is the
   scratch dir, so cwd-relative behavior (e.g. `doctor`'s AGENTS.md/CLAUDE.md
   handling) is exercised correctly. (2026-07-15, same learnings file)
+  **This binary has no dedicated config-path override — `HOME` (read via
+  `dirs::home_dir()`) is the only isolation lever.** Guessing a plausible but
+  wrong env var name (or forgetting to set `HOME` at all) produces no error:
+  the child process silently resolves the REAL `~/.mdview`, so a "scratch"
+  test can mutate the live daemon's config/registry for real. After any
+  manual run meant to be isolated, spot-check `mdview status` / `mdview list`
+  against the real `~/.mdview` before trusting nothing leaked. (2026-07-16,
+  `20260716-ui-polish-settings-sidebar.md` — a real incident: a bad first
+  attempt overwrote the live config's port and registered a scratch project
+  into the live registry; caught and reverted before capping.)
   **This manual recipe is for an agent interactively probing behavior**
   (exploring, a validating-phase spike) — it is not something `cargo test
   --workspace` can run or fail on. When a cell needs *automated, CI-safe* e2e
@@ -99,3 +109,14 @@ bee-compounding appends hard-won patterns here; keep it short and current.
   verify (`grep -q 'data-scheme'`, `! grep -q "getAttribute('data-theme')"`) —
   `cargo test --workspace` alone proves nothing about a non-logic edit. (2026-07-16,
   `20260716-adopt-atelier-design-system.md`)
+- **A backlog row's itemized examples ("host + port on one row", a named
+  value, a specific field) are individually load-bearing acceptance
+  criteria, not illustrative color.** PBI-15 ("Tối ưu layout form Settings")
+  named "host + port chung một hàng" as an example and was marked `done`
+  after `polish-settings-form-1` shipped fieldset/card/legend restyling —
+  but never actually put Host+Port (or Debounce+Max-file-size) on one row.
+  The gap sat unnoticed until the user re-reported the exact same request
+  later. Before capping a cell against a backlog row that names concrete
+  examples, check each one literally in the rendered output — a thematic
+  match ("it's restyled") is not evidence a named example was delivered.
+  (2026-07-16, `20260716-ui-polish-settings-sidebar.md`)

@@ -74,7 +74,7 @@
 .fg-field__error { font-size: var(--type-caption-size); color: var(--color-danger); }
 
 .fg-input {
-  width: 100%; height: var(--input-height); padding: 0 var(--space-3);
+  width: 100%; box-sizing: border-box; height: var(--input-height); padding: 0 var(--space-3);
   background: var(--color-surface-raised);
   border: var(--border-width-hairline) solid var(--color-border);
   border-radius: var(--input-radius);
@@ -90,7 +90,7 @@
 
 .fg-select { position: relative; display: flex; }
 .fg-select select {
-  appearance: none; -webkit-appearance: none; width: 100%;
+  appearance: none; -webkit-appearance: none; width: 100%; box-sizing: border-box;
   height: var(--input-height); padding: 0 30px 0 var(--space-3);
   background: var(--color-surface-raised);
   border: var(--border-width-hairline) solid var(--color-border); border-radius: var(--input-radius);

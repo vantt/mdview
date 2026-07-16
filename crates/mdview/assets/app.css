@@ -105,6 +105,9 @@
 /* ── Sidebar file tree (D2: distinct concept from editorial's
    in-document .fg-chapters — this is a cross-file, client-zoomed
    folder tree) ──────────────────────────────────────────────── */
+.fg-sidebar-search {
+  margin-bottom: var(--space-3);
+}
 .chapter {
   display: flex;
   flex-direction: column;
@@ -172,8 +175,9 @@
   background: var(--color-surface-hover);
 }
 .chap-file.active {
-  background: var(--color-action);
-  color: var(--color-on-action);
+  background: transparent;
+  border-left: var(--border-width-strong) solid var(--color-action);
+  padding-left: calc(var(--space-2) - var(--border-width-strong));
 }
 
 /* ── Right panel: table of contents + backlinks ─────────────────── */
@@ -197,7 +201,9 @@
 .toc li a,
 .backlinks li a {
   display: block;
-  padding: var(--space-0) 0;
+  padding: var(--space-1) 0;
+  border-left: var(--border-width-strong) solid transparent;
+  padding-left: var(--space-2);
   font-family: var(--type-body-sm-font);
   font-size: var(--type-body-sm-size);
   color: var(--color-text-muted);
@@ -205,6 +211,10 @@
 .toc li a:hover,
 .backlinks li a:hover {
   color: var(--color-action);
+}
+.toc li a.active {
+  border-left-color: var(--color-action);
+  color: var(--color-text);
 }
 .toc-l2 {
   padding-left: var(--space-2);
@@ -223,7 +233,7 @@
 .breadcrumb {
   max-width: var(--reading-col);
   margin: 0 auto;
-  padding: var(--space-3) var(--space-6) 0;
+  padding: var(--space-3) var(--space-6);
   font-family: var(--type-body-sm-font);
   font-size: var(--type-body-sm-size);
   color: var(--color-text-muted);
@@ -244,7 +254,7 @@
     display: none;
   }
   .breadcrumb {
-    padding: var(--space-3) var(--space-4) 0;
+    padding: var(--space-3) var(--space-4);
   }
 }
 
@@ -429,6 +439,18 @@ pre.mermaid.zoomable:fullscreen .mermaid-controls {
 /* Short numeric fields sit side by side; full-width fields (host, textarea) span. */
 .fg-settings .fg-field {
   gap: var(--space-1);
+}
+.fg-field-row {
+  display: flex;
+  gap: var(--space-3);
+}
+.fg-field-row .fg-field {
+  flex: 1;
+  min-width: 0;
+}
+.fg-settings__version {
+  margin-left: var(--space-3);
+  font-weight: var(--weight-regular);
 }
 .fg-settings .fg-check {
   flex-direction: row;

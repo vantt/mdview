@@ -372,6 +372,45 @@
     });
   })();
 
+  // TOC scrollspy: highlight the "On this page" link matching the heading
+  // currently in view while the reader scrolls a file page.
+  (function () {
+    var toc = document.querySelector(".toc");
+    var article = document.querySelector(".fg-prose");
+    if (!toc || !article) return;
+
+    var links = Array.prototype.slice.call(toc.querySelectorAll("a[href^='#']"));
+    if (!links.length) return;
+
+    var linkByHash = {};
+    links.forEach(function (a) { linkByHash[a.getAttribute("href")] = a; });
+
+    var headings = links
+      .map(function (a) { return document.getElementById(a.getAttribute("href").slice(1)); })
+      .filter(Boolean);
+    if (!headings.length) return;
+
+    var current = null;
+    function setActive(hash) {
+      if (hash === current) return;
+      if (current && linkByHash[current]) linkByHash[current].classList.remove("active");
+      current = hash;
+      if (current && linkByHash[current]) linkByHash[current].classList.add("active");
+    }
+
+    var observer = new IntersectionObserver(
+      function (entries) {
+        var visible = entries.filter(function (e) { return e.isIntersecting; });
+        if (!visible.length) return;
+        // Highest-on-page visible heading wins.
+        visible.sort(function (a, b) { return a.boundingClientRect.top - b.boundingClientRect.top; });
+        setActive("#" + visible[0].target.id);
+      },
+      { rootMargin: "0px 0px -70% 0px", threshold: 0 }
+    );
+    headings.forEach(function (h) { observer.observe(h); });
+  })();
+
   // Live reload: reload-signal over WebSocket, full-page reload (PRD FR-19, Phase 1).
   function connect() {
     var proto = location.protocol === "https:" ? "wss:" : "ws:";
