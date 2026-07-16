@@ -247,3 +247,146 @@
     padding: var(--space-3) var(--space-4) 0;
   }
 }
+
+/* ============================================================
+   Client-built widgets (atelier-css-7)
+
+   app.js builds these two widgets dynamically, so they never
+   appear in views.rs markup and were missed by the css-2 rewrite.
+   Token choices mirror the closest Atelier core roles (.fg-cmdk
+   for the jump palette, .fg-icon-btn / the topbar's .theme-toggle
+   for the mermaid toolbar buttons) so the look stays consistent
+   with the rest of the system even though the class names stay
+   app-owned (renaming them is a markup change, out of scope here).
+   ============================================================ */
+
+/* ── Fuzzy file-jump palette (Cmd/Ctrl+K) ────────────────────── */
+.jump-overlay {
+  position: fixed;
+  inset: 0;
+  background: var(--color-scrim);
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding-top: 12vh; /* structural: keeps the box near the top, not centered */
+  z-index: var(--z-modal);
+}
+.jump-overlay[hidden] {
+  display: none;
+}
+.jump-box {
+  width: min(560px, 92vw); /* structural: dialog footprint */
+  background: var(--color-surface-raised);
+  border: var(--border-width-hairline) solid var(--color-border-strong);
+  border-radius: var(--card-radius);
+  box-shadow: var(--elevation-lg);
+  overflow: hidden;
+}
+.jump-input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: var(--space-3) var(--space-4);
+  border: 0;
+  border-bottom: var(--border-width-hairline) solid var(--color-border);
+  background: transparent;
+  color: var(--color-text);
+  font-family: var(--type-ui-font);
+  font-size: var(--type-ui-size);
+  outline: none;
+}
+.jump-input::placeholder {
+  color: var(--color-text-subtle);
+}
+.jump-input:focus-visible {
+  outline: var(--focus-width) solid var(--focus-color);
+  outline-offset: calc(var(--focus-offset) * -1);
+}
+.jump-list {
+  list-style: none;
+  margin: 0;
+  padding: var(--space-1);
+  max-height: 50vh;
+  overflow-y: auto;
+}
+.jump-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--nav-item-radius);
+  cursor: pointer;
+}
+.jump-item:hover,
+.jump-item.active {
+  background: var(--color-surface-hover);
+}
+.jump-title {
+  color: var(--color-text);
+  font-family: var(--type-ui-font);
+  font-weight: var(--weight-medium);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.jump-path {
+  color: var(--color-text-muted);
+  font-family: var(--type-caption-font);
+  font-size: var(--type-caption-size);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ── Mermaid pan/zoom + fullscreen toolbar ───────────────────── */
+pre.mermaid.zoomable {
+  position: relative;
+  overflow: hidden;
+  cursor: grab;
+  text-align: left;
+}
+pre.mermaid.zoomable.grabbing {
+  cursor: grabbing;
+}
+pre.mermaid.zoomable > svg {
+  transform-origin: 0 0;
+  will-change: transform;
+  max-width: none; /* let it scale beyond the container while panning */
+}
+.mermaid-controls {
+  position: absolute;
+  top: var(--space-2);
+  right: var(--space-2);
+  display: flex;
+  gap: var(--space-1);
+  opacity: 0;
+  transition: opacity var(--motion-fast) var(--ease-standard);
+  z-index: var(--z-popover);
+}
+pre.mermaid.zoomable:hover .mermaid-controls,
+pre.mermaid.zoomable:focus-within .mermaid-controls {
+  opacity: 1;
+}
+.mermaid-controls button {
+  width: 28px; /* structural: fixed icon-button footprint */
+  height: 28px;
+  padding: 0;
+  border: var(--border-width-hairline) solid var(--color-border);
+  border-radius: var(--btn-radius);
+  background: var(--color-surface-raised);
+  color: var(--color-text);
+  font-size: var(--type-ui-size);
+  line-height: 1;
+  cursor: pointer;
+}
+.mermaid-controls button:hover {
+  background: var(--color-surface-hover);
+}
+pre.mermaid.zoomable:fullscreen {
+  background: var(--color-bg);
+  padding: 0;
+  border-radius: 0;
+}
+pre.mermaid.zoomable:fullscreen .mermaid-controls {
+  opacity: 1;
+}
