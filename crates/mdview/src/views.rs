@@ -337,7 +337,7 @@ pub fn settings_page(cfg: &Config, saved: bool) -> String {
 <main class="fg-page">
   <h2 class="fg-pagehead__title">Settings</h2>
   {banner}
-  <form method="post" action="/api/config">
+  <form class="fg-settings" method="post" action="/api/config">
     <fieldset><legend>Server <span class="fg-chip fg-chip--neutral">restart</span></legend>
       <div class="fg-field">
         <label class="fg-field__label">Port</label>

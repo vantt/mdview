@@ -397,3 +397,44 @@ pre.mermaid.zoomable:fullscreen {
 pre.mermaid.zoomable:fullscreen .mermaid-controls {
   opacity: 1;
 }
+
+/* ── Settings form: grouped fieldset cards, eyebrow legends, spaced fields ── */
+.fg-settings {
+  max-width: 640px;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+}
+.fg-settings fieldset {
+  border: var(--border-width-hairline) solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+  padding: var(--space-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+.fg-settings legend {
+  padding: 0 var(--space-2);
+  font-family: var(--type-label-font);
+  font-size: var(--type-label-size);
+  font-weight: var(--weight-bold);
+  letter-spacing: var(--type-label-tracking);
+  text-transform: var(--type-label-case);
+  color: var(--color-text-subtle);
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+/* Short numeric fields sit side by side; full-width fields (host, textarea) span. */
+.fg-settings .fg-field {
+  gap: var(--space-1);
+}
+.fg-settings .fg-check {
+  flex-direction: row;
+  align-items: center;
+  gap: var(--space-2);
+}
+.fg-settings > button[type="submit"] {
+  align-self: flex-start;
+}
