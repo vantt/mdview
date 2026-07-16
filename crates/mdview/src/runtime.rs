@@ -151,9 +151,22 @@ fn bind_fallback(lock: Option<DaemonInfo>, cfg: &Config) -> (String, u16) {
 /// (`DaemonInfo.host`, health) is never derived from this.
 pub fn ensure_daemon_bases() -> Vec<String> {
     let (host, port) = ensure_bind();
+    display_urls_for(&host, port)
+}
+
+/// Every viewable base URL for an already-bound `(bind_host, port)` — the
+/// display side of `ensure_daemon_bases` without the spawn/readiness wait, so a
+/// process that has *already* bound its listener (e.g. `serve()`) can print the
+/// same multi-IP list. Applies the `hostname` override and wildcard→machine-IP
+/// expansion via `build_display_urls`. Display values only.
+pub fn display_urls_for(bind_host: &str, port: u16) -> Vec<String> {
     let cfg = Config::load();
-    let host_name = cfg.server.hostname.as_deref();
-    build_display_urls(host_name, &host, port, &machine_ipv4s())
+    build_display_urls(
+        cfg.server.hostname.as_deref(),
+        bind_host,
+        port,
+        &machine_ipv4s(),
+    )
 }
 
 /// True if `host` is a wildcard "any interface" bind address, whose literal

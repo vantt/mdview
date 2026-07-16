@@ -31,7 +31,7 @@ serves (see the web-interface and agent-integration areas for that).
 | # | Element | Meaning | Values | Default |
 |---|---|---|---|---|
 | 1 | Running state | Whether a daemon is currently up and answering | running / not running | — |
-| 2 | Bind host | Address the daemon actually listens on | any bindable host/IP | `127.0.0.1` |
+| 2 | Bind host | Address the daemon actually listens on | any bindable host/IP | `0.0.0.0` (all interfaces — LAN-reachable; the no-auth server prints an exposure warning at startup) |
 | 3 | Port | Port the daemon listens on (auto-increments if taken) | 1–65535 | 7700 |
 | — | Daemon record (not shown) | The on-disk marker identifying the one live daemon: its process id, host, port, start time | — | — |
 | — | Readiness wait (not shown) | How long an auto-start waits for the new daemon to answer before giving up and returning a best-effort URL | ~2 seconds | — |
@@ -60,6 +60,13 @@ serves (see the web-interface and agent-integration areas for that).
   does nothing rather than starting a second one (per R2).
 - **What changes:** a daemon is started in the foreground of that command,
   binding the configured (or overridden) host/port.
+- **On startup it lists every reachable address:** when bound to a wildcard
+  host (`0.0.0.0`/`::`) it prints one `http://<ip>:<port>` line per non-loopback
+  machine IP (the literal `http://0.0.0.0:PORT` is a dead link); a `hostname`
+  override collapses this to that single URL; a concrete bind host prints just
+  that one. When the bind is non-loopback it also prints the no-auth exposure
+  warning. This is the same display-URL enumeration `open`/`restart` use — a
+  display concern only, never the connectivity host.
 - **Afterwards:** it serves until interrupted or `mdview stop`.
 
 ### Single-daemon coordination
@@ -142,5 +149,5 @@ Not applicable — background process, no screen.
 - `crates/mdview-core/src/daemon.rs` — the daemon record (`~/.mdview/daemon.lock`),
   `running_daemon`, `health_check`.
 - `crates/mdview/src/server.rs` — `serve` (bind with port auto-increment, write
-  the record).
+  the record, print every reachable URL via `runtime::display_urls_for`).
 - `crates/mdview/src/cli.rs` — `serve` / `status` / `stop` commands.

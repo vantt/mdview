@@ -40,7 +40,7 @@ authentication — anyone who can reach the settings page can change it.
 | # | Element | Meaning | Values | Required | Default |
 |---|---|---|---|---|---|
 | 1 | Port | TCP port the viewer server listens on | 1–65535 | yes (a value below 1 is silently ignored, keeping the previous port) | 7700 |
-| 2 | Host | The address the viewer server actually binds and is health-checked on | any bindable host/IP, e.g. `127.0.0.1` (local only) or `0.0.0.0` (reachable from the LAN) | no (blank/whitespace-only is ignored, keeping the previous host) | `127.0.0.1` |
+| 2 | Host | The address the viewer server actually binds and is health-checked on | any bindable host/IP, e.g. `127.0.0.1` (local only) or `0.0.0.0` (reachable from the LAN) | no (blank/whitespace-only is ignored, keeping the previous host) | `0.0.0.0` |
 | 3 | Display hostname | Optional stand-in for Host used only in links handed to a person or an agent (see R1) | any hostname string, or left blank | no | blank (unset) |
 | 4 | Open browser on start | Whether a browser tab opens automatically when the server starts | on / off | no | off |
 | 5 | Theme | Overall light/dark appearance of rendered pages | `system` — follows the OS/browser preference · `light` · `dark` | no (an unrecognized value is ignored, keeping the previous theme) | `system` |

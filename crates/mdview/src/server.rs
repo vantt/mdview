@@ -54,7 +54,18 @@ pub async fn serve() -> Result<()> {
         started_at: now_rfc3339(),
     })?;
     tracing::info!("mdview serving on http://{addr}");
-    println!("mdview serving on http://{addr}");
+    // A wildcard bind (`0.0.0.0`) makes `http://0.0.0.0:PORT` a dead link, so
+    // list every address that actually reaches this server — one per LAN
+    // interface (loopback when none) or the configured hostname override.
+    let urls = runtime::display_urls_for(&cfg.host, addr.port());
+    if urls.len() == 1 {
+        println!("mdview serving on {}", urls[0]);
+    } else {
+        println!("mdview serving on:");
+        for url in &urls {
+            println!("  {url}");
+        }
+    }
     if !is_loopback_host(&cfg.host) {
         eprintln!(
             "warning: mdview is bound to a non-loopback address ({}) and has NO \

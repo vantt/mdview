@@ -61,7 +61,11 @@ impl Default for ServerConfig {
     fn default() -> Self {
         Self {
             port: 7700,
-            host: "127.0.0.1".into(),
+            // Bind all interfaces by default so the viewer is reachable from
+            // other devices on the LAN (and from a browser when the daemon runs
+            // on a remote host). The server has no auth; `serve()` prints a
+            // non-loopback exposure warning at startup.
+            host: "0.0.0.0".into(),
             hostname: None,
             open_browser_on_start: false,
         }
@@ -195,6 +199,12 @@ mod tests {
         let loaded = Config::load_from(&p);
         assert_eq!(loaded.server.port, 9999);
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn default_host_binds_all_interfaces() {
+        // Fresh installs must default to the LAN-reachable wildcard bind.
+        assert_eq!(ServerConfig::default().host, "0.0.0.0");
     }
 
     #[test]
