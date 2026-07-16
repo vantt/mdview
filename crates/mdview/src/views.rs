@@ -401,9 +401,11 @@ pub fn settings_page(cfg: &Config, saved: bool) -> String {
     </fieldset>
     <button type="submit" class="fg-btn fg-btn--primary">Save</button>
   </form>
+  <footer class="t-caption">mdview v{version}</footer>
 </main>"#,
         topbar = topbar("<span class=\"crumb\">Settings</span>"),
         banner = banner,
+        version = env!("CARGO_PKG_VERSION"),
         port = cfg.server.port,
         host = esc(&cfg.server.host),
         host_name = esc(cfg.server.host_name.as_deref().unwrap_or("")),

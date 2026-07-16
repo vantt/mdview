@@ -88,6 +88,8 @@ pub enum Command {
         #[command(subcommand)]
         action: ConfigAction,
     },
+    /// Print the version (same value as `--version`).
+    Version,
 }
 
 #[derive(Subcommand)]
@@ -118,6 +120,11 @@ pub fn run(cli: Cli) -> Result<()> {
         Command::Config { action } => match action {
             ConfigAction::Edit => cmd_config_edit(),
         },
+        Command::Version => {
+            // Single source of truth: the workspace Cargo package version.
+            println!("mdview {}", env!("CARGO_PKG_VERSION"));
+            Ok(())
+        }
     }
 }
 

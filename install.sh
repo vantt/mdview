@@ -69,6 +69,11 @@ case ":$PATH:" in
 esac
 
 echo
-echo "Installed. Next:"
+if [ -x "$DIR/$BIN" ]; then
+  echo "Installed $("$DIR/$BIN" --version)."
+else
+  echo "Installed."
+fi
+echo "Next:"
 echo "  $BIN doctor --fix     # wire up Claude Code MCP integration"
 echo "  $BIN serve            # start the viewer (http://localhost:7700)"
