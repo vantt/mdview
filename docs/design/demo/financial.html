@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Contract — Financial / Report</title>
+<link rel="stylesheet" href="demo.css" />
+<link rel="stylesheet" href="../contract/contract.css" />
+<link rel="stylesheet" href="../contract/components.css" />
+<link rel="stylesheet" href="../contract/patterns/financial.css" />
+<link rel="stylesheet" href="../themes/atelier.css" />
+<script src="theme-switcher.js"></script>
+</head>
+<body class="fg-root">
+
+<div id="fg-bar"></div>
+
+<main>
+  <div class="page-title"><a class="demo-back" href="core.html">← Core gallery</a><span class="t-title">Financial / Report</span><span class="t-body-sm" style="color:var(--color-text-subtle);">patterns/financial.css · .fg-stat · .fg-ledger · .fg-chart · .fg-gauge</span></div>
+
+  <section>
+    <div class="sec-title">Report header · metrics</div>
+    <div class="fg-report-head">
+      <div><span class="t-label" style="color:var(--color-text-subtle);">Revenue report</span><div class="t-title" style="margin-top:4px;">Q2 2026</div></div>
+      <span class="fg-report-head__period">Apr 1 – Jun 30 · vs Q1</span>
+    </div>
+    <div class="fg-metric-grid">
+      <div class="fg-stat"><span class="fg-stat__label">Net revenue</span><span class="fg-stat__value">$1.28M</span><span class="fg-stat__sub"><span class="fg-delta fg-delta--up">▲ 12.4%</span></span></div>
+      <div class="fg-stat"><span class="fg-stat__label">Gross margin</span><span class="fg-stat__value">64%</span><span class="fg-stat__sub"><span class="fg-delta fg-delta--up">▲ 2.1pt</span></span></div>
+      <div class="fg-stat"><span class="fg-stat__label">Refunds</span><span class="fg-stat__value">$41k</span><span class="fg-stat__sub"><span class="fg-delta fg-delta--down">▼ 0.8%</span></span></div>
+    </div>
+  </section>
+
+  <section>
+    <div class="sec-title">Chart · gauge · ledger</div>
+    <div class="two">
+      <div class="fg-card">
+        <div class="fg-card__title">Revenue by month</div>
+        <div class="fg-chart">
+          <div class="fg-chart__plot">
+            <div class="fg-chart__bar" style="height:52%"></div><div class="fg-chart__bar" style="height:64%"></div><div class="fg-chart__bar" style="height:58%"></div>
+            <div class="fg-chart__bar" style="height:78%"></div><div class="fg-chart__bar" style="height:71%"></div><div class="fg-chart__bar" style="height:92%"></div>
+          </div>
+          <div class="fg-chart__legend"><span class="fg-chart__key">Revenue</span><span class="fg-chart__key fg-chart__key--2">Target</span></div>
+        </div>
+      </div>
+      <div class="fg-card">
+        <div class="fg-card__head"><span class="fg-card__title">P&amp;L summary</span><div class="fg-gauge" style="--fg-gauge-pct:64;"><div class="fg-gauge__inner">64%</div></div></div>
+        <table class="fg-ledger">
+          <thead><tr><th>Line</th><th class="fg-ledger__num">Amount</th></tr></thead>
+          <tbody>
+            <tr><td>Revenue</td><td class="fg-ledger__num fg-money fg-money--pos">+1,284,000</td></tr>
+            <tr><td>COGS</td><td class="fg-ledger__num fg-money fg-money--neg">−462,000</td></tr>
+            <tr><td>Operating</td><td class="fg-ledger__num fg-money fg-money--neg">−318,000</td></tr>
+          </tbody>
+          <tfoot><tr><td>Net</td><td class="fg-ledger__num fg-money fg-money--pos">+504,000</td></tr></tfoot>
+        </table>
+      </div>
+    </div>
+  <section>
+    <div class="sec-title">Sparkline · variance · budget vs actual · period compare · sticky ledger</div>
+    <div class="two">
+      <div class="fg-card">
+        <div class="fg-card__title">Variance</div>
+        <div class="row" style="gap:20px;">
+          <svg class="fg-sparkline" width="90" height="24" viewBox="0 0 90 24"><path d="M0 18 L15 14 L30 16 L45 9 L60 11 L75 5 L90 7"/></svg>
+          <svg class="fg-sparkline fg-sparkline--down" width="90" height="24" viewBox="0 0 90 24"><path d="M0 6 L15 9 L30 8 L45 13 L60 12 L75 17 L90 19"/></svg>
+          <span class="fg-variance fg-variance--under">−4.2% under</span>
+          <span class="fg-variance fg-variance--over">+8.9% over</span>
+          <span class="fg-period-compare">vs Q1 · YoY +18%</span>
+        </div>
+        <div class="fg-budget">
+          <div class="fg-budget__track"><span class="fg-budget__actual" style="right:28%;"></span><span class="fg-budget__target" style="left:80%;"></span></div>
+          <div class="fg-budget__labels"><span>Spent $72k</span><span>Budget $100k</span></div>
+        </div>
+        <div class="fg-budget">
+          <div class="fg-budget__track"><span class="fg-budget__actual fg-budget__actual--over" style="right:0;"></span><span class="fg-budget__target" style="left:86%;"></span></div>
+          <div class="fg-budget__labels"><span>Spent $118k</span><span>Budget $102k</span></div>
+        </div>
+        <div class="t-body-sm" style="color:var(--color-text-subtle);">Currency wrapper: <span class="fg-money"><span class="fg-currency__symbol">$</span>1,284<span class="fg-currency__frac">.00</span></span></div>
+      </div>
+      <div class="fg-card">
+        <div class="fg-card__head"><span class="fg-card__title">Multi-series · line overlay</span><button class="fg-export-btn">Export CSV ↓</button></div>
+        <div class="fg-chart">
+          <div class="fg-chart__plot" style="position:relative;">
+            <div class="fg-chart__bar" style="height:52%"></div><div class="fg-chart__bar fg-chart__bar--2" style="height:38%"></div>
+            <div class="fg-chart__bar" style="height:64%"></div><div class="fg-chart__bar fg-chart__bar--2" style="height:47%"></div>
+            <div class="fg-chart__bar" style="height:78%"></div><div class="fg-chart__bar fg-chart__bar--2" style="height:60%"></div>
+            <div class="fg-chart__bar" style="height:92%"></div><div class="fg-chart__bar fg-chart__bar--2" style="height:69%"></div>
+            <svg class="fg-chart__svg" style="position:absolute; inset:0;" viewBox="0 0 100 100" preserveAspectRatio="none"><path class="fg-chart__line" vector-effect="non-scaling-stroke" d="M6 60 L31 48 L56 34 L81 18"/></svg>
+          </div>
+          <div class="fg-chart__legend"><span class="fg-chart__key">Revenue</span><span class="fg-chart__key fg-chart__key--2">Costs</span><span class="fg-chart__key fg-chart__key--3">Trend</span><span class="fg-chart__key fg-chart__key--4">Forecast</span><span class="fg-chart__key fg-chart__key--5">Prior yr</span></div>
+        </div>
+        <table class="fg-ledger">
+          <tbody>
+            <tr><td>Online</td><td class="fg-ledger__num">742,000</td></tr>
+            <tr class="fg-ledger__subtotal"><td>Retail subtotal</td><td class="fg-ledger__num">542,000</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="sec-title">Divergence bar · cohort retention heat</div>
+    <div class="two">
+      <div class="fg-card">
+        <div class="fg-card__title">Net flow by month</div>
+        <div style="display:flex; flex-direction:column; gap:var(--space-3); margin-top:var(--space-4);">
+          <div style="display:grid; grid-template-columns:40px 1fr 72px; gap:var(--space-3); align-items:center;">
+            <span class="t-tag" style="color:var(--color-text-subtle);">Jan</span>
+            <div class="fg-diverge"><span class="fg-diverge__axis"></span><span class="fg-diverge__bar fg-diverge__bar--pos" style="--fg-diverge-len:64;"></span></div>
+            <span class="fg-money fg-money--pos" style="text-align:right;">+$12.4k</span>
+          </div>
+          <div style="display:grid; grid-template-columns:40px 1fr 72px; gap:var(--space-3); align-items:center;">
+            <span class="t-tag" style="color:var(--color-text-subtle);">Feb</span>
+            <div class="fg-diverge"><span class="fg-diverge__axis"></span><span class="fg-diverge__bar fg-diverge__bar--neg" style="--fg-diverge-len:38;"></span></div>
+            <span class="fg-money fg-money--neg" style="text-align:right;">−$7.1k</span>
+          </div>
+          <div style="display:grid; grid-template-columns:40px 1fr 72px; gap:var(--space-3); align-items:center;">
+            <span class="t-tag" style="color:var(--color-text-subtle);">Mar</span>
+            <div class="fg-diverge"><span class="fg-diverge__axis"></span><span class="fg-diverge__bar fg-diverge__bar--pos" style="--fg-diverge-len:92;"></span></div>
+            <span class="fg-money fg-money--pos" style="text-align:right;">+$18.9k</span>
+          </div>
+          <div style="display:grid; grid-template-columns:40px 1fr 72px; gap:var(--space-3); align-items:center;">
+            <span class="t-tag" style="color:var(--color-text-subtle);">Apr</span>
+            <div class="fg-diverge"><span class="fg-diverge__axis"></span><span class="fg-diverge__bar fg-diverge__bar--neg" style="--fg-diverge-len:12;"></span></div>
+            <span class="fg-money fg-money--neg" style="text-align:right;">−$2.2k</span>
+          </div>
+        </div>
+      </div>
+      <div class="fg-card">
+        <div class="fg-card__head"><span class="fg-card__title">Cohort retention</span><span class="fg-card__sub">% still ordering · by acquisition month</span></div>
+        <div class="fg-cohort">
+          <div class="fg-cohort__row fg-cohort__row--head">
+            <div class="fg-cohort__cell fg-cohort__cell--lab">Cohort</div>
+            <div class="fg-cohort__cell fg-cohort__cell--size">Size</div>
+            <div class="fg-cohort__cell">M0</div><div class="fg-cohort__cell">M1</div><div class="fg-cohort__cell">M2</div><div class="fg-cohort__cell">M3</div><div class="fg-cohort__cell">M4</div><div class="fg-cohort__cell">M5</div>
+          </div>
+          <div class="fg-cohort__row">
+            <div class="fg-cohort__cell fg-cohort__cell--lab">Jan</div>
+            <div class="fg-cohort__cell fg-cohort__cell--size">318</div>
+            <div class="fg-cohort__cell fg-cohort__cell--v" style="--fg-heat:100;">100</div>
+            <div class="fg-cohort__cell fg-cohort__cell--v" style="--fg-heat:64;">64</div>
+            <div class="fg-cohort__cell fg-cohort__cell--v" style="--fg-heat:47;">47</div>
+            <div class="fg-cohort__cell fg-cohort__cell--v" style="--fg-heat:38;">38</div>
+            <div class="fg-cohort__cell fg-cohort__cell--v" style="--fg-heat:33;">33</div>
+            <div class="fg-cohort__cell fg-cohort__cell--v" style="--fg-heat:31;">31</div>
+          </div>
+          <div class="fg-cohort__row">
+            <div class="fg-cohort__cell fg-cohort__cell--lab">Feb</div>
+            <div class="fg-cohort__cell fg-cohort__cell--size">402</div>
+            <div class="fg-cohort__cell fg-cohort__cell--v" style="--fg-heat:100;">100</div>
+            <div class="fg-cohort__cell fg-cohort__cell--v" style="--fg-heat:58;">58</div>
+            <div class="fg-cohort__cell fg-cohort__cell--v" style="--fg-heat:41;">41</div>
+            <div class="fg-cohort__cell fg-cohort__cell--v" style="--fg-heat:35;">35</div>
+            <div class="fg-cohort__cell fg-cohort__cell--v" style="--fg-heat:29;">29</div>
+            <div class="fg-cohort__cell fg-cohort__cell--v fg-cohort__cell--null">–</div>
+          </div>
+          <div class="fg-cohort__row">
+            <div class="fg-cohort__cell fg-cohort__cell--lab">Mar</div>
+            <div class="fg-cohort__cell fg-cohort__cell--size">377</div>
+            <div class="fg-cohort__cell fg-cohort__cell--v" style="--fg-heat:100;">100</div>
+            <div class="fg-cohort__cell fg-cohort__cell--v" style="--fg-heat:71;">71</div>
+            <div class="fg-cohort__cell fg-cohort__cell--v" style="--fg-heat:52;">52</div>
+            <div class="fg-cohort__cell fg-cohort__cell--v fg-cohort__cell--null">–</div>
+            <div class="fg-cohort__cell fg-cohort__cell--v fg-cohort__cell--null">–</div>
+            <div class="fg-cohort__cell fg-cohort__cell--v fg-cohort__cell--null">–</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+</main>
+</body>
+</html>

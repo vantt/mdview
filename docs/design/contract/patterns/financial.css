@@ -1,0 +1,113 @@
+/* ============================================================
+   PATTERNS · D — Financial / Report
+   Reads Tier 2 + Tier 3 tokens only. No raw type/border values.
+   ============================================================ */
+
+/* Report header */
+.fg-report-head { display: flex; align-items: flex-end; justify-content: space-between; gap: var(--space-4); flex-wrap: wrap; }
+.fg-report-head__period { font-family: var(--type-tag-font); font-size: var(--type-tag-size); letter-spacing: var(--type-tag-tracking); color: var(--color-text-subtle); }
+
+/* Big-number stat callout */
+.fg-stat { display: flex; flex-direction: column; gap: var(--space-1); }
+.fg-stat__label { font-family: var(--type-label-font); font-size: var(--type-micro-size); text-transform: var(--type-label-case); letter-spacing: var(--type-label-tracking); color: var(--color-text-subtle); }
+.fg-stat__value { font-family: var(--type-figure-font); font-size: var(--type-figure-lg-size); font-weight: var(--type-figure-lg-weight); line-height: var(--type-figure-lg-leading); color: var(--color-text); letter-spacing: var(--type-figure-lg-tracking); }
+.fg-stat__sub { display: flex; align-items: center; gap: var(--space-2); }
+.fg-metric-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px,1fr)); gap: var(--space-5); }
+
+/* (.fg-money lives in components.css — shared by CRM + finance) */
+
+/* Ledger / financial table (totals row) */
+.fg-ledger { width: 100%; border-collapse: collapse; font-size: var(--type-body-sm-size); }
+.fg-ledger th { text-align: left; padding: 9px var(--space-3); font-family: var(--type-label-font); font-size: var(--type-micro-size); text-transform: var(--type-label-case); letter-spacing: var(--type-label-tracking); color: var(--color-text-subtle); border-bottom: var(--border-width-hairline) solid var(--color-border-strong); }
+.fg-ledger th.fg-ledger__num, .fg-ledger td.fg-ledger__num { text-align: right; font-family: var(--num-font); font-variant-numeric: var(--num-variant); }
+.fg-ledger td { padding: var(--density-row-pad-y) var(--space-3); color: var(--color-text); border-bottom: var(--border-width-hairline) solid var(--color-border); }
+.fg-ledger tfoot td { border-top: var(--border-width-strong) solid var(--color-border-strong); border-bottom: 0; font-weight: var(--weight-strong); color: var(--color-text); }
+.fg-ledger tr.fg-ledger__subtotal td { border-bottom: var(--border-width-hairline) solid var(--color-border-strong); font-weight: var(--weight-emphasis); }
+
+/* Chart frame — bar chart placeholder + legend */
+.fg-chart { display: flex; flex-direction: column; gap: var(--space-3); }
+.fg-chart__plot { display: flex; align-items: flex-end; gap: var(--space-2); height: 140px; padding-top: var(--space-3); border-bottom: var(--border-width-hairline) solid var(--color-border-strong); }
+.fg-chart__bar { flex: 1; border-radius: var(--radius-sm) var(--radius-sm) 0 0; background: var(--color-action); min-width: 8px; }
+.fg-chart__bar--muted { background: var(--color-border-strong); }
+.fg-chart__bar--2 { background: var(--color-accent-alt-2); }
+.fg-chart__bar--3 { background: var(--color-accent-alt-3); }
+.fg-chart__bar--4 { background: var(--color-accent-alt-4); }
+.fg-chart__bar--5 { background: var(--color-accent-alt-5); }
+.fg-chart__legend { display: flex; gap: var(--space-4); flex-wrap: wrap; }
+.fg-chart__key { display: inline-flex; align-items: center; gap: var(--space-1); font-size: var(--type-tag-size); color: var(--color-text-muted); }
+.fg-chart__key::before { content: ""; width: 10px; height: 10px; border-radius: var(--radius-xs); background: var(--color-action); }
+.fg-chart__key--2::before { background: var(--color-accent-alt-2); }
+.fg-chart__key--3::before { background: var(--color-accent-alt-3); }
+.fg-chart__key--4::before { background: var(--color-accent-alt-4); }
+.fg-chart__key--5::before { background: var(--color-accent-alt-5); }
+
+/* Line / area series — styles an inline SVG placed in .fg-chart__plot */
+.fg-chart__svg { width: 100%; height: 100%; overflow: visible; }
+.fg-chart__line { fill: none; stroke: var(--color-action); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.fg-chart__line--2 { stroke: var(--color-accent-alt-2); }
+.fg-chart__line--3 { stroke: var(--color-accent-alt-3); }
+.fg-chart__area { fill: color-mix(in srgb, var(--color-action) 10%, transparent); stroke: none; }
+.fg-chart__pt { fill: var(--color-action); stroke: var(--color-surface); stroke-width: 1.5; }
+
+/* Sparkline frame (SVG or inline set inside) */
+.fg-sparkline { display: inline-flex; align-items: center; height: 24px; color: var(--color-positive); }
+.fg-sparkline path { fill: none; stroke: currentColor; stroke-width: 1.5; }
+.fg-sparkline--down { color: var(--color-negative); }
+
+/* Donut / gauge ring (conic) */
+.fg-gauge { width: 84px; height: 84px; border-radius: var(--radius-pill); background: conic-gradient(var(--color-action) calc(var(--fg-gauge-pct,65) * 1%), var(--color-surface-sunken) 0); display: grid; place-items: center; }
+.fg-gauge__inner { width: 60px; height: 60px; border-radius: var(--radius-pill); background: var(--color-surface); display: grid; place-items: center; font-family: var(--num-font); font-size: var(--type-body-size); font-weight: var(--weight-emphasis); color: var(--color-text); }
+@media (prefers-reduced-motion: no-preference) { .fg-gauge { transition: background var(--motion-open) var(--ease-decelerate); } }
+
+/* Variance / delta pill — budget vs actual, over/under */
+.fg-variance { display: inline-flex; align-items: center; gap: 4px; font-family: var(--num-font); font-size: var(--type-tag-size); font-variant-numeric: var(--num-variant); padding: 2px var(--space-2); border-radius: var(--chip-radius); }
+.fg-variance--under { color: var(--color-positive); background: var(--color-positive-tint); }
+.fg-variance--over  { color: var(--color-negative); background: var(--color-negative-tint); }
+.fg-variance--flat  { color: var(--color-text-subtle); background: var(--color-surface-sunken); }
+
+/* Budget vs actual — paired bar */
+.fg-budget { display: flex; flex-direction: column; gap: var(--space-1); }
+.fg-budget__track { position: relative; height: 8px; border-radius: var(--radius-pill); background: var(--color-surface-sunken); overflow: hidden; }
+.fg-budget__actual { position: absolute; inset: 0; border-radius: var(--radius-pill); background: var(--color-action); }
+.fg-budget__actual--over { background: var(--color-danger); }
+.fg-budget__target { position: absolute; top: -2px; bottom: -2px; width: 2px; background: var(--color-text); }
+.fg-budget__labels { display: flex; justify-content: space-between; font-family: var(--num-font); font-size: var(--type-tag-size); color: var(--color-text-subtle); }
+
+/* Divergence bar — two-sided bar around a zero axis (net in/out per row).
+   Colors come from the value-direction tokens; geometry is per-instance data:
+   --fg-diverge-len = 0–100, % of its half-track (same raw-% license as
+   .fg-gantt). Track height + hairline offsets are permitted structural geometry. */
+.fg-diverge { position: relative; width: 100%; height: 8px; }
+.fg-diverge__axis { position: absolute; left: 50%; top: 0; bottom: 0; width: var(--border-width-hairline); background: var(--color-border-strong); }
+.fg-diverge__bar { position: absolute; top: 1px; bottom: 1px; border-radius: var(--radius-xs); width: calc(var(--fg-diverge-len, 0) * 0.5%); }
+.fg-diverge__bar--pos { left: 50%; background: var(--color-positive); }
+.fg-diverge__bar--neg { right: 50%; background: var(--color-negative); }
+
+/* Cohort retention heat grid — label · size · N period cells.
+   Heat per cell via --fg-heat (0–100); the ramp is color-mix of Tier-3
+   --cohort-heat-color into the surface, capped by --cohort-heat-max — no hex.
+   Column count via --fg-cohort-cols (default 6). Fixed label/cell widths and
+   the 30px cell height are permitted structural geometry. */
+.fg-cohort { display: flex; flex-direction: column; gap: var(--space-1); overflow-x: auto; }
+.fg-cohort__row { display: grid; grid-template-columns: 56px 40px repeat(var(--fg-cohort-cols, 6), minmax(34px, 1fr)); gap: var(--space-1); }
+.fg-cohort__cell { display: flex; align-items: center; justify-content: center; height: 30px; border-radius: var(--radius-xs); font-family: var(--num-font); font-size: var(--type-tag-size); letter-spacing: var(--type-tag-tracking); font-variant-numeric: var(--num-variant); color: var(--color-text); }
+.fg-cohort__row--head .fg-cohort__cell { height: auto; padding-bottom: var(--space-2); font-family: var(--type-label-font); font-size: var(--type-micro-size); letter-spacing: var(--type-label-tracking); text-transform: var(--type-label-case); color: var(--color-text-subtle); }
+.fg-cohort__cell--lab { justify-content: flex-start; color: var(--color-text-muted); }
+.fg-cohort__cell--size { color: var(--color-text-subtle); }
+.fg-cohort__cell--v { border: var(--border-width-hairline) solid var(--color-border); background: color-mix(in srgb, var(--cohort-heat-color) calc(var(--fg-heat, 0) * var(--cohort-heat-max) / 100 * 1%), var(--color-surface)); }
+.fg-cohort__cell--null { border: var(--border-width-hairline) dashed var(--color-border); color: var(--color-text-disabled); }
+
+/* Period comparison chip — "vs Q1", "YoY" */
+.fg-period-compare { display: inline-flex; align-items: center; gap: 4px; font-family: var(--type-tag-font); font-size: var(--type-tag-size); color: var(--color-text-subtle); }
+
+/* Currency figure — locale-agnostic wrapper (symbol muted, integer emphasized) */
+.fg-currency__symbol { color: var(--color-text-subtle); font-weight: var(--type-body-weight); margin-right: 2px; }
+.fg-currency__frac { color: var(--color-text-subtle); font-size: 0.75em; }
+
+/* Table with sticky header (ledger or plain table) */
+.fg-table-wrap--sticky { max-height: 420px; overflow: auto; border: var(--border-width-hairline) solid var(--color-border); border-radius: var(--card-radius); }
+.fg-table-wrap--sticky table thead th { position: sticky; top: 0; background: var(--color-surface); z-index: 1; }
+
+/* Export affordance — small ghost button pinned to a card/report head */
+.fg-export-btn { display: inline-flex; align-items: center; gap: 6px; font-family: var(--type-tag-font); font-size: var(--type-tag-size); color: var(--color-text-muted); background: transparent; border: var(--border-width-hairline) solid var(--color-border); border-radius: var(--input-radius); padding: 5px var(--space-3); cursor: pointer; transition: color var(--motion-fast) var(--ease-standard), border-color var(--motion-fast) var(--ease-standard); }
+.fg-export-btn:hover { color: var(--color-action); border-color: var(--color-action); }

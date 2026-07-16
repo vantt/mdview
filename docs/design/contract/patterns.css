@@ -1,0 +1,13 @@
+/* ============================================================
+   CANONICAL DESIGN CONTRACT — patterns.css (barrel)
+   Domain component families, split one file per domain under
+   patterns/. Load this to pull all four, or link a single
+   patterns/<domain>.css when a page needs only one.
+
+   Load AFTER components.css. Reads canonical tokens only.
+   ============================================================ */
+@import url("patterns/editorial.css");
+@import url("patterns/task.css");
+@import url("patterns/crm.css");
+@import url("patterns/financial.css");
+@import url("patterns/media.css");

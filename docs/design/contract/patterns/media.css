@@ -1,0 +1,69 @@
+/* ============================================================
+   CANONICAL DESIGN CONTRACT — patterns/media.css  (Tier 4 · domain E)
+   Media / Playback vocabulary — the dhamma-player donor's defining
+   surface, absent from the contract until P4. Audio/video review UIs:
+   waveform, scrubber, transport controls, timestamped transcript cues.
+
+   Reuse-first: .fg-transport composes core .fg-icon-btn + .fg-scrubber;
+   transcript rows compose nothing new beyond their own thin grid. No new
+   contract token was required — every value reads existing Tier 2 + Tier 3
+   (action / border-strong / text / surfaces / radii / type). Per-instance
+   geometry rides raw 0–100 custom props (--fg-wave / --fg-scrub), the same
+   license as .fg-gantt / .fg-diverge / .fg-cohort.
+
+   Reads canonical tokens only.
+   ============================================================ */
+
+/* ── Waveform · .fg-waveform ──────────────────────────────────
+   Bar-based audio waveform. Bars are authored as spans whose height
+   carries the amplitude (inline `height: N%`); the played portion is
+   the leading run marked --played. Progress cursor sits at --fg-wave
+   (0–100). Played = action, unplayed = strong border, cursor = text. */
+.fg-waveform {
+  --fg-wave: 34;
+  position: relative; display: flex; align-items: center; justify-content: space-between;
+  gap: 2px; width: 100%; height: 120px; cursor: pointer;
+}
+.fg-waveform__bar { flex: 1 1 0; min-width: 0; border-radius: var(--radius-pill); background: var(--color-border-strong); align-self: center; transition: background var(--motion-settle) var(--ease-standard); }
+.fg-waveform__bar--played { background: var(--color-action); }
+.fg-waveform__cursor {
+  position: absolute; top: 0; bottom: 0; left: calc(var(--fg-wave) * 1%);
+  width: var(--border-width-strong); background: var(--color-text);
+  transform: translateX(-50%); pointer-events: none;
+}
+.fg-waveform__cursor::before { content: ""; position: absolute; top: -4px; left: 50%; width: 10px; height: 10px; border-radius: var(--radius-pill); background: var(--color-text); transform: translateX(-50%); }
+
+/* ── Scrubber · .fg-scrubber ──────────────────────────────────
+   Interactive progress track with a draggable handle (distinct from
+   the static task .fg-progress — this one is a control). Fill + handle
+   ride --fg-scrub (0–100). */
+.fg-scrubber { --fg-scrub: 34; position: relative; flex: 1; height: 16px; display: flex; align-items: center; cursor: pointer; }
+.fg-scrubber__track { position: absolute; left: 0; right: 0; height: 4px; border-radius: var(--radius-pill); background: var(--color-surface-sunken); }
+.fg-scrubber__fill  { position: absolute; left: 0; height: 4px; width: calc(var(--fg-scrub) * 1%); border-radius: var(--radius-pill); background: var(--color-action); }
+.fg-scrubber__handle { position: absolute; left: calc(var(--fg-scrub) * 1%); width: 12px; height: 12px; border-radius: var(--radius-pill); background: var(--color-surface-raised); border: var(--border-width-strong) solid var(--color-action); transform: translateX(-50%); box-shadow: var(--elevation-sm); }
+
+/* ── Transport · .fg-transport ────────────────────────────────
+   Media control bar: play/skip icon buttons + scrubber + mono time +
+   speed/volume. Composes core .fg-icon-btn for the controls; adds only
+   the row, the primary play button, and the timecode. */
+.fg-transport { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-2) var(--space-3); background: var(--color-surface); border: var(--border-width-hairline) solid var(--color-border); border-radius: var(--radius-pill); }
+.fg-transport__play { display: inline-grid; place-items: center; width: 38px; height: 38px; flex: none; border: 0; border-radius: var(--radius-pill); background: var(--color-action); color: var(--color-on-action); cursor: pointer; transition: background var(--motion-fast) var(--ease-standard); }
+.fg-transport__play:hover { background: var(--color-action-hover); }
+.fg-transport__time { font-family: var(--num-font); font-variant-numeric: var(--num-variant); font-size: var(--type-tag-size); color: var(--color-text-muted); white-space: nowrap; }
+.fg-transport__time span { color: var(--color-text-subtle); }
+.fg-transport__rate { flex: none; min-width: 44px; height: 30px; padding: 0 var(--space-2); border: var(--border-width-hairline) solid var(--color-border); border-radius: var(--radius-pill); background: transparent; color: var(--color-text-muted); font-family: var(--num-font); font-size: var(--type-tag-size); cursor: pointer; }
+.fg-transport__rate:hover { border-color: var(--color-border-strong); color: var(--color-text); }
+
+/* ── Transcript · .fg-transcript ──────────────────────────────
+   Timestamped transcript / caption cue rows (time · speaker · text).
+   --current highlights the actively-playing line. Inducted from the
+   donor .dp-caption. Speaker eyebrow rides the brand color. */
+.fg-transcript { display: flex; flex-direction: column; }
+.fg-transcript__cue { display: grid; grid-template-columns: 56px 1fr; gap: var(--space-3); width: 100%; text-align: left; padding: var(--space-3); border: 0; background: transparent; border-radius: var(--input-radius); cursor: pointer; transition: background var(--motion-fast) var(--ease-standard); }
+.fg-transcript__cue:hover { background: var(--color-surface-hover); }
+.fg-transcript__time { font-family: var(--num-font); font-variant-numeric: var(--num-variant); font-size: var(--type-tag-size); color: var(--color-text-subtle); text-align: right; padding-top: 2px; }
+.fg-transcript__body { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.fg-transcript__speaker { font-family: var(--type-label-font); font-size: var(--type-micro-size); font-weight: var(--type-label-weight); letter-spacing: var(--type-label-tracking); text-transform: var(--type-label-case); color: var(--color-brand); }
+.fg-transcript__text { font-family: var(--type-body-font); font-size: var(--type-body-sm-size); line-height: var(--type-body-sm-leading); color: var(--color-text); overflow-wrap: anywhere; text-wrap: pretty; }
+.fg-transcript__cue--current { background: color-mix(in srgb, var(--color-action) 7%, transparent); }
+.fg-transcript__cue--current .fg-transcript__time { color: var(--color-action); }

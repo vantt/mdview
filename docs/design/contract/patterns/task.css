@@ -1,0 +1,262 @@
+/* ============================================================
+   PATTERNS · B — Project / Task
+   Reads Tier 2 + Tier 3 tokens only. No raw type/border values.
+   ============================================================ */
+
+.fg-kanban { display: flex; gap: var(--space-4); align-items: flex-start; overflow-x: auto; padding-bottom: var(--space-3); }
+.fg-kanban__col { flex: none; width: 280px; display: flex; flex-direction: column; gap: var(--space-3); background: var(--color-surface-sunken); border-radius: var(--card-radius); padding: var(--space-3); }
+.fg-kanban__head { display: flex; align-items: center; justify-content: space-between; padding: var(--space-1) var(--space-2); }
+.fg-kanban__title { font-family: var(--type-label-font); font-size: var(--type-tag-size); text-transform: var(--type-label-case); letter-spacing: var(--type-label-tracking); color: var(--color-text-muted); }
+.fg-kanban__count { font-family: var(--num-font); font-size: var(--type-tag-size); color: var(--color-text-subtle); background: var(--color-surface); border-radius: var(--radius-pill); padding: 1px var(--space-2); }
+
+.fg-task { background: var(--color-surface-raised); border: var(--border-width-hairline) solid var(--color-border); border-radius: var(--card-radius); box-shadow: var(--card-elevation); padding: var(--space-3); display: flex; flex-direction: column; gap: var(--space-2); cursor: pointer; transition: border-color var(--motion-fast) var(--ease-standard); }
+.fg-task:hover { border-color: var(--color-border-strong); }
+.fg-task__top { display: flex; align-items: center; gap: var(--space-2); }
+.fg-task__title { font-size: var(--type-body-sm-size); color: var(--color-text); line-height: var(--type-body-sm-leading); }
+.fg-task__meta { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
+.fg-task__foot { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); margin-top: var(--space-1); }
+
+/* Priority flag */
+.fg-priority { display: inline-flex; align-items: center; gap: var(--space-1); font-family: var(--type-label-font); font-size: var(--type-micro-size); text-transform: var(--type-label-case); letter-spacing: var(--type-micro-tracking); }
+.fg-priority::before { content: "⚑"; }
+.fg-priority--urgent { color: var(--color-danger); }
+.fg-priority--high   { color: var(--color-warning); }
+.fg-priority--normal { color: var(--color-info); }
+.fg-priority--low    { color: var(--color-text-subtle); }
+
+/* Progress bar */
+.fg-progress { height: 6px; border-radius: var(--radius-pill); background: var(--color-surface-sunken); overflow: hidden; }
+.fg-progress__bar { height: 100%; border-radius: var(--radius-pill); background: var(--color-action); }
+
+/* Colored tag (distinct from status chip — free label) */
+.fg-tag { display: inline-flex; align-items: center; padding: 2px var(--space-2); border-radius: var(--chip-radius); font-size: var(--type-tag-size); font-weight: var(--type-tag-weight); color: var(--color-text-muted); background: var(--color-surface-sunken); }
+.fg-tag--1 { color: var(--color-accent-alt-1); background: color-mix(in srgb, var(--color-accent-alt-1) 12%, transparent); }
+.fg-tag--2 { color: var(--color-accent-alt-2); background: color-mix(in srgb, var(--color-accent-alt-2) 12%, transparent); }
+.fg-tag--3 { color: var(--color-accent-alt-3); background: color-mix(in srgb, var(--color-accent-alt-3) 12%, transparent); }
+.fg-tag--4 { color: var(--color-accent-alt-4); background: color-mix(in srgb, var(--color-accent-alt-4) 12%, transparent); }
+
+/* Checklist */
+.fg-checklist { display: flex; flex-direction: column; gap: var(--space-2); }
+.fg-checklist__item { display: flex; align-items: center; gap: var(--space-2); font-size: var(--type-body-sm-size); color: var(--color-text); }
+.fg-checklist__item--done { color: var(--color-text-subtle); text-decoration: line-through; }
+
+/* Assignee + due */
+.fg-assignee { display: inline-flex; align-items: center; gap: var(--space-1); font-size: var(--type-caption-size); color: var(--color-text-muted); }
+.fg-due { display: inline-flex; align-items: center; gap: var(--space-1); font-family: var(--type-tag-font); font-size: var(--type-tag-size); color: var(--color-text-subtle); }
+.fg-due--overdue { color: var(--color-danger); }
+
+/* List view — the board's sibling (retailCRM wl-row generalized) */
+.fg-tasklist { display: flex; flex-direction: column; border: var(--border-width-hairline) solid var(--color-border); border-radius: var(--card-radius); overflow: hidden; background: var(--color-surface); }
+.fg-trow { display: grid; grid-template-columns: auto 1fr auto; gap: var(--space-4); align-items: center; padding: var(--density-row-pad-y) var(--space-4); cursor: pointer; transition: background var(--motion-fast) var(--ease-standard); }
+.fg-trow + .fg-trow { border-top: var(--border-width-hairline) solid var(--color-border); }
+.fg-trow:hover { background: var(--color-surface-hover); }
+.fg-trow--done { opacity: .55; }
+.fg-trow--done .fg-trow__title { text-decoration: line-through; }
+.fg-trow__main { min-width: 0; display: flex; flex-direction: column; gap: var(--space-1); }
+.fg-trow__title { font-size: var(--type-body-sm-size); color: var(--color-text); }
+.fg-trow__meta { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
+.fg-trow__aside { display: flex; align-items: center; gap: var(--space-3); }
+
+/* Subtasks — indented group under a task */
+.fg-subtasks { display: flex; flex-direction: column; gap: var(--space-2); padding-left: var(--space-4); border-left: var(--border-width-hairline) solid var(--color-border); margin-left: var(--space-2); }
+
+/* Effort / estimate chip */
+.fg-effort { display: inline-flex; align-items: center; gap: var(--space-1); font-family: var(--num-font); font-size: var(--type-tag-size); color: var(--color-text-subtle); border: var(--border-width-hairline) solid var(--color-border); border-radius: var(--chip-radius); padding: 1px var(--space-2); }
+
+/* Dependency marker — "blocked by" */
+.fg-blocked-by { display: inline-flex; align-items: center; gap: var(--space-1); font-family: var(--type-tag-font); font-size: var(--type-tag-size); color: var(--color-warning); }
+.fg-blocked-by::before { content: "⛓"; font-size: var(--type-micro-size); }
+
+/* Comment count */
+.fg-comment-count { display: inline-flex; align-items: center; gap: var(--space-1); font-family: var(--num-font); font-size: var(--type-tag-size); color: var(--color-text-subtle); }
+.fg-comment-count::before { content: "◗"; transform: rotate(90deg); font-size: var(--type-micro-size); }
+
+/* ─────────────────────────────────────────────────────────────
+   CALENDAR · .fg-cal  (month grid — schedule view + date picker)
+   ───────────────────────────────────────────────────────────── */
+.fg-cal { display: flex; flex-direction: column; gap: var(--space-2); }
+.fg-cal__head { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); }
+.fg-cal__title { font-family: var(--type-ui-font); font-size: var(--type-ui-size); font-weight: var(--type-ui-weight); color: var(--color-text); }
+.fg-cal__grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; }
+.fg-cal__dow { text-align: center; padding: var(--space-1) 0; font-family: var(--type-label-font); font-size: var(--type-micro-size); letter-spacing: var(--type-micro-tracking); text-transform: var(--type-label-case); color: var(--color-text-subtle); }
+.fg-cal__day { position: relative; display: grid; place-items: center; aspect-ratio: 1; border: 0; background: transparent; border-radius: var(--nav-item-radius); font-family: var(--num-font); font-size: var(--type-body-sm-size); color: var(--color-text); cursor: pointer; transition: background var(--motion-fast) var(--ease-standard); }
+.fg-cal__day:hover { background: var(--color-surface-hover); }
+.fg-cal__day--out { color: var(--color-text-disabled); }
+.fg-cal__day--today { box-shadow: inset 0 0 0 var(--border-width-hairline) var(--color-action); }
+.fg-cal__day--sel { background: var(--color-action); color: var(--color-on-action); }
+.fg-cal__day--evt::after { content: ""; position: absolute; bottom: 3px; left: 50%; transform: translateX(-50%); width: 4px; height: 4px; border-radius: var(--radius-pill); background: var(--color-action); }
+.fg-cal__day--sel.fg-cal__day--evt::after { background: var(--color-on-action); }
+
+/* ─────────────────────────────────────────────────────────────
+   TIMELINE / GANTT · .fg-gantt  (rows of bars; geometry via
+   --fg-gantt-start / --fg-gantt-len, both 0–100 percentages)
+   ───────────────────────────────────────────────────────────── */
+.fg-gantt { display: flex; flex-direction: column; }
+.fg-gantt__row { display: grid; grid-template-columns: 160px 1fr; gap: var(--space-3); align-items: center; padding: var(--density-row-pad-y) 0; }
+.fg-gantt__row + .fg-gantt__row { border-top: var(--border-width-hairline) solid var(--color-border); }
+.fg-gantt__label { font-size: var(--type-body-sm-size); color: var(--color-text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fg-gantt__track { position: relative; height: 18px; border-radius: var(--radius-pill); background: var(--color-surface-sunken); }
+.fg-gantt__bar { position: absolute; top: 0; bottom: 0; left: calc(var(--fg-gantt-start, 0) * 1%); width: calc(var(--fg-gantt-len, 30) * 1%); border-radius: var(--radius-pill); background: var(--color-action); display: flex; align-items: center; padding: 0 var(--space-2); overflow: hidden; font-family: var(--type-tag-font); font-size: var(--type-micro-size); color: var(--color-on-action); white-space: nowrap; }
+.fg-gantt__bar--2 { background: var(--color-accent-alt-2); }
+.fg-gantt__bar--3 { background: var(--color-accent-alt-3); }
+.fg-gantt__bar--done { background: var(--color-success); }
+.fg-gantt__bar--overdue { background: var(--color-danger); }
+.fg-gantt__milestone { position: absolute; top: 50%; left: calc(var(--fg-gantt-start, 0) * 1%); width: 10px; height: 10px; transform: translate(-50%, -50%) rotate(45deg); background: var(--color-text); border-radius: var(--radius-xs); }
+.fg-gantt__today { position: absolute; top: calc(var(--space-1) * -1); bottom: calc(var(--space-1) * -1); left: calc(var(--fg-gantt-start, 50) * 1%); width: var(--border-width-hairline); background: var(--color-danger); }
+
+/* ============================================================
+   P2.7 — task-management vocabulary (ClickUp-inspired, neutral)
+   Reuse-first outcomes:
+   · .fg-group-head → promoted to CORE (components.css): grouped
+     lists exist in task AND crm domains.
+   · sprint points → NO new role: use .fg-effort ("5 pts").
+   · multi-assignee → NO new role: .fg-avatar-cluster +
+     .fg-avatar--more (core gained a separation ring).
+   · .fg-view-bar composes .fg-tabs/.fg-tab wholesale; adds only
+     count / add-view / trailing actions that tabs can't express.
+   · .fg-field-chip reads chip character tokens; .fg-time-track
+     composes .fg-progress.
+   ============================================================ */
+
+/* ─────────────────────────────────────────────────────────────
+   STATUS SYSTEM · .fg-status-set / .fg-status-lane
+   Configurable workflow lanes (Backlog → In progress → Done).
+   Color strategy: lanes draw from the theme's accent-alt
+   signature set (--1…--5) plus semantic done/closed — statuses
+   are TAXONOMY (like .fg-tag), not system state (.fg-status), so
+   they re-skin per theme with zero new Tier-2 color. Render
+   character is Tier-3: --status-lane-fill / --status-lane-text
+   (tinted+lane-text default · solid+on-dark on ClickUp).
+   ───────────────────────────────────────────────────────────── */
+.fg-status-set { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
+.fg-status-lane {
+  --fg-lane-color: var(--color-text-subtle);
+  display: inline-flex; align-items: center; gap: var(--space-1);
+  padding: 3px var(--space-2); border-radius: var(--chip-radius);
+  font-family: var(--type-tag-font); font-size: var(--type-tag-size);
+  font-weight: var(--chip-weight); letter-spacing: var(--type-tag-tracking);
+  text-transform: var(--type-label-case);
+  white-space: nowrap; flex: none;
+  color: var(--status-lane-text);
+  background: color-mix(in srgb, var(--fg-lane-color) var(--status-lane-fill), transparent);
+  border: var(--border-width-hairline) solid color-mix(in srgb, var(--fg-lane-color) 30%, transparent);
+}
+.fg-status-lane__dot { width: 6px; height: 6px; border-radius: var(--radius-pill); background: currentColor; flex: none; }
+.fg-status-lane__count { font-family: var(--num-font); opacity: 0.75; }
+.fg-status-lane--1 { --fg-lane-color: var(--color-accent-alt-1); }
+.fg-status-lane--2 { --fg-lane-color: var(--color-accent-alt-2); }
+.fg-status-lane--3 { --fg-lane-color: var(--color-accent-alt-3); }
+.fg-status-lane--4 { --fg-lane-color: var(--color-accent-alt-4); }
+.fg-status-lane--5 { --fg-lane-color: var(--color-accent-alt-5); }
+.fg-status-lane--done   { --fg-lane-color: var(--color-success); }
+.fg-status-lane--closed { --fg-lane-color: var(--color-text-muted); }
+
+/* ─────────────────────────────────────────────────────────────
+   TASK ID · .fg-task-id  (e.g. CU-1284)
+   Deliberately NOT an .fg-chip: no plate, no border — it is
+   reference text, not a label. Mono, subtle, select-all.
+   ───────────────────────────────────────────────────────────── */
+.fg-task-id { font-family: var(--num-font); font-size: var(--type-tag-size); letter-spacing: var(--type-tag-tracking); color: var(--color-text-subtle); user-select: all; white-space: nowrap; }
+
+/* ─────────────────────────────────────────────────────────────
+   SUBTASK TREE · .fg-subtask-tree
+   Modifier on .fg-tasklist: rows stay .fg-trow, gaining an
+   expand caret column and depth indent (per-row --fg-depth:
+   0,1,2…). The flat .fg-subtasks group remains for simple cases.
+   ───────────────────────────────────────────────────────────── */
+.fg-subtask-tree .fg-trow { grid-template-columns: auto auto 1fr auto; padding-left: calc(var(--space-3) + var(--fg-depth, 0) * var(--space-5)); }
+.fg-subtask-tree__caret { display: grid; place-items: center; width: 18px; height: 18px; flex: none; border: 0; background: transparent; cursor: pointer; color: var(--color-text-subtle); font-size: var(--type-micro-size); border-radius: var(--radius-xs); transition: transform var(--motion-fast) var(--ease-standard); }
+.fg-subtask-tree__caret::before { content: "▸"; }
+.fg-subtask-tree__caret--open { transform: rotate(90deg); }
+.fg-subtask-tree__caret--leaf { visibility: hidden; }
+
+/* ─────────────────────────────────────────────────────────────
+   CUSTOM FIELD CHIP · .fg-field-chip
+   Key/value cell (Sprint 14 · Points 5 · Due Jul 14). Distinct
+   from .fg-chip (tonal label) and .fg-effort (single mono
+   figure); reads the same chip character tokens.
+   Variants: --dropdown · --num · --date · --progress.
+   ───────────────────────────────────────────────────────────── */
+.fg-field-chip { display: inline-flex; align-items: center; gap: var(--space-1); padding: 2px var(--space-2); border: var(--border-width-hairline) solid var(--color-border); border-radius: var(--chip-radius); background: var(--color-surface-raised); font-family: var(--type-tag-font); font-size: var(--type-tag-size); letter-spacing: var(--type-tag-tracking); color: var(--color-text); }
+.fg-field-chip__key { font-size: var(--type-micro-size); text-transform: var(--type-label-case); color: var(--color-text-subtle); }
+.fg-field-chip__val { font-weight: var(--chip-weight); }
+.fg-field-chip--num .fg-field-chip__val,
+.fg-field-chip--date .fg-field-chip__val { font-family: var(--num-font); font-variant-numeric: var(--num-variant); }
+button.fg-field-chip, .fg-field-chip--dropdown { cursor: pointer; }
+.fg-field-chip--dropdown::after { content: "▾"; font-size: var(--type-micro-size); color: var(--color-text-subtle); }
+.fg-field-chip--dropdown:hover { border-color: var(--color-border-strong); }
+.fg-field-chip--progress .fg-progress { width: 56px; }
+
+/* ─────────────────────────────────────────────────────────────
+   VIEW BAR · .fg-view-bar
+   List · Board · Calendar · Gantt · Table. Reuses .fg-tabs/.fg-tab
+   wholesale — markup is <nav class="fg-tabs fg-view-bar">. Adds
+   only what tabs can't express: per-view count, "+ View",
+   trailing actions cluster.
+   ───────────────────────────────────────────────────────────── */
+.fg-view-bar { align-items: center; }
+.fg-view-bar .fg-tab { display: inline-flex; align-items: center; gap: var(--space-1); white-space: nowrap; }
+.fg-view-bar__count { font-family: var(--num-font); font-size: var(--type-micro-size); color: var(--color-text-subtle); }
+.fg-view-bar__add { border: 0; background: transparent; cursor: pointer; padding: 10px var(--space-2); font-family: var(--type-ui-font); font-size: var(--type-body-sm-size); color: var(--color-text-subtle); white-space: nowrap; transition: color var(--motion-fast) var(--ease-standard); }
+.fg-view-bar__add:hover { color: var(--color-link); }
+.fg-view-bar__actions { margin-left: auto; display: inline-flex; align-items: center; gap: var(--space-2); }
+
+/* ─────────────────────────────────────────────────────────────
+   TIME TRACKING · .fg-time-track
+   Logged vs estimate; composes .fg-progress for the ratio bar.
+   --over = logged exceeds estimate (danger, no new color).
+   ───────────────────────────────────────────────────────────── */
+.fg-time-track { display: inline-flex; align-items: center; gap: var(--space-2); font-family: var(--num-font); font-size: var(--type-tag-size); color: var(--color-text-muted); }
+.fg-time-track__logged { color: var(--color-text); }
+.fg-time-track__est { color: var(--color-text-subtle); }
+.fg-time-track__est::before { content: "/ "; }
+.fg-time-track .fg-progress { width: 64px; }
+.fg-time-track--over .fg-time-track__logged { color: var(--color-danger); font-weight: var(--weight-emphasis); }
+.fg-time-track--over .fg-progress__bar { background: var(--color-danger); }
+
+/* ─────────────────────────────────────────────────────────────
+   TASK TABLE · .fg-task-table
+   The signature grouped list-view AS A TABLE (columns: name ·
+   assignee · due · priority · points…). Composes core .fg-table
+   wholesale — --clickable hover, .fg-th-sort, checkcol/selection
+   all work unchanged — plus .fg-group-head and .fg-status-lane.
+   Adds ONLY what a plain table lacks: a group row spanning all
+   columns, a stacked name cell, an add-task row, a done state.
+   ───────────────────────────────────────────────────────────── */
+.fg-task-table tr.fg-task-table__group td { padding: var(--space-3) var(--space-1) var(--space-1); border-bottom: 0; }
+.fg-task-table tr.fg-task-table__group .fg-group-head { padding-top: var(--space-1); padding-bottom: var(--space-1); }
+.fg-table--clickable tbody tr.fg-task-table__group,
+.fg-table--clickable tbody tr.fg-task-table__add { cursor: default; }
+.fg-table--clickable tbody tr.fg-task-table__group:hover,
+.fg-table--clickable tbody tr.fg-task-table__add:hover { background: transparent; }
+.fg-task-table__name { display: flex; flex-direction: column; gap: var(--space-1); min-width: 0; }
+.fg-task-table__title { display: inline-flex; align-items: center; gap: var(--space-2); color: var(--color-text); }
+.fg-task-table__meta { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
+.fg-task-table tr.fg-task-table__row--done { opacity: .55; }
+.fg-task-table tr.fg-task-table__row--done .fg-task-table__title { text-decoration: line-through; }
+.fg-task-table tr.fg-task-table__add td { border-bottom: 0; padding-top: var(--space-1); padding-bottom: var(--space-3); }
+.fg-task-table__add-btn { border: 0; background: transparent; cursor: pointer; padding: 0; font-family: var(--type-ui-font); font-size: var(--type-body-sm-size); color: var(--color-text-subtle); white-space: nowrap; transition: color var(--motion-fast) var(--ease-standard); }
+.fg-task-table__add-btn:hover { color: var(--color-link); }
+
+/* Lane color utilities — set --fg-lane-color on any lane-aware element
+   (.fg-status-lane, .fg-td-lane). Same sources as the status system. */
+.fg-lane--1 { --fg-lane-color: var(--color-accent-alt-1); }
+.fg-lane--2 { --fg-lane-color: var(--color-accent-alt-2); }
+.fg-lane--3 { --fg-lane-color: var(--color-accent-alt-3); }
+.fg-lane--4 { --fg-lane-color: var(--color-accent-alt-4); }
+.fg-lane--5 { --fg-lane-color: var(--color-accent-alt-5); }
+.fg-lane--done   { --fg-lane-color: var(--color-success); }
+.fg-lane--closed { --fg-lane-color: var(--color-text-muted); }
+
+/* Colored value cell — dropdown/category/status COLUMNS where the whole
+   cell carries the value's color (signature task-table move). Reads the
+   same Tier-3 render strategy as status lanes: tinted cell + lane-colored
+   text by default, solid + on-dark on ClickUp. Pair with .fg-lane--*. */
+.fg-table td.fg-td-lane {
+  background: color-mix(in srgb, var(--fg-lane-color, var(--color-text-subtle)) var(--status-lane-fill), transparent);
+  color: var(--status-lane-text);
+  font-family: var(--type-tag-font); font-size: var(--type-tag-size);
+  font-weight: var(--chip-weight); letter-spacing: var(--type-tag-tracking);
+  text-transform: var(--type-label-case);
+  text-align: center; white-space: nowrap;
+}

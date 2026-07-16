@@ -29,7 +29,7 @@ content itself.
 | 1 | Brand | Always-present link back to the project list | "mdview" |
 | 2 | Center slot | Page-specific orientation text in the top bar | a file's `project / path`, "· search", "Settings", or empty |
 | 3 | Settings link | Always-present link to the settings page | — |
-| 4 | Theme toggle | Always-present light/dark switch | — |
+| 4 | Theme toggle | Always-present light/dark switch (behavior in the Appearance spec) | — |
 | 5 | Chapter focus (file pages) | Which single folder the sidebar is currently showing | a folder within the project; starts at the viewed file's folder |
 | 6 | Chapter breadcrumb | The ancestor path of the focused folder, each segment selectable | project root → … → focused folder |
 | 7 | File label | How a file is named in the sidebar | its title (first H1); the file name when it has no title |

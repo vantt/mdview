@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Contract — CRM</title>
+<link rel="stylesheet" href="demo.css" />
+<link rel="stylesheet" href="../contract/contract.css" />
+<link rel="stylesheet" href="../contract/components.css" />
+<link rel="stylesheet" href="../contract/patterns/crm.css" />
+<link rel="stylesheet" href="../themes/atelier.css" />
+<script src="theme-switcher.js"></script>
+</head>
+<body class="fg-root">
+
+<div id="fg-bar"></div>
+
+<main>
+  <div class="page-title"><a class="demo-back" href="core.html">← Core gallery</a><span class="t-title">CRM</span><span class="t-body-sm" style="color:var(--color-text-subtle);">patterns/crm.css · .fg-profile · .fg-facts · .fg-activity · .fg-pipeline · .fg-aq</span></div>
+
+  <section>
+    <div class="sec-title">Customer 360</div>
+    <div class="two">
+      <div style="display:flex; flex-direction:column; gap:20px;">
+        <div class="fg-card">
+          <div class="fg-profile"><div class="fg-profile__avatar">ML</div><div><div class="fg-profile__name">Mai Lan Nguyen</div><div class="fg-profile__meta"><span>VIP</span><span>·</span><span>Since 2021</span><span>·</span><span>Ho Chi Minh City</span></div></div></div>
+          <div class="fg-pipeline"><span class="fg-pipeline__stage fg-pipeline__stage--done">Lead</span><span class="fg-pipeline__stage fg-pipeline__stage--done">Qualified</span><span class="fg-pipeline__stage fg-pipeline__stage--on">Proposal</span><span class="fg-pipeline__stage">Won</span></div>
+          <div class="fg-facts">
+            <div class="fg-fact"><div class="fg-fact__label">Lifetime value</div><div class="fg-fact__value fg-money">$4,210</div></div>
+            <div class="fg-fact"><div class="fg-fact__label">Orders</div><div class="fg-fact__value">37</div></div>
+            <div class="fg-fact"><div class="fg-fact__label">Avg. basket</div><div class="fg-fact__value">$114</div></div>
+            <div class="fg-fact"><div class="fg-fact__label">Last seen</div><div class="fg-fact__value">2 days ago</div></div>
+          </div>
+        </div>
+        <div class="fg-aq">
+          <div class="fg-aq__top"><span class="fg-aq__value">▲ $320 uplift</span><span class="fg-status fg-status--ready">Recommended</span></div>
+          <div class="fg-aq__rationale">Offer a loyalty bundle — this customer buys accessories within 7 days of a device purchase.</div>
+          <div class="fg-aq__foot"><button class="fg-btn fg-btn--primary" style="padding:6px 14px;font-size:13px;">Send offer</button><button class="fg-btn fg-btn--ghost" style="padding:6px 14px;font-size:13px;">Dismiss</button></div>
+        </div>
+      </div>
+      <div class="fg-scard">
+        <div class="fg-scard__title">Recent activity</div>
+        <div class="fg-activity">
+          <div class="fg-activity__item"><div class="fg-activity__dot"></div><div><div class="fg-activity__body"><span class="fg-activity__kind">Order</span>Placed order <strong>#10428</strong> — $214</div><div class="fg-activity__time">2 days ago</div></div></div>
+          <div class="fg-activity__item"><div class="fg-activity__dot fg-activity__dot--success"></div><div><div class="fg-activity__body"><span class="fg-activity__kind">Outcome</span>Opened “July drop” campaign email</div><div class="fg-activity__time">5 days ago</div></div></div>
+          <div class="fg-activity__item"><div class="fg-activity__dot fg-activity__dot--hollow"></div><div><div class="fg-activity__body"><span class="fg-activity__kind">Attempt</span>Call — no answer</div><div class="fg-activity__time">1 week ago</div></div></div>
+          <div class="fg-activity__item"><div class="fg-activity__dot fg-activity__dot--neutral"></div><div><div class="fg-activity__body"><span class="fg-activity__kind">System</span>Support ticket resolved</div><div class="fg-activity__time">2 weeks ago</div></div></div>
+        </div>
+        <div class="fg-note"><div class="fg-note__head"><span class="fg-note__author">Tran Hoa</span><span class="fg-note__time">Jul 6</span></div><div class="fg-note__body">Prefers SMS over email. Interested in the pro tier for Q4.</div></div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="sec-title">Contact methods · segments · related · quick actions</div>
+    <div class="two">
+      <div class="fg-card">
+        <div class="fg-card__title">Contact methods</div>
+        <div class="fg-cmethod"><span class="fg-cmethod__kind">Email</span><span class="fg-cmethod__value">mai.lan@example.com</span><span class="fg-cmethod__consent fg-cmethod__consent--yes">consented</span></div>
+        <div class="fg-cmethod"><span class="fg-cmethod__kind">SMS</span><span class="fg-cmethod__value">+84 91 234 5678</span><span class="fg-cmethod__consent fg-cmethod__consent--yes">consented</span></div>
+        <div class="fg-cmethod"><span class="fg-cmethod__kind">Call</span><span class="fg-cmethod__value">+84 91 234 5678</span><span class="fg-cmethod__consent fg-cmethod__consent--no">opted out</span></div>
+        <div class="row" style="margin-top:12px;">
+          <span class="fg-segment fg-segment--vip">VIP</span><span class="fg-segment fg-segment--new">New</span>
+        </div>
+        <div class="fg-quick-actions" style="margin-top:12px;">
+          <button class="fg-icon-btn">✉</button><button class="fg-icon-btn">☎</button><button class="fg-icon-btn">✎</button><button class="fg-icon-btn">⋯</button>
+        </div>
+      </div>
+      <div class="fg-card">
+        <div class="fg-card__title">Related records</div>
+        <div class="fg-related"><span class="fg-related__icon">◈</span><div><div class="fg-related__name">Household — Nguyen family</div><div class="fg-related__sub">3 members</div></div></div>
+        <div class="fg-related"><span class="fg-related__icon">◎</span><div><div class="fg-related__name">Order #10428</div><div class="fg-related__sub">$214 · 2 days ago</div></div></div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="sec-title">Inbox · conversation thread</div>
+    <div class="two">
+      <div class="fg-card" style="padding:8px;">
+        <div class="fg-convo fg-convo--on"><span class="fg-avatar">ML</span><div class="fg-convo__main"><span class="fg-convo__name">Mai Lan</span><span class="fg-convo__preview">Can I swap the size on my last order?</span></div><div class="fg-convo__aside"><span class="fg-convo__unread">2</span></div></div>
+        <div class="fg-convo"><span class="fg-avatar">TH</span><div class="fg-convo__main"><span class="fg-convo__name">Tran Hoa</span><span class="fg-convo__preview">Thanks for the quick reply!</span></div></div>
+      </div>
+      <div class="fg-card">
+        <div class="fg-thread">
+          <div class="fg-msg"><div class="fg-msg__bubble">Can I swap the size on my last order?</div><span class="fg-msg__time">2:04 PM</span></div>
+          <div class="fg-msg fg-msg--out"><div class="fg-msg__bubble">Of course — I'll get that sorted now.</div><span class="fg-msg__time">2:06 PM</span></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="sec-title">Record table · sortable header · row selection · bulk bar</div>
+    <div class="fg-bulkbar" style="max-width:720px;">
+      <span class="fg-bulkbar__count">2 selected</span>
+      <div class="fg-bulkbar__actions"><button class="fg-btn fg-btn--secondary" style="padding:5px 12px;">Add to segment</button><button class="fg-btn fg-btn--secondary" style="padding:5px 12px;">Assign owner</button></div>
+      <button class="fg-btn fg-btn--ghost fg-bulkbar__clear" style="padding:5px 12px;">Clear</button>
+    </div>
+    <div class="fg-card" style="padding:0; overflow:hidden; max-width:720px;">
+      <table class="fg-table fg-table--clickable">
+        <thead><tr>
+          <th class="fg-table__checkcol"><span class="fg-check__box fg-check__box--on" style="width:16px;height:16px;">✓</span></th>
+          <th><button class="fg-th-sort fg-th-sort--asc">Customer<span class="fg-th-sort__caret">▲</span></button></th>
+          <th><button class="fg-th-sort">Segment<span class="fg-th-sort__caret">▲</span></button></th>
+          <th class="fg-table__num"><button class="fg-th-sort">LTV<span class="fg-th-sort__caret">▲</span></button></th>
+        </tr></thead>
+        <tbody>
+          <tr class="fg-row--selected"><td><span class="fg-check__box fg-check__box--on" style="width:16px;height:16px;">✓</span></td><td>Mai Lan Nguyen</td><td><span class="fg-segment fg-segment--vip">VIP</span></td><td class="fg-table__num">$4,210</td></tr>
+          <tr class="fg-row--selected"><td><span class="fg-check__box fg-check__box--on" style="width:16px;height:16px;">✓</span></td><td>Tran Hoa</td><td><span class="fg-segment fg-segment--new">New</span></td><td class="fg-table__num">$380</td></tr>
+          <tr><td><span class="fg-check__box" style="width:16px;height:16px;"></span></td><td>Pham Duc</td><td><span class="fg-segment fg-segment--risk">At risk</span></td><td class="fg-table__num">$1,940</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <div class="sec-title">Segment rule builder · .fg-rule (composes fg-select · fg-input · fg-btn)</div>
+    <div class="fg-card" style="max-width:640px;">
+      <div class="fg-card__title">Segment: Sleeping VIPs</div>
+      <div class="fg-rule" style="margin-top:var(--space-4);">
+        <div class="fg-rule__row">
+          <div class="fg-select"><select><option>Total spend</option><option>Last order</option><option>Order count</option></select><span class="fg-select__chev">▾</span></div>
+          <div class="fg-select"><select><option>≥</option><option>≤</option><option>=</option></select><span class="fg-select__chev">▾</span></div>
+          <input class="fg-input" value="5,000,000₫" />
+          <button class="fg-rule__x" aria-label="Remove condition">✕</button>
+        </div>
+        <div class="fg-rule__join"><span class="fg-rule__join-line"></span><button class="fg-rule__join-pill">AND</button><span class="fg-rule__join-line"></span></div>
+        <div class="fg-rule__row">
+          <div class="fg-select"><select><option>Last order</option><option>Total spend</option></select><span class="fg-select__chev">▾</span></div>
+          <div class="fg-select"><select><option>older than</option><option>within</option></select><span class="fg-select__chev">▾</span></div>
+          <input class="fg-input" value="60 days" />
+          <button class="fg-rule__x" aria-label="Remove condition">✕</button>
+        </div>
+        <div><button class="fg-btn fg-btn--ghost">+ Add condition</button></div>
+      </div>
+    </div>
+  </section>
+</main>
+</body>
+</html>

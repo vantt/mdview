@@ -1,0 +1,226 @@
+/* ============================================================
+   ADAPTER · Atelier (Autumn Atelier — "The Scholarly Workshop")
+      →  html[data-theme="atelier"]
+   Inducted from the dhamma-player donor. Burnt orange (ember) on
+   bone white, Manrope throughout, warm-tinted slate neutrals, a
+   cocoa dark surface. Soft & rounded (pill buttons/chips, 12px
+   cards), gentle shadows, a warm ember focus ring.
+
+   action = brand = link — all ember. A DELIBERATE unify (a
+   scholarly tool speaks in one warm voice), the same valid config
+   as Precision(amber)/Terminal(green). See SPEC "Atelier" entry.
+
+   Tier-1 primitives kept private (--_*). Reads/overrides canonical
+   tokens only — no new contract token was required (Autumn Atelier
+   maps onto existing Tier 2/3 slots).
+   ============================================================ */
+@import url('https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&display=swap');   /* for typeface-set "grotesk" */
+
+html[data-theme="atelier"] {
+  /* ── Tier 1 · PRIMITIVE (private) ── */
+  --_ember:      #e9590c;  /* burnt orange — focused energy */
+  --_ember-90:   #eb6a23;
+  --_ember-80:   #ee7c3e;
+  --_ember-60:   #f3a072;
+  --_ember-40:   #f7c4a6;
+  --_ember-20:   #fbe1d3;
+  --_ember-10:   #fdf0e9;
+  --_ember-05:   #fef7f2;
+
+  --_bone:       #fdfbf7;  /* bone white canvas */
+  --_surface:    #ffffff;
+  --_surface-2:  #f8fafc;
+  --_surface-3:  #f2eee6;  /* warm grouped panel */
+  --_cocoa:      #221610;  /* warm dark canvas */
+  --_cocoa-2:    #2d1f18;
+
+  --_slate-50:#f8fafc; --_slate-100:#f1f5f9; --_slate-200:#e2e8f0; --_slate-300:#cbd5e1;
+  --_slate-400:#94a3b8; --_slate-500:#64748b; --_slate-600:#475569; --_slate-700:#334155;
+  --_slate-800:#1e293b; --_slate-900:#0f172a;  /* the warm "black" — never pure #000 */
+
+  /* semantic text colors darkened to -700 rungs so each passes WCAG AA on its
+     tint at tag size (the donor's -500/-600 values sit ~2.8–3.6:1). Tints keep
+     the donor's soft -bg values. */
+  --_success:#15803d; --_success-bg:#dcfce7;
+  --_danger:#dc2626;  --_danger-bg:#fef2f2;
+  --_warning:#b45309; --_warning-bg:#fef3c7;
+  --_info:#0369a1;    --_info-bg:#e0f2fe;
+
+  /* accent-alt / data-accent primitives */
+  --_clay:#c2410c;  --_honey:#c98a12;
+
+  /* ── Tier 2 · SEMANTIC ── */
+  /* Surfaces */
+  --color-bg: var(--_bone);
+  --color-surface: var(--_surface);
+  --color-surface-raised: var(--_surface);
+  --color-surface-sunken: var(--_surface-3);
+  --color-scrim: color-mix(in srgb, var(--_slate-900) 55%, transparent);
+
+  /* Text */
+  --color-text: var(--_slate-900);
+  --color-text-muted: var(--_slate-700);
+  --color-text-subtle: var(--_slate-500);
+  --color-text-disabled: var(--_slate-400);
+  --color-on-action: #ffffff;
+  --color-on-brand: #ffffff;
+  --color-on-dark: var(--_bone);
+
+  /* Lines */
+  --color-border: var(--_slate-200);
+  --color-border-strong: var(--_slate-300);
+  --color-border-interactive: var(--_ember);
+
+  /* action = brand = link — the deliberate unify (all ember) */
+  --color-action: var(--_ember);
+  --color-action-hover: var(--_ember-90);
+  --color-action-press: #c2450a;
+  --color-brand: var(--_ember);
+  --color-brand-tint: var(--_ember-10);
+  --color-link: var(--_ember);
+  --color-link-hover: #c2450a;
+  --color-link-visited: var(--_ember);
+
+  /* Status */
+  --color-success: var(--_success); --color-success-tint: var(--_success-bg);
+  --color-warning: var(--_warning); --color-warning-tint: var(--_warning-bg);
+  --color-danger:  var(--_danger);  --color-danger-tint:  var(--_danger-bg);
+  --color-info:    var(--_info);    --color-info-tint:    var(--_info-bg);
+
+  /* Value direction */
+  --color-positive: var(--_success); --color-positive-tint: var(--_success-bg);
+  --color-negative: var(--_danger);  --color-negative-tint: var(--_danger-bg);
+
+  /* Alternate accent set — a warm workshop palette (tags, lanes, chart keys) */
+  --color-accent-alt-1: var(--_ember);
+  --color-accent-alt-2: var(--_info);
+  --color-accent-alt-3: var(--_success);
+  --color-accent-alt-4: var(--_honey);
+  --color-accent-alt-5: var(--_slate-600);
+
+  /* Derived interaction states */
+  --color-surface-hover: var(--_ember-05);   /* warm row/item hover wash */
+  --color-selection-bg: color-mix(in srgb, var(--_ember) 22%, transparent);
+  --color-selection-text: var(--_slate-900);
+  --scrollbar-thumb: var(--_slate-200);
+  --scrollbar-track: transparent;
+
+  /* ── Typography — Manrope everywhere (1–2 physical faces) ── */
+  --font-display: 'Manrope', system-ui, -apple-system, sans-serif;
+  --font-body:    'Manrope', system-ui, -apple-system, sans-serif;
+  --font-mono:    ui-monospace, 'SF Mono', Menlo, monospace;
+  --font-accent:  'Manrope', system-ui, sans-serif;   /* no distinct voice face → = display */
+
+  /* Role character — Manrope's punchy, tight display personality */
+  --type-display-weight: 800; --type-display-tracking: -0.03em;
+  --type-title-weight: 800;   --type-title-tracking: -0.02em;
+  --type-heading-weight: 700; --type-heading-tracking: -0.01em;
+  --type-subheading-weight: 700;
+  --type-heading-sm-weight: 700;
+  --type-label-weight: 700;   --type-label-tracking: 0.14em;   /* eyebrow-widest */
+  --type-ui-weight: 600;
+  --weight-emphasis: 700; --weight-strong: 800;
+
+  /* ── Tier 3 · CHARACTER — soft, rounded, gently shadowed ── */
+  --btn-radius: var(--radius-pill);
+  --btn-weight: var(--weight-bold);
+  --btn-pad-y: 10px;
+  --btn-pad-x: 20px;
+
+  --card-radius: var(--radius-lg);
+  --card-elevation: var(--elevation-sm);
+  --card-border-width: 1px;
+
+  --chip-radius: var(--radius-pill);
+  --input-radius: var(--radius-md);
+  --nav-item-radius: var(--radius-md);   /* soft 8px — reads well for tree/menu/group rows */
+
+  /* Status dot as a soft ring halo (donor footer-dot look) instead of a blur glow */
+  --status-glow: 0 0 0 3px color-mix(in srgb, currentColor 18%, transparent);
+
+  --focus-color: var(--_ember);
+  --focus-width: 2px;
+
+  --num-font: var(--font-mono);
+
+  /* Signature — warm ember vignette, cocoa dark panel, ember ramp text */
+  --signature-vignette: radial-gradient(ellipse at 88% -12%, rgba(233,89,12,0.06), transparent 56%);
+  --signature-gradient-text: linear-gradient(92deg, var(--_ember-90), var(--_ember));
+  --signature-gradient: conic-gradient(from 90deg, #e9590c, #f3a072, #c98a12, #ee7c3e, #e9590c);
+  --signature-dark-bg: var(--_cocoa);
+  --signature-dark-text: var(--_bone);
+  --signature-band-tint: var(--_ember-10);
+  --signature-speed: 5s;
+
+  /* Code syntax on the cocoa dark panel — warm-leaning */
+  --code-keyword: var(--_ember-60);
+  --code-string:  #9ecb88;
+  --code-fn:      #8fbfe8;
+  --code-num:     var(--_honey);
+}
+
+/* ── Scheme · DARK (opposite of the native bone white) — the donor's cocoa
+   canvas deepened into a full dark scheme, ember kept as the warm voice.
+   Soft/rounded character unchanged. ── */
+html[data-theme="atelier"][data-scheme="dark"] {
+  --color-bg:#1a110c;
+  --color-surface:#231810;
+  --color-surface-raised:#2d1f18;
+  --color-surface-sunken:#150d09;
+  --color-scrim:rgba(10,6,3,0.6);
+  --color-text:#f5efe6;
+  --color-text-muted:#c3b4a5;
+  --color-text-subtle:#8f8072;
+  --color-text-disabled:#5c4e42;
+  --color-border:#33251c;
+  --color-border-strong:#453427;
+  --color-border-interactive:#e9590c;
+  --color-action:#e9590c; --color-action-hover:#eb6a23; --color-action-press:#c2450a;
+  --color-brand:#e9590c; --color-brand-tint:#2d1a10;
+  --color-link:#f2894f; --color-link-hover:#f6a575; --color-link-visited:#f2894f;
+  --color-success:#4cb96a; --color-success-tint:#122a18;
+  --color-warning:#d99a2e; --color-warning-tint:#2c2110;
+  --color-danger:#ef5350;  --color-danger-tint:#2e1413;
+  --color-info:#3fa0e0;    --color-info-tint:#0f2435;
+  --color-positive:#4cb96a; --color-positive-tint:#122a18;
+  --color-negative:#ef5350; --color-negative-tint:#2e1413;
+  --color-accent-alt-1:#e9590c; --color-accent-alt-2:#3fa0e0; --color-accent-alt-3:#4cb96a; --color-accent-alt-4:#d99a2e; --color-accent-alt-5:#a1927f;
+  --color-surface-hover:#2d1f18;
+  --color-selection-bg:color-mix(in srgb, #e9590c 26%, transparent); --color-selection-text:#f5efe6;
+  --scrollbar-thumb:#453427;
+  --signature-band-tint:#2d1a10;
+  --signature-vignette:radial-gradient(ellipse at 88% -12%, rgba(233,89,12,0.10), transparent 56%);
+}
+
+/* Theme-scoped component tweaks (same established pattern as Precision/Terminal
+   adding a primary-hover shadow): warm lift on primary buttons + the donor's
+   soft ember focus ring on text controls. */
+html[data-theme="atelier"] .fg-btn--primary:hover {
+  box-shadow: 0 10px 24px -8px color-mix(in srgb, var(--_ember) 35%, transparent);
+}
+html[data-theme="atelier"] .fg-input:focus,
+html[data-theme="atelier"] .fg-select select:focus {
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--_ember) 18%, transparent);
+}
+
+/* ── Accent overrides (data-accent) — re-point --color-action only ── */
+html[data-theme="atelier"][data-accent="clay"] {
+  --color-action: var(--_clay); --color-action-hover: #d24d15; --color-action-press: #9a330a; --color-on-action: #ffffff;
+}
+html[data-theme="atelier"][data-accent="honey"] {
+  --color-action: var(--_honey); --color-action-hover: #dd9a1c; --color-action-press: #a5710d; --color-on-action: #2a1c02;
+}
+
+/* ── Typeface-set overrides (data-typeface-set) ──────────────────────────
+   Unset = the theme default ("manrope": Manrope across all four slots).
+   "grotesk" trades the display slot for Space Grotesk (a face already loaded
+   by Precision/ClickUp — reused, no new character), keeping Manrope for body
+   + numbers so density is unchanged. "system" is inherited from contract.css. */
+html[data-theme="atelier"][data-typeface-set="grotesk"] {
+  --font-display: 'Space Grotesk', system-ui, sans-serif;
+  --font-body:    'Manrope', system-ui, sans-serif;
+  --font-mono:    ui-monospace, 'SF Mono', Menlo, monospace;
+  --font-accent:  'Manrope', system-ui, sans-serif;
+  --type-display-tracking: -0.02em; --type-title-tracking: -0.015em;
+}

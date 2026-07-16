@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Contract — Project / Task</title>
+<link rel="stylesheet" href="demo.css" />
+<link rel="stylesheet" href="../contract/contract.css" />
+<link rel="stylesheet" href="../contract/components.css" />
+<link rel="stylesheet" href="../contract/patterns/task.css" />
+<link rel="stylesheet" href="../themes/atelier.css" />
+<script src="theme-switcher.js"></script>
+</head>
+<body class="fg-root">
+
+<div id="fg-bar"></div>
+
+<main>
+  <div class="page-title"><a class="demo-back" href="core.html">← Core gallery</a><span class="t-title">Project / Task</span><span class="t-body-sm" style="color:var(--color-text-subtle);">patterns/task.css · .fg-kanban · .fg-task · .fg-priority · .fg-progress</span></div>
+
+  <section>
+    <div class="sec-title">Board · task cards · priority · progress</div>
+    <div class="fg-kanban">
+      <div class="fg-kanban__col">
+        <div class="fg-kanban__head"><span class="fg-kanban__title">To do</span><span class="fg-kanban__count">3</span></div>
+        <div class="fg-task"><div class="fg-task__title">Draft Q3 pricing update</div><div class="fg-task__meta"><span class="fg-tag fg-tag--1">pricing</span><span class="fg-priority fg-priority--high">high</span></div><div class="fg-task__foot"><span class="fg-assignee"><span class="fg-avatar" style="width:20px;height:20px;font-size:9px;">ML</span>Mai Lan</span><span class="fg-due fg-due--overdue">Jul 2</span></div></div>
+        <div class="fg-task"><div class="fg-task__title">Migrate onboarding emails</div><div class="fg-task__meta"><span class="fg-tag fg-tag--2">lifecycle</span><span class="fg-priority fg-priority--normal">normal</span></div><div class="fg-task__foot"><span class="fg-assignee"><span class="fg-avatar" style="width:20px;height:20px;font-size:9px;">TH</span>Tran Hoa</span><span class="fg-due">Jul 14</span></div></div>
+        <div class="fg-task"><div class="fg-task__title">Audit refund policy copy</div><div class="fg-task__meta"><span class="fg-tag fg-tag--4">legal</span><span class="fg-priority fg-priority--low">low</span></div></div>
+      </div>
+      <div class="fg-kanban__col">
+        <div class="fg-kanban__head"><span class="fg-kanban__title">In progress</span><span class="fg-kanban__count">2</span></div>
+        <div class="fg-task"><div class="fg-task__title">Rebuild segment filter</div><div class="fg-task__meta"><span class="fg-tag fg-tag--3">eng</span><span class="fg-priority fg-priority--urgent">urgent</span></div><div class="fg-progress"><div class="fg-progress__bar" style="width:60%"></div></div><div class="fg-task__foot"><span class="fg-assignee"><span class="fg-avatar" style="width:20px;height:20px;font-size:9px;">PD</span>Pham Duc</span><span class="fg-due">Jul 9</span></div></div>
+        <div class="fg-task"><div class="fg-task__title">Dashboard KPI tiles</div><div class="fg-progress"><div class="fg-progress__bar" style="width:30%"></div></div><div class="fg-task__foot"><span class="fg-assignee"><span class="fg-avatar" style="width:20px;height:20px;font-size:9px;">ML</span>Mai Lan</span><span class="fg-due">Jul 12</span></div></div>
+      </div>
+      <div class="fg-kanban__col">
+        <div class="fg-kanban__head"><span class="fg-kanban__title">Done</span><span class="fg-kanban__count">2</span></div>
+        <div class="fg-task"><div class="fg-checklist">
+          <div class="fg-checklist__item fg-checklist__item--done"><span class="fg-check__box fg-check__box--on" style="width:14px;height:14px;">✓</span>Ship dashboard v2</div>
+          <div class="fg-checklist__item fg-checklist__item--done"><span class="fg-check__box fg-check__box--on" style="width:14px;height:14px;">✓</span>Wire theme switcher</div>
+        </div></div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="sec-title">Checklist · tags · priorities</div>
+    <div class="stack" style="max-width:560px;">
+      <div class="fg-checklist">
+        <div class="fg-checklist__item"><span class="fg-check__box" style="width:16px;height:16px;"></span>Define token schema</div>
+        <div class="fg-checklist__item fg-checklist__item--done"><span class="fg-check__box fg-check__box--on" style="width:16px;height:16px;">✓</span>Split patterns by domain</div>
+        <div class="fg-checklist__item"><span class="fg-check__box" style="width:16px;height:16px;"></span>Refactor prototype</div>
+      </div>
+      <div class="row">
+        <span class="fg-tag fg-tag--1">design</span><span class="fg-tag fg-tag--2">eng</span><span class="fg-tag fg-tag--3">ops</span><span class="fg-tag fg-tag--4">legal</span>
+      </div>
+      <div class="row">
+        <span class="fg-priority fg-priority--urgent">urgent</span><span class="fg-priority fg-priority--high">high</span><span class="fg-priority fg-priority--normal">normal</span><span class="fg-priority fg-priority--low">low</span>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="sec-title">List view · .fg-tasklist · subtasks · effort · dependency</div>
+    <div class="fg-tasklist" style="max-width:640px;">
+      <div class="fg-trow">
+        <span class="fg-check__box fg-check__box--on" style="width:18px;height:18px;">✓</span>
+        <div class="fg-trow__main"><span class="fg-trow__title">Ship dashboard v2</span><div class="fg-trow__meta"><span class="fg-effort">3d</span><span class="fg-comment-count">4</span></div></div>
+        <div class="fg-trow__aside"><span class="fg-due">Jul 2</span></div>
+      </div>
+      <div class="fg-trow fg-trow--done">
+        <span class="fg-check__box fg-check__box--on" style="width:18px;height:18px;">✓</span>
+        <div class="fg-trow__main"><span class="fg-trow__title">Wire theme switcher</span></div>
+        <div class="fg-trow__aside"><span class="fg-due">Jun 28</span></div>
+      </div>
+      <div class="fg-trow">
+        <span class="fg-check__box" style="width:18px;height:18px;"></span>
+        <div class="fg-trow__main"><span class="fg-trow__title">Refactor prototype onto contract</span><div class="fg-trow__meta"><span class="fg-blocked-by">blocked by 2</span><span class="fg-effort">5d</span></div></div>
+        <div class="fg-trow__aside"><span class="fg-due fg-due--overdue">Jul 1</span></div>
+      </div>
+    </div>
+    <div class="fg-subtasks" style="max-width:600px;">
+      <div class="fg-checklist__item"><span class="fg-check__box fg-check__box--on" style="width:14px;height:14px;">✓</span>Map CRM components</div>
+      <div class="fg-checklist__item"><span class="fg-check__box" style="width:14px;height:14px;"></span>Map task board</div>
+    </div>
+  </section>
+
+  <section>
+    <div class="sec-title">Status lanes · .fg-status-set · grouped list · .fg-group-head</div>
+    <div class="stack" style="max-width:680px;">
+      <div class="fg-status-set">
+        <span class="fg-status-lane"><span class="fg-status-lane__dot"></span>Backlog</span>
+        <span class="fg-status-lane fg-status-lane--1"><span class="fg-status-lane__dot"></span>In progress<span class="fg-status-lane__count">4</span></span>
+        <span class="fg-status-lane fg-status-lane--2"><span class="fg-status-lane__dot"></span>In review</span>
+        <span class="fg-status-lane fg-status-lane--4"><span class="fg-status-lane__dot"></span>Blocked</span>
+        <span class="fg-status-lane fg-status-lane--done"><span class="fg-status-lane__dot"></span>Done</span>
+        <span class="fg-status-lane fg-status-lane--closed"><span class="fg-status-lane__dot"></span>Closed</span>
+      </div>
+      <div class="fg-tasklist">
+        <button class="fg-group-head" onclick="this.classList.toggle('fg-group-head--closed')"><span class="fg-group-head__caret"></span><span class="fg-status-lane fg-status-lane--1"><span class="fg-status-lane__dot"></span>In progress</span><span class="fg-group-head__count">2</span><span class="fg-group-head__aside">+ Add task</span></button>
+        <div class="fg-trow">
+          <span class="fg-task-id">CU-1284</span>
+          <div class="fg-trow__main"><span class="fg-trow__title">Rebuild segment filter</span><div class="fg-trow__meta"><span class="fg-field-chip"><span class="fg-field-chip__key">Sprint</span><span class="fg-field-chip__val">14</span></span><span class="fg-time-track"><span class="fg-time-track__logged">2h 30m</span><span class="fg-time-track__est">4h</span></span></div></div>
+          <div class="fg-trow__aside"><div class="fg-avatar-cluster"><span class="fg-avatar" style="width:22px;height:22px;font-size:9px;">PD</span><span class="fg-avatar" style="width:22px;height:22px;font-size:9px;">ML</span><span class="fg-avatar fg-avatar--more" style="width:22px;height:22px;">+2</span></div></div>
+        </div>
+        <div class="fg-trow">
+          <span class="fg-task-id">CU-1291</span>
+          <div class="fg-trow__main"><span class="fg-trow__title">Dashboard KPI tiles</span><div class="fg-trow__meta"><span class="fg-effort">3 pts</span><span class="fg-comment-count">2</span></div></div>
+          <div class="fg-trow__aside"><span class="fg-due">Jul 12</span></div>
+        </div>
+        <button class="fg-group-head fg-group-head--closed" onclick="this.classList.toggle('fg-group-head--closed')"><span class="fg-group-head__caret"></span><span class="fg-status-lane fg-status-lane--done"><span class="fg-status-lane__dot"></span>Done</span><span class="fg-group-head__count">7</span></button>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="sec-title">Task table · .fg-task-table (composes .fg-table + .fg-group-head)</div>
+    <div class="fg-card" style="padding:0; overflow:hidden;">
+      <table class="fg-table fg-table--clickable fg-task-table">
+        <thead>
+          <tr><th style="width:84px;">ID</th><th>Name</th><th>Assignee</th><th style="width:110px;">Category</th><th><button class="fg-th-sort fg-th-sort--asc">Due<span class="fg-th-sort__caret">▲</span></button></th><th>Priority</th><th class="fg-table__num">Points</th></tr>
+        </thead>
+        <tbody>
+          <tr class="fg-task-table__group"><td colspan="7"><button class="fg-group-head" onclick="this.classList.toggle('fg-group-head--closed')"><span class="fg-group-head__caret"></span><span class="fg-status-lane fg-status-lane--1"><span class="fg-status-lane__dot"></span>In progress</span><span class="fg-group-head__count">3</span><span class="fg-group-head__aside">+ Add task</span></button></td></tr>
+          <tr>
+            <td><span class="fg-task-id">CU-1284</span></td>
+            <td><div class="fg-task-table__name"><span class="fg-task-table__title">Rebuild segment filter</span><div class="fg-task-table__meta"><span class="fg-tag fg-tag--3">eng</span><span class="fg-comment-count">4</span></div></div></td>
+            <td><div class="fg-avatar-cluster"><span class="fg-avatar" style="width:22px;height:22px;font-size:9px;">PD</span><span class="fg-avatar" style="width:22px;height:22px;font-size:9px;">ML</span><span class="fg-avatar fg-avatar--more" style="width:22px;height:22px;">+2</span></div></td>
+            <td class="fg-td-lane fg-lane--2">Engineering</td>
+            <td><span class="fg-due">Jul 9</span></td>
+            <td><span class="fg-priority fg-priority--urgent">urgent</span></td>
+            <td class="fg-table__num">5</td>
+          </tr>
+          <tr>
+            <td><span class="fg-task-id">CU-1291</span></td>
+            <td><div class="fg-task-table__name"><span class="fg-task-table__title">Dashboard KPI tiles</span><div class="fg-task-table__meta"><span class="fg-time-track"><span class="fg-time-track__logged">2h 30m</span><span class="fg-time-track__est">4h</span></span></div></div></td>
+            <td><span class="fg-avatar" style="width:22px;height:22px;font-size:9px;">ML</span></td>
+            <td class="fg-td-lane fg-lane--1">Design</td>
+            <td><span class="fg-due">Jul 12</span></td>
+            <td><span class="fg-priority fg-priority--normal">normal</span></td>
+            <td class="fg-table__num">3</td>
+          </tr>
+          <tr>
+            <td><span class="fg-task-id">CU-1296</span></td>
+            <td><div class="fg-task-table__name"><span class="fg-task-table__title">Audit refund policy copy</span><div class="fg-task-table__meta"><span class="fg-field-chip"><span class="fg-field-chip__key">Sprint</span><span class="fg-field-chip__val">14</span></span></div></div></td>
+            <td><span class="fg-avatar" style="width:22px;height:22px;font-size:9px;">TH</span></td>
+            <td class="fg-td-lane fg-lane--5">Legal</td>
+            <td><span class="fg-due fg-due--overdue">Jul 5</span></td>
+            <td><span class="fg-priority fg-priority--low">low</span></td>
+            <td class="fg-table__num">2</td>
+          </tr>
+          <tr class="fg-task-table__add"><td colspan="7"><button class="fg-task-table__add-btn">+ Add task</button></td></tr>
+          <tr class="fg-task-table__group"><td colspan="7"><button class="fg-group-head" onclick="this.classList.toggle('fg-group-head--closed')"><span class="fg-group-head__caret"></span><span class="fg-status-lane fg-status-lane--done"><span class="fg-status-lane__dot"></span>Done</span><span class="fg-group-head__count">1</span></button></td></tr>
+          <tr class="fg-task-table__row--done">
+            <td><span class="fg-task-id">CU-1277</span></td>
+            <td><div class="fg-task-table__name"><span class="fg-task-table__title">Wire theme switcher</span></div></td>
+            <td><span class="fg-avatar" style="width:22px;height:22px;font-size:9px;">PD</span></td>
+            <td class="fg-td-lane fg-lane--2">Engineering</td>
+            <td><span class="fg-due">Jun 28</span></td>
+            <td><span class="fg-priority fg-priority--high">high</span></td>
+            <td class="fg-table__num">3</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <div class="sec-title">View bar · .fg-view-bar (composes .fg-tabs) · field chips · time tracking</div>
+    <div class="stack" style="max-width:680px;">
+      <nav class="fg-tabs fg-view-bar">
+        <button class="fg-tab fg-tab--on">List<span class="fg-view-bar__count">24</span></button>
+        <button class="fg-tab">Board</button>
+        <button class="fg-tab">Calendar</button>
+        <button class="fg-tab">Gantt</button>
+        <button class="fg-tab">Table</button>
+        <button class="fg-view-bar__add">+ View</button>
+        <span class="fg-view-bar__actions"><button class="fg-chip fg-chip--toggle">Filter</button><button class="fg-chip fg-chip--toggle fg-chip--on">Me mode</button></span>
+      </nav>
+      <div class="row">
+        <button class="fg-field-chip fg-field-chip--dropdown"><span class="fg-field-chip__key">Priority</span><span class="fg-field-chip__val">High</span></button>
+        <span class="fg-field-chip fg-field-chip--num"><span class="fg-field-chip__key">Points</span><span class="fg-field-chip__val">5</span></span>
+        <span class="fg-field-chip fg-field-chip--date"><span class="fg-field-chip__key">Due</span><span class="fg-field-chip__val">Jul 14</span></span>
+        <span class="fg-field-chip fg-field-chip--progress"><span class="fg-field-chip__key">Rollout</span><div class="fg-progress"><div class="fg-progress__bar" style="width:45%"></div></div><span class="fg-field-chip__val">45%</span></span>
+      </div>
+      <div class="row">
+        <span class="fg-time-track"><span class="fg-time-track__logged">2h 30m</span><span class="fg-time-track__est">4h</span><div class="fg-progress"><div class="fg-progress__bar" style="width:62%"></div></div></span>
+        <span class="fg-time-track fg-time-track--over"><span class="fg-time-track__logged">6h 15m</span><span class="fg-time-track__est">4h</span><div class="fg-progress"><div class="fg-progress__bar" style="width:100%"></div></div></span>
+        <span class="fg-effort">5 pts</span>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="sec-title">Subtask tree · .fg-subtask-tree (rows stay .fg-trow · depth via --fg-depth)</div>
+    <div class="fg-tasklist fg-subtask-tree" style="max-width:640px;">
+      <div class="fg-trow" style="--fg-depth:0;">
+        <button class="fg-subtask-tree__caret fg-subtask-tree__caret--open" onclick="this.classList.toggle('fg-subtask-tree__caret--open')"></button>
+        <span class="fg-check__box" style="width:16px;height:16px;"></span>
+        <div class="fg-trow__main"><span class="fg-trow__title">Refactor prototype onto contract</span><div class="fg-trow__meta"><span class="fg-task-id">CU-1201</span><span class="fg-effort">5d</span></div></div>
+        <div class="fg-trow__aside"><span class="fg-due">Jul 18</span></div>
+      </div>
+      <div class="fg-trow" style="--fg-depth:1;">
+        <button class="fg-subtask-tree__caret fg-subtask-tree__caret--open" onclick="this.classList.toggle('fg-subtask-tree__caret--open')"></button>
+        <span class="fg-check__box fg-check__box--on" style="width:16px;height:16px;">✓</span>
+        <div class="fg-trow__main"><span class="fg-trow__title">Map CRM components</span><div class="fg-trow__meta"><span class="fg-task-id">CU-1201.1</span></div></div>
+        <div class="fg-trow__aside"><span class="fg-due">Jul 2</span></div>
+      </div>
+      <div class="fg-trow" style="--fg-depth:2;">
+        <button class="fg-subtask-tree__caret fg-subtask-tree__caret--leaf"></button>
+        <span class="fg-check__box fg-check__box--on" style="width:16px;height:16px;">✓</span>
+        <div class="fg-trow__main"><span class="fg-trow__title">Audit chip usages</span></div>
+        <div class="fg-trow__aside"></div>
+      </div>
+      <div class="fg-trow" style="--fg-depth:1;">
+        <button class="fg-subtask-tree__caret" onclick="this.classList.toggle('fg-subtask-tree__caret--open')"></button>
+        <span class="fg-check__box" style="width:16px;height:16px;"></span>
+        <div class="fg-trow__main"><span class="fg-trow__title">Map task board</span><div class="fg-trow__meta"><span class="fg-task-id">CU-1201.2</span><span class="fg-blocked-by">blocked by 1</span></div></div>
+        <div class="fg-trow__aside"><span class="fg-due fg-due--overdue">Jul 5</span></div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="sec-title">Calendar · .fg-cal · timeline · .fg-gantt</div>
+    <div class="two">
+      <div class="fg-card" style="max-width:360px;">
+        <div class="fg-cal">
+          <div class="fg-cal__head"><span class="fg-cal__title">July 2026</span><span style="display:flex; gap:4px;"><button class="fg-icon-btn" style="width:24px;height:24px;">‹</button><button class="fg-icon-btn" style="width:24px;height:24px;">›</button></span></div>
+          <div class="fg-cal__grid">
+            <span class="fg-cal__dow">Mo</span><span class="fg-cal__dow">Tu</span><span class="fg-cal__dow">We</span><span class="fg-cal__dow">Th</span><span class="fg-cal__dow">Fr</span><span class="fg-cal__dow">Sa</span><span class="fg-cal__dow">Su</span>
+            <button class="fg-cal__day fg-cal__day--out">29</button><button class="fg-cal__day fg-cal__day--out">30</button><button class="fg-cal__day">1</button><button class="fg-cal__day fg-cal__day--evt">2</button><button class="fg-cal__day">3</button><button class="fg-cal__day">4</button><button class="fg-cal__day">5</button>
+            <button class="fg-cal__day">6</button><button class="fg-cal__day fg-cal__day--evt">7</button><button class="fg-cal__day fg-cal__day--today">8</button><button class="fg-cal__day">9</button><button class="fg-cal__day fg-cal__day--sel fg-cal__day--evt">10</button><button class="fg-cal__day">11</button><button class="fg-cal__day">12</button>
+            <button class="fg-cal__day">13</button><button class="fg-cal__day">14</button><button class="fg-cal__day fg-cal__day--evt">15</button><button class="fg-cal__day">16</button><button class="fg-cal__day">17</button><button class="fg-cal__day">18</button><button class="fg-cal__day">19</button>
+          </div>
+        </div>
+      </div>
+      <div class="fg-card">
+        <div class="fg-card__title">Sprint 14</div>
+        <div class="fg-gantt">
+          <div class="fg-gantt__row"><span class="fg-gantt__label">Contract hardening</span><span class="fg-gantt__track"><span class="fg-gantt__bar fg-gantt__bar--done" style="--fg-gantt-start:0; --fg-gantt-len:34;">done</span></span></div>
+          <div class="fg-gantt__row"><span class="fg-gantt__label">Refactor 360 screen</span><span class="fg-gantt__track"><span class="fg-gantt__bar" style="--fg-gantt-start:28; --fg-gantt-len:38;">in progress</span><span class="fg-gantt__today" style="--fg-gantt-start:52;"></span></span></div>
+          <div class="fg-gantt__row"><span class="fg-gantt__label">Inbox + thread</span><span class="fg-gantt__track"><span class="fg-gantt__bar fg-gantt__bar--2" style="--fg-gantt-start:55; --fg-gantt-len:30;"></span></span></div>
+          <div class="fg-gantt__row"><span class="fg-gantt__label">QA gate</span><span class="fg-gantt__track"><span class="fg-gantt__milestone" style="--fg-gantt-start:88;"></span></span></div>
+        </div>
+      </div>
+    </div>
+  </section>
+</main>
+</body>
+</html>

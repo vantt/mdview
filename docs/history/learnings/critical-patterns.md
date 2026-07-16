@@ -65,3 +65,15 @@ bee-compounding appends hard-won patterns here; keep it short and current.
   to a `#[cfg(test)]` unit test wherever the logic doesn't actually require a
   live server — most of it doesn't. (2026-07-16,
   `20260716-fix-review-p1-findings.md`)
+- **The rendered DOM comes from TWO sources: `views.rs` (server markup) and
+  `app.js` (client-injected elements).** Any UI change scoped by reading only
+  the server markup is blind to widgets `app.js` builds at runtime — the
+  fuzzy-jump palette (`.jump-*`) and mermaid controls (`.mermaid-controls`) are
+  created via `el.className = …` in `app.js`, so an `app.css` rewrite mapped
+  from `views.rs` alone silently dropped their styling. Before any CSS
+  rewrite/restyle, grep `app.js` for `className`/`classList.add` and cover those
+  classes too. Relatedly, when a change's observable effect is a string/attribute
+  (a CSS class, an HTML attribute, a `concat!`), assert it with a grep-based
+  verify (`grep -q 'data-scheme'`, `! grep -q "getAttribute('data-theme')"`) —
+  `cargo test --workspace` alone proves nothing about a non-logic edit. (2026-07-16,
+  `20260716-adopt-atelier-design-system.md`)

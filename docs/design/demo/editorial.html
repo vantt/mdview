@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Contract — Editorial / Markdown</title>
+<link rel="stylesheet" href="demo.css" />
+<link rel="stylesheet" href="../contract/contract.css" />
+<link rel="stylesheet" href="../contract/components.css" />
+<link rel="stylesheet" href="../contract/patterns/editorial.css" />
+<link rel="stylesheet" href="../themes/atelier.css" />
+<script src="theme-switcher.js"></script>
+<style>
+  .demo-figure-ph { aspect-ratio: 16/8; border-radius: var(--media-radius); background:
+    repeating-linear-gradient(135deg, var(--color-surface-sunken) 0 10px, var(--color-surface) 10px 20px);
+    border: var(--border-width-hairline) solid var(--color-border);
+    display: grid; place-items: center;
+    font-family: var(--font-mono); font-size: 11px; letter-spacing: .06em; color: var(--color-text-subtle);
+  }
+</style>
+</head>
+<body class="fg-root">
+
+<div id="fg-bar"></div>
+<div class="fg-reading-progress" id="readingProgress" style="width:0%;"></div>
+
+<main>
+  <div class="page-title"><a class="demo-back" href="core.html">← Core gallery</a><span class="t-title">Editorial / Markdown</span><span class="t-body-sm" style="color:var(--color-text-subtle);">patterns/editorial.css · .fg-reading-shell · .fg-prose · .fg-callout · .fg-codeblock</span></div>
+
+  <section>
+    <div class="sec-title">Reading shell — chapters rail · column · table of contents</div>
+    <div class="fg-reading-shell" id="article">
+      <nav class="fg-chapters">
+        <div class="fg-chapters__eyebrow">Chapters</div>
+        <button class="fg-chapters__item"><span class="fg-chapters__num">01</span> Preface</button>
+        <button class="fg-chapters__item fg-chapters__item--on"><span class="fg-chapters__num">02</span> Building on the contract</button>
+        <button class="fg-chapters__item"><span class="fg-chapters__num">03</span> Domain patterns</button>
+        <button class="fg-chapters__item"><span class="fg-chapters__num">04</span> Appendix</button>
+      </nav>
+
+      <div class="fg-reading">
+        <span class="t-label" style="color:var(--color-text-subtle);">§ Guide · Chapter 02</span>
+        <h1 class="fg-article-title" style="margin-top:10px;">Building on the contract</h1>
+        <p class="fg-lede">The same prose engine renders sharp editorial, warm jewel-tone, or rounded productivity — set by the loaded adapter.</p>
+
+        <div class="fg-prose" style="margin-top:28px;">
+          <p>This paragraph is styled entirely by <code>.fg-prose</code>. Body measure, leading and flow rhythm come from canonical reading tokens, so <strong>rendered markdown</strong> needs no per-element classes. Links like <a href="#">this one</a> pick up the theme link color.</p>
+
+          <h2 id="tokens">Reading the token hierarchy <a class="fg-anchor" href="#tokens">#</a></h2>
+          <p>Four document heading levels carry the outline. Headings switch family and weight per theme, but the rung order never moves:</p>
+          <p style="font-family: var(--font-mono); font-size: var(--fs-prose-sm); color: var(--color-text-subtle);">H1 <code>.fg-article-title</code> → H2 <code>fg-prose h2</code> → H3 <code>fg-prose h3</code> → H4 <code>fg-prose h4</code></p>
+
+          <h3 id="surfaces">Surfaces and lines <a class="fg-anchor" href="#surfaces">#</a></h3>
+          <p>Below, a definition list of two interactive roles kept deliberately separate:</p>
+          <dl>
+            <dt>Action</dt><dd>The thing the user clicks.</dd>
+            <dt>Brand</dt><dd>Identity — may differ from action.</dd>
+          </dl>
+          <ul><li>Bullets take the action-colored marker.</li><li>Rhythm stays consistent.</li></ul>
+
+          <h4>Edge cases</h4>
+          <p>A fourth-level heading like this one reads as a heading through weight and family, not size — it sits just above body copy, for a minor subsection such as this one.</p>
+
+          <figure>
+            <div class="demo-figure-ph">figure — diagram / screenshot</div>
+            <figcaption>Figure 1 — drop real artwork into <code>.fg-prose figure img</code>; caption styling is automatic.</figcaption>
+          </figure>
+
+          <blockquote>
+            <p>A pull-quote is set in the display face, italic — the system speaking in a human voice.</p>
+            <footer>— Design Contract, <cite>SPEC.md</cite></footer>
+          </blockquote>
+
+          <p>Use <span class="fg-kbd">⌘K</span> to search, and <span class="fg-mark">highlight</span> what matters.</p>
+
+          <table>
+            <thead><tr><th>Token</th><th>Role</th></tr></thead>
+            <tbody><tr><td>--color-action</td><td>CTA fill</td></tr><tr><td>--color-link</td><td>Interactive text</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+
+      <nav class="fg-toc">
+        <div class="fg-toc__eyebrow">On this page</div>
+        <a class="fg-toc__item fg-toc__item--on" href="#tokens">Reading the token hierarchy</a>
+        <a class="fg-toc__item fg-toc__item--sub" href="#surfaces">Surfaces and lines</a>
+      </nav>
+    </div>
+  </section>
+
+  <section>
+    <div class="sec-title">Callouts · code block</div>
+    <div class="fg-reading" style="display:flex; flex-direction:column; gap:12px;">
+      <div class="fg-callout"><div class="fg-callout__label">Note</div><p>Callouts come in five tones from one class family.</p></div>
+      <div class="fg-callout fg-callout--success"><div class="fg-callout__label">Success</div><p>Verified and ready.</p></div>
+      <div class="fg-callout fg-callout--warn"><div class="fg-callout__label">Warning</div><p>This recipe is bound to another sheet.</p></div>
+      <div class="fg-callout fg-callout--danger"><div class="fg-callout__label">Danger</div><p>Destructive — cannot be undone.</p></div>
+      <div class="fg-codeblock">
+        <div class="fg-codeblock__bar"><span>themes/clickup.css</span><span>css</span></div>
+        <pre><code><span class="fg-tok-c">/* CTA = ink, not brand */</span>
+<span class="fg-tok-k">--color-action</span>: <span class="fg-tok-f">var</span>(<span class="fg-tok-s">--_ink</span>);
+<span class="fg-tok-k">--btn-radius</span>: <span class="fg-tok-f">var</span>(<span class="fg-tok-s">--radius-pill</span>);</code></pre>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="sec-title">Task list · footnotes · details · anchored heading</div>
+    <div class="fg-reading">
+      <div class="fg-prose">
+        <ul class="fg-tasklist-md">
+          <li><label><input type="checkbox" checked disabled /> Ship the reading shell</label></li>
+          <li><label><input type="checkbox" disabled /> Add footnote support</label></li>
+        </ul>
+        <h3>Anchored heading <a class="fg-anchor" href="#anchored-heading">#</a></h3>
+        <p>Hover a heading to see its anchor link appear — H1 through H4 all carry the affordance.</p>
+        <details>
+          <summary>Expand for the full changelog</summary>
+          <p>Collapsible detail blocks use native <span class="fg-kbd">&lt;details&gt;</span>, styled with the same token set as the rest of the prose engine.</p>
+        </details>
+        <p>A claim needs a citation<sup><a href="#fn1">1</a></sup>.</p>
+        <div class="fg-footnotes">
+          <ol><li id="fn1">Distilled from an editorial composer's reading layer.</li></ol>
+        </div>
+      </div>
+    </div>
+  </section>
+</main>
+
+<script>
+  // Reading progress — width scoped to the article section only, for demo purposes.
+  const bar = document.getElementById('readingProgress');
+  const art = document.getElementById('article');
+  function updateProgress(){
+    const rect = art.getBoundingClientRect();
+    const total = rect.height - window.innerHeight;
+    const scrolled = Math.min(Math.max(-rect.top, 0), Math.max(total, 1));
+    bar.style.width = (total > 0 ? (scrolled / total) * 100 : 0) + '%';
+  }
+  document.addEventListener('scroll', updateProgress, { passive: true });
+  updateProgress();
+</script>
+</body>
+</html>

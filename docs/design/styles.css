@@ -1,0 +1,7 @@
+/* Atelier design system — single-theme handoff barrel.
+   Link this one file, then set data-theme="atelier" on <html>.
+   Load order matters: tokens → core roles → domain patterns → theme. */
+@import "contract/contract.css";   /* Tier 2 + Tier 3 tokens + neutral light/dark defaults */
+@import "contract/components.css";  /* Tier 4 core roles (.fg-*) */
+@import "contract/patterns.css";    /* Tier 4 domain patterns (editorial · task · crm · financial · media) */
+@import "themes/atelier.css";       /* the only theme — Light (native) + Dark scheme */

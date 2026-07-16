@@ -1,0 +1,581 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Canonical Contract — Core Gallery</title>
+<link rel="stylesheet" href="demo.css" />
+<link rel="stylesheet" href="../contract/contract.css" />
+<link rel="stylesheet" href="../contract/components.css" />
+<link rel="stylesheet" href="../themes/atelier.css" />
+<script src="theme-switcher.js"></script>
+<style>
+  /* Domain group dividers (demo presentation only) */
+  .grp { display:flex; flex-direction:column; gap:32px; }
+  .grp-head { display:flex; align-items:baseline; flex-wrap:wrap; gap:14px; padding-bottom:12px; border-bottom:2px solid var(--color-border-strong); }
+  .grp-head__idx { font-family:var(--font-mono); font-size:12px; color:var(--color-action); letter-spacing:.1em; }
+  .grp-head__label { font-family:var(--font-display); font-size:22px; font-weight:var(--weight-semibold); color:var(--color-text); letter-spacing:-.01em; }
+  .grp-head__note { font-family:var(--font-mono); font-size:10.5px; letter-spacing:.14em; text-transform:uppercase; color:var(--color-text-subtle); margin-left:auto; }
+
+  /* Type-scale specimen (demo presentation only) */
+  .tspec { border:1px solid var(--color-border); border-radius:var(--card-radius); overflow:hidden; background:var(--color-surface); }
+  .tspec + .tspec { margin-top:16px; }
+  .tspec__cap { padding:9px 16px; background:var(--color-surface-sunken); border-bottom:1px solid var(--color-border); }
+  .tspec__row { display:grid; grid-template-columns:1fr minmax(180px,300px); gap:24px; align-items:center; padding:16px; border-bottom:1px solid var(--color-border); }
+  .tspec__row:last-child { border-bottom:0; }
+  .tspec__sample { min-width:0; overflow:hidden; }
+  .tspec__sample--wrap { white-space:normal; }
+  .tspec__meta { display:flex; flex-direction:column; gap:4px; text-align:right; }
+  .tspec__role { font-family:var(--font-mono); font-size:11px; letter-spacing:.03em; color:var(--color-text); }
+  .tspec__role b { color:var(--color-action); font-weight:var(--weight-regular); }
+  .tspec__nums { font-family:var(--font-mono); font-size:10.5px; line-height:1.5; color:var(--color-text-subtle); }
+  @media (max-width:720px){ .tspec__row{ grid-template-columns:1fr; gap:8px; } .tspec__meta{ text-align:left; } }
+
+  /* Spacing scale specimen */
+  .sscale { border:1px solid var(--color-border); border-radius:var(--card-radius); overflow:hidden; }
+  .sscale__row { display:grid; grid-template-columns:150px 1fr; gap:20px; align-items:center; padding:8px 16px; border-bottom:1px solid var(--color-border); }
+  .sscale__row:last-child { border-bottom:0; }
+  .sscale__key { font-family:var(--font-mono); font-size:11px; color:var(--color-text); display:flex; justify-content:space-between; gap:10px; }
+  .sscale__px { color:var(--color-text-subtle); }
+  .sscale__barwrap { display:flex; align-items:center; gap:10px; min-height:14px; }
+  .sscale__bar { height:12px; border-radius:var(--radius-xs); background:var(--color-action); }
+  .sscale__dot { width:3px; height:12px; border-radius:1px; background:var(--color-border-strong); }
+</style>
+</head>
+<body class="fg-root">
+
+<div id="fg-bar"></div>
+
+<main>
+  <div class="page-title"><span class="t-label" style="color:var(--color-text-subtle);">Canonical contract</span><span class="t-title">Core components</span><span class="t-body-sm" style="color:var(--color-text-muted);">Grouped by domain — foundations · forms · color &amp; status · data · navigation · feedback · signature. Every section re-skins when you switch theme.</span></div>
+
+  <!-- ============================================================ -->
+  <!-- 01 · FOUNDATIONS                                             -->
+  <!-- ============================================================ -->
+  <div class="grp">
+    <div class="grp-head"><span class="grp-head__idx">01</span><span class="grp-head__label">Foundations</span><span class="grp-head__note">color · type · space · faces</span></div>
+
+    <!-- Colour roles -->
+    <section>
+      <div class="sec-title">Interactive roles · action ≠ brand ≠ link</div>
+      <div class="swatchwrap">
+        <div class="swatch"><div class="swatch__chip" style="background:var(--color-action);"></div><span class="swatch__name">action</span></div>
+        <div class="swatch"><div class="swatch__chip" style="background:var(--color-brand);"></div><span class="swatch__name">brand</span></div>
+        <div class="swatch"><div class="swatch__chip" style="background:var(--color-link);"></div><span class="swatch__name">link</span></div>
+        <div class="swatch"><div class="swatch__chip" style="background:var(--color-success);"></div><span class="swatch__name">success</span></div>
+        <div class="swatch"><div class="swatch__chip" style="background:var(--color-warning);"></div><span class="swatch__name">warning</span></div>
+        <div class="swatch"><div class="swatch__chip" style="background:var(--color-danger);"></div><span class="swatch__name">danger</span></div>
+        <div class="swatch"><div class="swatch__chip" style="background:var(--color-positive);"></div><span class="swatch__name">positive</span></div>
+        <div class="swatch"><div class="swatch__chip" style="background:var(--color-negative);"></div><span class="swatch__name">negative</span></div>
+      </div>
+      <div class="row">
+        <span class="fg-chip fg-chip--neutral">neutral</span>
+        <span class="fg-chip fg-chip--accent">accent</span>
+        <span class="fg-chip fg-chip--success">active</span>
+        <span class="fg-chip fg-chip--warning">pending</span>
+        <span class="fg-chip fg-chip--danger">overdue</span>
+        <span class="fg-badge">badge</span>
+        <span class="fg-badge fg-badge--accent">PRO</span>
+        <span class="fg-status fg-status--ready">Ready</span>
+        <span class="fg-status fg-status--warn">Syncing</span>
+        <span class="fg-status fg-status--blocked">Blocked</span>
+      </div>
+    </section>
+
+    <!-- Type scale · detailed live specimen -->
+    <section id="typescale">
+      <div class="sec-title">Type scale · live specimen — every rung re-measures itself when you switch <em>Theme</em> or <em>Typeface</em></div>
+      <div class="hero-claim">
+        <div class="t-label" style="color:var(--color-text-subtle); margin-bottom:10px;">One template · four systems</div>
+        <div class="t-display">Get more done, together.</div>
+        <p class="t-body" style="color:var(--color-text-muted); max-width:60ch; margin:14px 0 0;">Same HTML, theme-decided personality. The mono annotations below are read live from the rendered text, so the numbers always reflect the active theme — the honest way to feel size and space.</p>
+      </div>
+
+      <!-- Headings: display + H1–H4 -->
+      <div class="tspec">
+        <div class="tspec__cap"><span class="t-label" style="color:var(--color-text-subtle);">Headings · display + H1 → H4</span></div>
+        <div class="tspec__row"><div class="tspec__sample"><span class="t-display">Display</span></div><div class="tspec__meta"><span class="tspec__role"><b>Hero</b> · .t-display</span><span class="tspec__nums" data-probe></span></div></div>
+        <div class="tspec__row"><div class="tspec__sample"><span class="t-title">Heading one</span></div><div class="tspec__meta"><span class="tspec__role"><b>H1</b> · .t-title</span><span class="tspec__nums" data-probe></span></div></div>
+        <div class="tspec__row"><div class="tspec__sample"><span class="t-heading">Heading two</span></div><div class="tspec__meta"><span class="tspec__role"><b>H2</b> · .t-heading</span><span class="tspec__nums" data-probe></span></div></div>
+        <div class="tspec__row"><div class="tspec__sample"><span class="t-subheading">Heading three</span></div><div class="tspec__meta"><span class="tspec__role"><b>H3</b> · .t-subheading</span><span class="tspec__nums" data-probe></span></div></div>
+        <div class="tspec__row"><div class="tspec__sample"><span class="t-heading-sm">Heading four</span></div><div class="tspec__meta"><span class="tspec__role"><b>H4</b> · .t-heading-sm <span style="color:var(--color-success);">new</span></span><span class="tspec__nums" data-probe></span></div></div>
+      </div>
+
+      <!-- Body & UI roles -->
+      <div class="tspec">
+        <div class="tspec__cap"><span class="t-label" style="color:var(--color-text-subtle);">Body, UI &amp; furniture</span></div>
+        <div class="tspec__row"><div class="tspec__sample tspec__sample--wrap" style="max-width:52ch;"><span class="t-body">Body copy carries reading text and every UI control. Two lines let the line-height — the space between them — be felt, not just measured.</span></div><div class="tspec__meta"><span class="tspec__role">Body · .t-body</span><span class="tspec__nums" data-probe></span></div></div>
+        <div class="tspec__row"><div class="tspec__sample tspec__sample--wrap" style="max-width:52ch;"><span class="t-body-sm">Body small — dense secondary copy, card subtitles and hints, still comfortably readable across two wrapped lines.</span></div><div class="tspec__meta"><span class="tspec__role">Body sm · .t-body-sm</span><span class="tspec__nums" data-probe></span></div></div>
+        <div class="tspec__row"><div class="tspec__sample"><span class="t-ui">Interactive control text</span></div><div class="tspec__meta"><span class="tspec__role">UI · .t-ui</span><span class="tspec__nums" data-probe></span></div></div>
+        <div class="tspec__row"><div class="tspec__sample"><span class="t-label" style="color:var(--color-text-subtle);">Section label</span></div><div class="tspec__meta"><span class="tspec__role">Label · .t-label</span><span class="tspec__nums" data-probe></span></div></div>
+        <div class="tspec__row"><div class="tspec__sample"><span class="t-caption" style="color:var(--color-text-subtle);">Caption under a figure or field</span></div><div class="tspec__meta"><span class="tspec__role">Caption · .t-caption</span><span class="tspec__nums" data-probe></span></div></div>
+        <div class="tspec__row"><div class="tspec__sample"><span class="t-tag">STATUS·TAG</span></div><div class="tspec__meta"><span class="tspec__role">Tag · .t-tag</span><span class="tspec__nums" data-probe></span></div></div>
+        <div class="tspec__row"><div class="tspec__sample"><span class="t-micro" style="color:var(--color-text-subtle);">Micro · timestamps &amp; meta</span></div><div class="tspec__meta"><span class="tspec__role">Micro · .t-micro</span><span class="tspec__nums" data-probe></span></div></div>
+      </div>
+    </section>
+
+    <!-- Spacing scale -->
+    <section id="spacescale">
+      <div class="sec-title">Spacing scale · --space-0 → --space-8 — the only sanctioned gaps &amp; padding</div>
+      <div class="sscale">
+        <div class="sscale__row"><span class="sscale__key">--space-0 <span class="sscale__px" data-sw></span></span><div class="sscale__barwrap"><span class="sscale__dot"></span><div class="sscale__bar" style="width:var(--space-0);"></div></div></div>
+        <div class="sscale__row"><span class="sscale__key">--space-1 <span class="sscale__px" data-sw></span></span><div class="sscale__barwrap"><div class="sscale__bar" style="width:var(--space-1);"></div></div></div>
+        <div class="sscale__row"><span class="sscale__key">--space-2 <span class="sscale__px" data-sw></span></span><div class="sscale__barwrap"><div class="sscale__bar" style="width:var(--space-2);"></div></div></div>
+        <div class="sscale__row"><span class="sscale__key">--space-3 <span class="sscale__px" data-sw></span></span><div class="sscale__barwrap"><div class="sscale__bar" style="width:var(--space-3);"></div></div></div>
+        <div class="sscale__row"><span class="sscale__key">--space-4 <span class="sscale__px" data-sw></span></span><div class="sscale__barwrap"><div class="sscale__bar" style="width:var(--space-4);"></div></div></div>
+        <div class="sscale__row"><span class="sscale__key">--space-5 <span class="sscale__px" data-sw></span></span><div class="sscale__barwrap"><div class="sscale__bar" style="width:var(--space-5);"></div></div></div>
+        <div class="sscale__row"><span class="sscale__key">--space-6 <span class="sscale__px" data-sw></span></span><div class="sscale__barwrap"><div class="sscale__bar" style="width:var(--space-6);"></div></div></div>
+        <div class="sscale__row"><span class="sscale__key">--space-7 <span class="sscale__px" data-sw></span></span><div class="sscale__barwrap"><div class="sscale__bar" style="width:var(--space-7);"></div></div></div>
+        <div class="sscale__row"><span class="sscale__key">--space-8 <span class="sscale__px" data-sw></span></span><div class="sscale__barwrap"><div class="sscale__bar" style="width:var(--space-8);"></div></div></div>
+      </div>
+    </section>
+
+    <!-- Typeface-sets (P2.8) -->
+    <section>
+      <div class="sec-title">Typeface · 4 slots · weight scale · tabular numbers → try the <em>Typeface</em> control</div>
+      <div class="grid">
+        <div class="fg-card">
+          <div class="t-label" style="color:var(--color-text-subtle); margin-bottom:6px;">Display · --font-display</div>
+          <div class="t-title" style="margin:0;">Revenue compounding</div>
+        </div>
+        <div class="fg-card">
+          <div class="t-label" style="color:var(--color-text-subtle); margin-bottom:6px;">Body · --font-body</div>
+          <p class="t-body" style="margin:0; color:var(--color-text-muted);">The workhorse face carries reading copy and every UI control at 15px.</p>
+        </div>
+        <div class="fg-card">
+          <div class="t-label" style="color:var(--color-text-subtle); margin-bottom:6px;">Mono · --font-mono</div>
+          <div class="t-body" style="margin:0; font-family:var(--font-mono);">ID·7F3A · 09:42 · v2.2</div>
+        </div>
+        <div class="fg-card">
+          <div class="t-label" style="color:var(--color-text-subtle); margin-bottom:6px;">Accent · --font-accent</div>
+          <div style="font-family:var(--font-accent); font-style:italic; font-size:20px; line-height:1.3;">The 4th slot — the system's human voice.</div>
+        </div>
+      </div>
+      <div class="row" style="margin-top:16px; align-items:baseline; gap:24px;">
+        <span class="t-heading" style="font-weight:var(--weight-regular);">Regular</span>
+        <span class="t-heading" style="font-weight:var(--weight-medium);">Medium</span>
+        <span class="t-heading" style="font-weight:var(--weight-semibold);">Semibold</span>
+        <span class="t-heading" style="font-weight:var(--weight-bold);">Bold</span>
+      </div>
+      <div class="fg-card" style="margin-top:16px; padding:0; overflow:hidden; max-width:360px;">
+        <table class="fg-table">
+          <thead><tr><th>Account</th><th class="fg-table__num">Amount</th></tr></thead>
+          <tbody>
+            <tr><td>Northwind</td><td class="fg-table__num">1,204.00</td></tr>
+            <tr><td>Globex</td><td class="fg-table__num">90,417.50</td></tr>
+            <tr><td>Initech</td><td class="fg-table__num">308.09</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+  </div>
+
+  <!-- ============================================================ -->
+  <!-- 02 · ACTIONS & INPUTS                                        -->
+  <!-- ============================================================ -->
+  <div class="grp">
+    <div class="grp-head"><span class="grp-head__idx">02</span><span class="grp-head__label">Actions &amp; inputs</span><span class="grp-head__note">buttons · fields · controls</span></div>
+
+    <!-- Buttons -->
+    <section>
+      <div class="sec-title">Buttons · .fg-btn</div>
+      <div class="row">
+        <button class="fg-btn fg-btn--primary">Get started</button>
+        <button class="fg-btn fg-btn--secondary">Learn more</button>
+        <button class="fg-btn fg-btn--ghost">Ghost</button>
+        <button class="fg-btn fg-btn--danger">Delete</button>
+        <button class="fg-btn fg-btn--primary" disabled>Disabled</button>
+        <span class="fg-signature-border"><button class="fg-btn fg-btn--secondary" style="background:var(--color-surface-raised);">Signature ✦</button></span>
+      </div>
+    </section>
+
+    <!-- Form -->
+    <section>
+      <div class="sec-title">Form · .fg-field / .fg-input / choices</div>
+      <div class="stack">
+        <div class="fg-field">
+          <label class="fg-field__label t-label">Customer name <span class="fg-field__req">*</span></label>
+          <input class="fg-input" placeholder="e.g. Nguyen Van A" />
+          <span class="fg-field__hint">Shown on invoices.</span>
+        </div>
+        <div class="fg-field">
+          <label class="fg-field__label t-label">Segment</label>
+          <div class="fg-select">
+            <select><option>VIP</option><option>Regular</option><option>At risk</option></select>
+            <span class="fg-select__chev">▾</span>
+          </div>
+        </div>
+        <div class="fg-field">
+          <label class="fg-field__label t-label">Note</label>
+          <textarea class="fg-input fg-input--area" placeholder="Add a note…"></textarea>
+        </div>
+        <div class="fg-radioset">
+          <label class="fg-radio fg-radio--on"><span class="fg-radio__dot"></span>Email</label>
+          <label class="fg-radio"><span class="fg-radio__dot"></span>SMS</label>
+          <label class="fg-radio"><span class="fg-radio__dot"></span>Call</label>
+        </div>
+        <label class="fg-check"><span class="fg-check__box fg-check__box--on">✓</span><span class="fg-check__text">Subscribe to product updates</span></label>
+      </div>
+    </section>
+
+    <!-- Controls (added in hardening pass) -->
+    <section>
+      <div class="sec-title">Controls · switch · search · toggle chips · upload</div>
+      <div class="row" style="align-items:center; gap:24px;">
+        <button class="fg-switch fg-switch--on" style="border:0; background:none; padding:0;" onclick="this.classList.toggle('fg-switch--on')"><span class="fg-switch__track"><span class="fg-switch__dot"></span></span><span class="fg-switch__label">Auto-assign</span></button>
+        <button class="fg-switch" style="border:0; background:none; padding:0;" onclick="this.classList.toggle('fg-switch--on')"><span class="fg-switch__track"><span class="fg-switch__dot"></span></span><span class="fg-switch__label">Notifications</span></button>
+        <div class="fg-search" style="width:240px;">
+          <span class="fg-search__glyph"><svg width="13" height="13" viewBox="0 0 13 13" fill="none"><circle cx="5.5" cy="5.5" r="4" stroke="currentColor" stroke-width="1.3"/><path d="M8.5 8.5L12 12" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg></span>
+          <input class="fg-input" placeholder="Search customers" value="ng" />
+          <button class="fg-search__x" aria-label="Clear">✕</button>
+        </div>
+      </div>
+      <div class="row">
+        <button class="fg-chip fg-chip--toggle fg-chip--on" onclick="this.classList.toggle('fg-chip--on')">VIP</button>
+        <button class="fg-chip fg-chip--toggle" onclick="this.classList.toggle('fg-chip--on')">At risk</button>
+        <button class="fg-chip fg-chip--toggle" onclick="this.classList.toggle('fg-chip--on')">Overdue</button>
+        <button class="fg-chip fg-chip--toggle" onclick="this.classList.toggle('fg-chip--on')">New this month</button>
+      </div>
+      <div class="two">
+        <div class="fg-upload"><span class="t-body-sm">Drop CSV here or <span class="fg-upload__browse">browse</span></span><span class="fg-upload__hint">Up to 10&thinsp;MB · .csv .xlsx</span></div>
+        <div style="display:flex; flex-direction:column; gap:8px;">
+          <div class="fg-file"><span>customers-q2.csv</span><span class="fg-file__size">2.4 MB</span></div>
+          <div class="fg-file"><span>orders-export.xlsx</span><span class="fg-file__size">814 KB</span></div>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <!-- ============================================================ -->
+  <!-- 03 · DATA DISPLAY                                            -->
+  <!-- ============================================================ -->
+  <div class="grp">
+    <div class="grp-head"><span class="grp-head__idx">03</span><span class="grp-head__label">Data display</span><span class="grp-head__note">kpi · cards · table · groups</span></div>
+
+    <!-- KPIs -->
+    <section>
+      <div class="sec-title">KPI · .fg-kpi · .fg-delta</div>
+      <div class="grid">
+        <div class="fg-kpi"><span class="fg-kpi__label t-label">Revenue</span><span class="fg-kpi__value">$284.5k</span><span class="fg-kpi__foot"><span class="fg-delta fg-delta--up">▲ 12.4%</span></span></div>
+        <div class="fg-kpi"><span class="fg-kpi__label t-label">Orders</span><span class="fg-kpi__value">1,284</span><span class="fg-kpi__foot"><span class="fg-delta fg-delta--up">▲ 3.1%</span></span></div>
+        <div class="fg-kpi"><span class="fg-kpi__label t-label">Refunds</span><span class="fg-kpi__value">$12.1k</span><span class="fg-kpi__foot"><span class="fg-delta fg-delta--down">▼ 1.8%</span></span></div>
+        <div class="fg-kpi"><span class="fg-kpi__label t-label">Churn</span><span class="fg-kpi__value">2.4%</span><span class="fg-kpi__foot"><span class="fg-delta fg-delta--flat">— 0.0%</span></span></div>
+      </div>
+    </section>
+
+    <!-- Cards -->
+    <section>
+      <div class="sec-title">Cards · .fg-card</div>
+      <div class="grid">
+        <div class="fg-card">
+          <div class="fg-card__head"><span class="fg-card__title">Standard card</span><span class="fg-status fg-status--ready">Live</span></div>
+          <p class="fg-card__sub t-body-sm">Radius, elevation and border are character tokens — sharp in Precision, soft in beRich, rounded in ClickUp.</p>
+          <div class="fg-card__foot"><button class="fg-btn fg-btn--secondary">Open</button></div>
+        </div>
+        <div class="fg-card fg-card--rule">
+          <div class="fg-card__title">Rule strip</div>
+          <p class="fg-card__sub t-body-sm">The one sanctioned left-accent variant, colored by <code>--color-action</code>.</p>
+        </div>
+        <div class="fg-card fg-card--sunken">
+          <div class="fg-card__title">Sunken</div>
+          <p class="fg-card__sub t-body-sm">Sits on the sunken surface — the section-band role.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- Table -->
+    <section>
+      <div class="sec-title">Table · .fg-table</div>
+      <div class="fg-card" style="padding:0; overflow:hidden;">
+        <table class="fg-table fg-table--clickable">
+          <thead><tr><th>Customer</th><th>Segment</th><th class="fg-table__num">LTV</th><th>Status</th></tr></thead>
+          <tbody>
+            <tr><td>Mai Lan</td><td>VIP</td><td class="fg-table__num">$4,210</td><td><span class="fg-status fg-status--ready">Active</span></td></tr>
+            <tr><td>Tran Hoa</td><td>Regular</td><td class="fg-table__num">$1,090</td><td><span class="fg-status fg-status--warn">Lapsing</span></td></tr>
+            <tr><td>Pham Duc</td><td>At risk</td><td class="fg-table__num">$320</td><td><span class="fg-status fg-status--blocked">Churned</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- Group header (P2.7 core promotion) -->
+    <section>
+      <div class="sec-title">Group header · .fg-group-head (grouped lists — task + CRM)</div>
+      <div class="stack" style="max-width:520px;">
+        <button class="fg-group-head" onclick="this.classList.toggle('fg-group-head--closed')"><span class="fg-group-head__caret"></span><span class="fg-group-head__label">In progress</span><span class="fg-group-head__count">4</span><span class="fg-group-head__aside">+ Add task</span></button>
+        <button class="fg-group-head fg-group-head--closed" onclick="this.classList.toggle('fg-group-head--closed')"><span class="fg-group-head__caret"></span><span class="fg-group-head__label">Done</span><span class="fg-group-head__count">12</span></button>
+      </div>
+    </section>
+  </div>
+
+  <!-- ============================================================ -->
+  <!-- 04 · NAVIGATION & APP CHROME                                 -->
+  <!-- ============================================================ -->
+  <div class="grp">
+    <div class="grp-head"><span class="grp-head__idx">04</span><span class="grp-head__label">Navigation &amp; app chrome</span><span class="grp-head__note">nav · tree · sync · shell · wayfinding</span></div>
+
+    <!-- Nav + tabs -->
+    <section>
+      <div class="sec-title">Navigation · .fg-nav / .fg-tabs</div>
+      <div class="row" style="align-items:flex-start; gap:32px;">
+        <nav class="fg-nav">
+          <span class="fg-nav__eyebrow t-label">Workspace</span>
+          <button class="fg-nav__item fg-nav__item--on"><span class="fg-nav__icon">◧</span><span class="fg-nav__label">Dashboard</span></button>
+          <button class="fg-nav__item"><span class="fg-nav__icon">☰</span><span class="fg-nav__label">Customers</span><span class="fg-nav__badge">24</span></button>
+          <button class="fg-nav__item"><span class="fg-nav__icon">◷</span><span class="fg-nav__label">Tasks</span><span class="fg-nav__badge">3</span></button>
+          <button class="fg-nav__item"><span class="fg-nav__icon">✉</span><span class="fg-nav__label">Inbox</span></button>
+        </nav>
+        <div style="flex:1; min-width:280px;">
+          <div class="fg-tabs">
+            <button class="fg-tab fg-tab--on">Overview</button>
+            <button class="fg-tab">Orders</button>
+            <button class="fg-tab">Timeline</button>
+            <button class="fg-tab">Notes</button>
+          </div>
+          <div class="fg-caveat fg-caveat--info" style="margin-top:16px;">Character tokens keep nav pills sharp in Precision and fully rounded in ClickUp — no markup change.</div>
+          <div class="row" style="margin-top:14px;">
+            <div class="fg-avatar-cluster"><span class="fg-avatar">ML</span><span class="fg-avatar">TH</span><span class="fg-avatar">PD</span><span class="fg-avatar">+5</span></div>
+            <span class="fg-accent-swatches"><span></span><span></span><span></span><span></span><span></span></span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Tree · sync · shell (P4 donor induction) -->
+    <section>
+      <div class="sec-title">Navigation tree · .fg-tree — depth-indented, collapsible, active left-rule <span style="color:var(--color-success);">new</span></div>
+      <div class="row" style="align-items:flex-start; gap:32px;">
+        <nav class="fg-tree" style="width:300px;">
+          <button class="fg-tree__row fg-tree__row--leaf" style="--fg-tree-depth:0;"><span class="fg-tree__caret"></span><span class="fg-tree__label">Overview</span></button>
+          <button class="fg-tree__row" style="--fg-tree-depth:0;"><span class="fg-tree__caret"></span><span class="fg-tree__label">Day 1 — Opening &amp; Anāpāna</span><span class="fg-tree__aside">12</span></button>
+          <button class="fg-tree__row fg-tree__row--leaf" style="--fg-tree-depth:1;"><span class="fg-tree__caret"></span><span class="fg-tree__label">Section 01 · Introduction</span></button>
+          <button class="fg-tree__row fg-tree__row--on fg-tree__row--leaf" style="--fg-tree-depth:1;"><span class="fg-tree__caret"></span><span class="fg-tree__label">Section 07 · Breath focus</span><span class="fg-tree__aside">32%</span></button>
+          <button class="fg-tree__row fg-tree__row--leaf" style="--fg-tree-depth:1;"><span class="fg-tree__caret"></span><span class="fg-tree__label">Section 08 · Sustained attention</span></button>
+          <button class="fg-tree__row fg-tree__row--closed" style="--fg-tree-depth:0;"><span class="fg-tree__caret"></span><span class="fg-tree__label">Day 2 — Body Scan Foundations</span><span class="fg-tree__aside">9</span></button>
+        </nav>
+        <div style="flex:1; min-width:280px;">
+          <div class="sec-title">Sync state · .fg-sync — connection status (footer / header) <span style="color:var(--color-success);">new</span></div>
+          <div class="stack">
+            <span class="fg-sync fg-sync--synced"><span class="fg-sync__dot"></span>Synced<span class="fg-sync__time">just now</span></span>
+            <span class="fg-sync fg-sync--syncing"><span class="fg-sync__dot"></span>Syncing…</span>
+            <span class="fg-sync fg-sync--offline"><span class="fg-sync__dot"></span>Offline<span class="fg-sync__time">3m ago</span></span>
+            <span class="fg-sync fg-sync--error"><span class="fg-sync__dot"></span>Sync error</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <div class="sec-title">Workspace shell · .fg-shell — header / [rail · main · rail] / footer <span style="color:var(--color-success);">new</span></div>
+      <div class="fg-shell" style="height:340px; border:var(--border-width-hairline) solid var(--color-border); border-radius:var(--card-radius); overflow:hidden; --fg-shell-head-h:52px; --fg-shell-foot-h:36px; --fg-shell-left-w:180px; --fg-shell-right-w:200px;">
+        <header class="fg-shell__header"><span class="t-heading-sm" style="color:var(--color-brand);">Atelier</span><span class="t-body-sm" style="color:var(--color-text-subtle);">Workspace</span></header>
+        <div class="fg-shell__body">
+          <aside class="fg-shell__rail fg-shell__rail--left">
+            <button class="fg-nav__item fg-nav__item--on"><span class="fg-nav__label">Home</span></button>
+            <button class="fg-nav__item"><span class="fg-nav__label">My Work</span></button>
+            <button class="fg-nav__item"><span class="fg-nav__label">Audit</span></button>
+          </aside>
+          <main class="fg-shell__main">
+            <span class="t-heading">Main content</span>
+            <p class="t-body" style="color:var(--color-text-muted);">Header, two rails, and a footer — a domain-agnostic app frame. Column and row sizes ride <code>--fg-shell-*</code> custom props; every surface reads canonical tokens, so it re-skins with the theme.</p>
+          </main>
+          <aside class="fg-shell__rail fg-shell__rail--right">
+            <span class="t-label" style="color:var(--color-text-subtle);">Details</span>
+            <span class="fg-status fg-status--ready"><span class="fg-status__dot"></span>In progress</span>
+          </aside>
+        </div>
+        <footer class="fg-shell__footer"><span class="fg-sync fg-sync--synced"><span class="fg-sync__dot"></span>Synced</span><span class="t-micro" style="color:var(--color-text-subtle);">© 2026</span></footer>
+      </div>
+    </section>
+
+    <!-- Wayfinding -->
+    <section>
+      <div class="sec-title">Wayfinding · breadcrumb · pagination · stepper · tooltip</div>
+      <div class="stack" style="max-width:none;">
+        <div class="fg-breadcrumb"><a href="#">Customers</a><span class="fg-breadcrumb__sep">/</span><a href="#">Segments</a><span class="fg-breadcrumb__sep">/</span><span class="fg-breadcrumb__here">VIP</span></div>
+        <div class="row">
+          <div class="fg-pager">
+            <button class="fg-pager__btn">‹</button>
+            <button class="fg-pager__btn fg-pager__btn--on">1</button>
+            <button class="fg-pager__btn">2</button>
+            <button class="fg-pager__btn">3</button>
+            <button class="fg-pager__btn">›</button>
+            <span class="fg-pager__info">1–20 of 284</span>
+          </div>
+        </div>
+        <div class="fg-stepper">
+          <span class="fg-step fg-step--done"><span class="fg-step__dot">✓</span>Details</span>
+          <span class="fg-stepper__rule"></span>
+          <span class="fg-step fg-step--on"><span class="fg-step__dot">2</span>Payment</span>
+          <span class="fg-stepper__rule"></span>
+          <span class="fg-step"><span class="fg-step__dot">3</span>Confirm</span>
+        </div>
+        <div class="row">
+          <span class="fg-tooltip">
+            <button class="fg-icon-btn">i</button>
+            <span class="fg-tooltip__tip">Character tokens keep this sharp everywhere</span>
+          </span>
+          <div class="fg-seg"><button class="fg-seg__btn fg-seg__btn--on">Day</button><button class="fg-seg__btn">Week</button><button class="fg-seg__btn">Month</button></div>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <!-- ============================================================ -->
+  <!-- 05 · FEEDBACK & OVERLAYS                                     -->
+  <!-- ============================================================ -->
+  <div class="grp">
+    <div class="grp-head"><span class="grp-head__idx">05</span><span class="grp-head__label">Feedback &amp; overlays</span><span class="grp-head__note">states · menus · banners · modal</span></div>
+
+    <!-- States -->
+    <section>
+      <div class="sec-title">States · hover / focus / disabled / loading / empty</div>
+      <div class="row">
+        <button class="fg-btn fg-btn--primary">Hover me</button>
+        <button class="fg-btn fg-btn--secondary" style="outline: var(--focus-width) solid var(--focus-color); outline-offset: var(--focus-offset);">Focus-visible</button>
+        <button class="fg-btn fg-btn--primary" disabled>Disabled</button>
+        <input class="fg-input" style="width:160px;" placeholder="Normal" />
+        <input class="fg-input" style="width:160px;" placeholder="Disabled" disabled />
+        <div class="fg-spinner"></div>
+      </div>
+      <div class="row" style="gap:16px;">
+        <div class="fg-skeleton" style="width:120px;"></div>
+        <div class="fg-skeleton" style="width:200px;"></div>
+        <div class="fg-skeleton" style="width:80px;"></div>
+      </div>
+      <div class="fg-empty">
+        <span class="t-body" style="color:var(--color-text-subtle);">No results. Try a different filter.</span>
+      </div>
+    </section>
+
+    <!-- Overlays -->
+    <section>
+      <div class="sec-title">Overlays · menu · drawer preview · toast</div>
+      <div class="row" style="align-items:flex-start;">
+        <div class="fg-menu" style="position:static;">
+          <button class="fg-menu__item">Edit</button>
+          <button class="fg-menu__item">Duplicate</button>
+          <div class="fg-menu__sep"></div>
+          <button class="fg-menu__item fg-menu__item--danger">Delete</button>
+        </div>
+        <div class="fg-toast fg-toast--success"><span class="fg-toast__dot"></span>Export complete<span class="fg-toast__act"><button class="fg-btn fg-btn--ghost" style="padding:2px 8px;">Undo</button></span></div>
+      </div>
+    </section>
+
+    <!-- Banner + bulk bar -->
+    <section>
+      <div class="sec-title">Banner · .fg-banner · bulk-action bar</div>
+      <div class="stack" style="max-width:640px;">
+        <div class="fg-banner fg-banner--info"><span class="fg-banner__dot"></span><span class="fg-banner__body">This record was merged from 2 duplicates on 12 Jun.</span><a class="fg-banner__act" href="#">View history</a></div>
+        <div class="fg-banner fg-banner--warning"><span class="fg-banner__dot"></span><span class="fg-banner__body">3 items are below reorder threshold.</span><a class="fg-banner__act" href="#">Review</a></div>
+        <div class="fg-bulkbar">
+          <span class="fg-bulkbar__count">4 selected</span>
+          <div class="fg-bulkbar__actions"><button class="fg-btn fg-btn--secondary" style="padding:5px 12px;">Assign</button><button class="fg-btn fg-btn--secondary" style="padding:5px 12px;">Tag</button><button class="fg-btn fg-btn--danger" style="padding:5px 12px;">Delete</button></div>
+          <button class="fg-btn fg-btn--ghost fg-bulkbar__clear" style="padding:5px 12px;">Clear</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- Command palette -->
+    <section>
+      <div class="sec-title">Command palette · .fg-cmdk (inline preview)</div>
+      <div class="fg-cmdk" style="margin:0;">
+        <div class="fg-cmdk__head"><svg width="13" height="13" viewBox="0 0 13 13" fill="none" style="color:var(--color-text-subtle);"><circle cx="5.5" cy="5.5" r="4" stroke="currentColor" stroke-width="1.3"/><path d="M8.5 8.5L12 12" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg><input class="fg-cmdk__input" placeholder="Type a command or search…" value="log" /></div>
+        <div class="fg-cmdk__body">
+          <div class="fg-cmdk__group">Actions</div>
+          <button class="fg-cmdk__item fg-cmdk__item--active">Log a call outcome<span class="fg-cmdk__kbd">⌘L</span></button>
+          <button class="fg-cmdk__item">Log a task</button>
+          <div class="fg-cmdk__group">Jump to</div>
+          <button class="fg-cmdk__item">Login &amp; security settings</button>
+        </div>
+        <div class="fg-cmdk__foot"><span>↑↓ navigate</span><span>↵ select</span><span>esc close</span></div>
+      </div>
+    </section>
+
+    <!-- Modal -->
+    <section>
+      <div class="sec-title">Modal · .fg-modal (inline preview)</div>
+      <div style="position:relative; height:300px; border:1px solid var(--color-border); border-radius:var(--card-radius); overflow:hidden; background:var(--color-surface-sunken);">
+        <div class="fg-scrim" style="position:absolute;">
+          <div class="fg-modal">
+            <div class="fg-modal__head"><div><div class="fg-modal__title">Confirm export</div><div class="t-label" style="color:var(--color-text-subtle); margin-top:4px;">1,284 rows</div></div><button class="fg-btn fg-btn--ghost">✕</button></div>
+            <div class="fg-modal__body"><p class="t-body" style="margin:0; color:var(--color-text-muted);">Export the current customer view to CSV. This may take a moment.</p></div>
+            <div class="fg-modal__actions"><button class="fg-btn fg-btn--ghost">Cancel</button><button class="fg-btn fg-btn--primary">Export</button></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Accordion -->
+    <section>
+      <div class="sec-title">Accordion · .fg-acc</div>
+      <div>
+        <details class="fg-acc" open><summary>What changes when I switch themes?</summary><div class="fg-acc__body">Palette and character both — radius, weight, elevation and border strategy are all Tier-3 tokens.</div></details>
+        <details class="fg-acc"><summary>Can a theme skip signature roles?</summary><div class="fg-acc__body">Yes — every signature concept has a safe neutral default.</div></details>
+      </div>
+    </section>
+  </div>
+
+  <!-- ============================================================ -->
+  <!-- 06 · SIGNATURE                                               -->
+  <!-- ============================================================ -->
+  <div class="grp">
+    <div class="grp-head"><span class="grp-head__idx">06</span><span class="grp-head__label">Signature</span><span class="grp-head__note">optional expressive standard</span></div>
+
+    <!-- Signature -->
+    <section>
+      <div class="sec-title">Signature (optional standard) · slab · band · conic · gradient · dark panel</div>
+      <div class="fg-slab">
+        <span class="fg-slab__label">Total due</span>
+        <div class="fg-slab__side">
+          <span class="fg-slab__verify">✓ verified</span>
+          <span class="fg-slab__value">₫ 4,820,000</span>
+          <button class="fg-slab__copy" title="Copy">⧉</button>
+        </div>
+      </div>
+      <div class="grid">
+        <div class="fg-band"><div class="t-heading" style="margin-bottom:8px;">Section band</div><p class="t-body" style="color:var(--color-text-muted); margin:0;">Sunken surface to break rhythm.</p></div>
+        <div class="fg-band fg-band--tint"><div class="t-heading" style="margin-bottom:8px;">Brand-tint band</div><p class="t-body" style="color:var(--color-text-muted); margin:0;">Carries the brand color softly.</p></div>
+      </div>
+      <div class="fg-dark-panel">
+        <span class="t-label" style="color:color-mix(in srgb, var(--signature-dark-text) 55%, transparent);">Feature</span>
+        <div class="t-title fg-gradient-text" style="max-width:16ch;">Brain²</div>
+        <p class="t-body" style="margin:0; max-width:52ch;">Dark feature panel with a premium gradient wordmark and, on ClickUp, a rotating conic-bordered CTA.</p>
+        <div class="row" style="margin-top:8px;">
+          <span class="fg-signature-border"><button class="fg-btn fg-btn--secondary" style="background:#fff; color:var(--color-link);">Try it ✦</button></span>
+          <span class="fg-accent-swatches"><span></span><span></span><span></span><span></span><span></span></span>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <script>
+    (function () {
+      function fmt(el) {
+        var s = getComputedStyle(el);
+        var fs = parseFloat(s.fontSize), lh = parseFloat(s.lineHeight);
+        var ratio = (lh / fs);
+        var ls = (s.letterSpacing === 'normal' || parseFloat(s.letterSpacing) === 0) ? '0' : (Math.round(parseFloat(s.letterSpacing) * 100) / 100) + 'px';
+        var fam = s.fontFamily.split(',')[0].replace(/["']/g, '');
+        return fs.toFixed(fs % 1 ? 1 : 0) + 'px  ·  lh ' + lh.toFixed(0) + 'px (' + ratio.toFixed(2) + ')  ·  ' + ls + '  ·  ' + s.fontWeight + '  ·  ' + fam;
+      }
+      function paint() {
+        document.querySelectorAll('#typescale .tspec__row').forEach(function (row) {
+          var sample = row.querySelector('.tspec__sample > *');
+          var out = row.querySelector('[data-probe]');
+          if (sample && out) out.textContent = fmt(sample);
+        });
+        document.querySelectorAll('#spacescale .sscale__bar').forEach(function (bar, i) {
+          var px = getComputedStyle(bar).width;
+          var lbl = bar.closest('.sscale__row').querySelector('[data-sw]');
+          if (lbl) lbl.textContent = px;
+        });
+      }
+      paint();
+      new MutationObserver(paint).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme', 'data-typeface-set', 'data-num-font', 'data-density', 'data-accent'] });
+      if (document.fonts && document.fonts.ready) document.fonts.ready.then(paint);
+    })();
+  </script>
+</main>
+</body>
+</html>

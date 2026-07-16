@@ -35,6 +35,10 @@ launcher — CLI, MCP, future desktop — coordinates through `~/.mdview/daemon.
   server-side with class-based styling (theme via CSS, no re-render), mermaid
   marked for client rendering, output sanitized so untrusted agent markdown is
   safe to view.
+- **Appearance** — one cohesive visual style applied to every page, with a
+  Light/Dark color scheme the operator can toggle (OS-default on first load,
+  remembered per browser). Scheme swaps only the color layer; the interface is
+  fully self-contained (no external appearance assets). See the Appearance spec.
 - **Web interface** — a project list, and per-file pages with a file tree,
   themed rendering, and live reload. Non-markdown assets (images referenced
   from a rendered file, or any other file inside a registered project) are

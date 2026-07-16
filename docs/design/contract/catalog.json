@@ -1,0 +1,2249 @@
+{
+  "$schema": "fg design-contract capability index",
+  "generated": "derived from contract/components.css + patterns/*.css — regenerate on any role change",
+  "prefix": "fg-",
+  "groups": [
+    "Core",
+    "Signature",
+    "Editorial",
+    "Task",
+    "CRM",
+    "Financial",
+    "Media"
+  ],
+  "count": 125,
+  "ignore": {
+    "fg-radioset": "radio group container (.fg-radio)",
+    "fg-fact": "item of .fg-facts",
+    "fg-step": "step of .fg-stepper",
+    "fg-pagehead": "header of .fg-page",
+    "fg-toast-stack": "stack container of .fg-toast",
+    "fg-status-set": "lane-set container of .fg-status-lane",
+    "fg-trow": "row of .fg-tasklist",
+    "fg-row": "table row selection modifier (.fg-table)",
+    "fg-fsel": "filter-select part of .fg-toolbar",
+    "fg-lane": "color utility for .fg-td-lane / .fg-status-lane",
+    "fg-tasklist-md": "GFM checkbox list inside .fg-prose",
+    "fg-footnotes": "footnotes block inside .fg-prose",
+    "fg-anchor": "heading anchor inside .fg-prose",
+    "fg-tok-k": "syntax token inside .fg-codeblock",
+    "fg-tok-s": "syntax token inside .fg-codeblock",
+    "fg-tok-f": "syntax token inside .fg-codeblock",
+    "fg-tok-n": "syntax token inside .fg-codeblock",
+    "fg-tok-c": "syntax token inside .fg-codeblock"
+  },
+  "roles": [
+    {
+      "class": "fg-btn",
+      "selector": ".fg-btn",
+      "group": "Core",
+      "concept": "Clickable action / call-to-action button",
+      "aliases": [
+        "Button",
+        "Btn",
+        "CTA",
+        "ActionButton"
+      ],
+      "variants": [
+        "primary",
+        "secondary",
+        "ghost",
+        "danger",
+        "disabled"
+      ],
+      "characterTokens": [
+        "--btn-radius",
+        "--btn-weight",
+        "--btn-pad-x",
+        "--btn-pad-y"
+      ],
+      "element": "<fg-button>"
+    },
+    {
+      "class": "fg-icon-btn",
+      "selector": ".fg-icon-btn",
+      "group": "Core",
+      "concept": "Square icon-only button",
+      "aliases": [
+        "IconButton",
+        "GhostIconButton",
+        "ToolButton"
+      ],
+      "variants": [
+        "on"
+      ],
+      "characterTokens": [
+        "--input-radius"
+      ]
+    },
+    {
+      "class": "fg-seg",
+      "selector": ".fg-seg",
+      "group": "Core",
+      "concept": "Segmented control — pick one of a short set",
+      "aliases": [
+        "SegmentedControl",
+        "ButtonGroup",
+        "Segmented",
+        "ToggleGroup"
+      ],
+      "parts": [
+        "btn"
+      ],
+      "characterTokens": [
+        "--input-radius"
+      ]
+    },
+    {
+      "class": "fg-card",
+      "selector": ".fg-card",
+      "group": "Core",
+      "concept": "Content card / panel surface",
+      "aliases": [
+        "Card",
+        "Panel",
+        "Surface",
+        "Tile"
+      ],
+      "variants": [
+        "rule",
+        "sunken"
+      ],
+      "parts": [
+        "head",
+        "title",
+        "sub",
+        "body",
+        "foot"
+      ],
+      "characterTokens": [
+        "--card-radius",
+        "--card-elevation",
+        "--card-border-width",
+        "--card-pad"
+      ],
+      "element": "<fg-card>"
+    },
+    {
+      "class": "fg-field",
+      "selector": ".fg-field",
+      "group": "Core",
+      "concept": "Form field wrapper (label + control + hint/error)",
+      "aliases": [
+        "FormField",
+        "FieldWrapper",
+        "FormControl",
+        "FormGroup"
+      ],
+      "parts": [
+        "label",
+        "req",
+        "hint",
+        "error"
+      ],
+      "characterTokens": [
+        "--input-radius"
+      ],
+      "element": "<fg-field>"
+    },
+    {
+      "class": "fg-input",
+      "selector": ".fg-input",
+      "group": "Core",
+      "concept": "Text input / textarea",
+      "aliases": [
+        "TextField",
+        "TextInput",
+        "Textarea",
+        "Input"
+      ],
+      "variants": [
+        "area",
+        "mono"
+      ],
+      "characterTokens": [
+        "--input-radius",
+        "--input-height"
+      ]
+    },
+    {
+      "class": "fg-select",
+      "selector": ".fg-select",
+      "group": "Core",
+      "concept": "Native single-select dropdown",
+      "aliases": [
+        "Select",
+        "Dropdown",
+        "Combobox",
+        "NativeSelect",
+        "Picker"
+      ],
+      "parts": [
+        "chev"
+      ],
+      "characterTokens": [
+        "--input-radius",
+        "--input-height"
+      ]
+    },
+    {
+      "class": "fg-radio",
+      "selector": ".fg-radio",
+      "group": "Core",
+      "concept": "Radio pill — single choice from a set",
+      "aliases": [
+        "Radio",
+        "RadioButton",
+        "RadioGroup",
+        "Choice"
+      ],
+      "variants": [
+        "on"
+      ],
+      "parts": [
+        "dot"
+      ],
+      "characterTokens": [
+        "--input-radius"
+      ],
+      "disambiguation": "group container is .fg-radioset"
+    },
+    {
+      "class": "fg-check",
+      "selector": ".fg-check",
+      "group": "Core",
+      "concept": "Checkbox — independent on/off",
+      "aliases": [
+        "Checkbox",
+        "Check"
+      ],
+      "parts": [
+        "box",
+        "text"
+      ]
+    },
+    {
+      "class": "fg-switch",
+      "selector": ".fg-switch",
+      "group": "Core",
+      "concept": "Binary toggle switch (settings, consent, tweaks)",
+      "aliases": [
+        "Switch",
+        "Toggle",
+        "ToggleSwitch"
+      ],
+      "variants": [
+        "on"
+      ],
+      "parts": [
+        "track",
+        "dot",
+        "label"
+      ],
+      "element": "<fg-switch>"
+    },
+    {
+      "class": "fg-search",
+      "selector": ".fg-search",
+      "group": "Core",
+      "concept": "Search box (leading glyph + clear affordance)",
+      "aliases": [
+        "Search",
+        "SearchBox",
+        "SearchField",
+        "Omnibox"
+      ],
+      "parts": [
+        "glyph",
+        "x"
+      ]
+    },
+    {
+      "class": "fg-chip",
+      "selector": ".fg-chip",
+      "group": "Core",
+      "concept": "Compact chip / tag / filter facet",
+      "aliases": [
+        "Chip",
+        "Tag",
+        "Pill",
+        "FilterChip",
+        "Token"
+      ],
+      "variants": [
+        "neutral",
+        "accent",
+        "success",
+        "warning",
+        "danger",
+        "info",
+        "toggle",
+        "on"
+      ],
+      "characterTokens": [
+        "--chip-radius",
+        "--chip-weight"
+      ],
+      "element": "<fg-chip>"
+    },
+    {
+      "class": "fg-badge",
+      "selector": ".fg-badge",
+      "group": "Core",
+      "concept": "Small status/count badge",
+      "aliases": [
+        "Badge",
+        "Counter",
+        "Label",
+        "StatusBadge"
+      ],
+      "variants": [
+        "accent"
+      ],
+      "characterTokens": [
+        "--chip-radius"
+      ],
+      "element": "<fg-badge>"
+    },
+    {
+      "class": "fg-status",
+      "selector": ".fg-status",
+      "group": "Core",
+      "concept": "Workflow-readiness status pill with glowing dot",
+      "aliases": [
+        "StatusPill",
+        "StatusIndicator",
+        "StatusDot",
+        "Presence"
+      ],
+      "variants": [
+        "ready",
+        "warn",
+        "blocked"
+      ],
+      "parts": [
+        "dot"
+      ],
+      "characterTokens": [
+        "--status-glow"
+      ],
+      "element": "<fg-status>",
+      "disambiguation": "connection state → .fg-sync · configurable lanes → .fg-status-lane"
+    },
+    {
+      "class": "fg-delta",
+      "selector": ".fg-delta",
+      "group": "Core",
+      "concept": "Directional trend delta (up/down/flat)",
+      "aliases": [
+        "Delta",
+        "Trend",
+        "Change",
+        "TrendArrow",
+        "Variance"
+      ],
+      "variants": [
+        "up",
+        "down",
+        "flat"
+      ],
+      "characterTokens": [
+        "--num-font"
+      ]
+    },
+    {
+      "class": "fg-money",
+      "selector": ".fg-money",
+      "group": "Core",
+      "concept": "Direction-colored currency figure (CRM + finance)",
+      "aliases": [
+        "Money",
+        "Currency",
+        "Amount",
+        "CurrencyText",
+        "MoneyValue"
+      ],
+      "variants": [
+        "pos",
+        "neg"
+      ],
+      "characterTokens": [
+        "--num-font"
+      ]
+    },
+    {
+      "class": "fg-kpi",
+      "selector": ".fg-kpi",
+      "group": "Core",
+      "concept": "KPI / big-number stat card",
+      "aliases": [
+        "KPI",
+        "StatCard",
+        "MetricCard",
+        "BigNumber",
+        "Metric"
+      ],
+      "parts": [
+        "label",
+        "value",
+        "foot"
+      ],
+      "characterTokens": [
+        "--card-radius",
+        "--num-font"
+      ],
+      "element": "<fg-kpi>"
+    },
+    {
+      "class": "fg-table",
+      "selector": ".fg-table",
+      "group": "Core",
+      "concept": "Data table",
+      "aliases": [
+        "DataTable",
+        "Table",
+        "Grid",
+        "DataGrid"
+      ],
+      "variants": [
+        "clickable"
+      ],
+      "parts": [
+        "num",
+        "checkcol"
+      ],
+      "characterTokens": [
+        "--density-row-pad-y"
+      ],
+      "disambiguation": "sortable header → .fg-th-sort · selection → .fg-bulkbar · row .fg-row--selected"
+    },
+    {
+      "class": "fg-th-sort",
+      "selector": ".fg-th-sort",
+      "group": "Core",
+      "concept": "Sortable table-header control",
+      "aliases": [
+        "SortableHeader",
+        "SortHeader",
+        "ColumnSort"
+      ],
+      "variants": [
+        "asc",
+        "desc"
+      ],
+      "parts": [
+        "caret"
+      ]
+    },
+    {
+      "class": "fg-bulkbar",
+      "selector": ".fg-bulkbar",
+      "group": "Core",
+      "concept": "Bulk-action bar shown when table rows are selected",
+      "aliases": [
+        "BulkActionBar",
+        "BulkBar",
+        "SelectionToolbar",
+        "SelectionBar"
+      ],
+      "parts": [
+        "count",
+        "actions",
+        "clear"
+      ]
+    },
+    {
+      "class": "fg-tabs",
+      "selector": ".fg-tabs",
+      "group": "Core",
+      "concept": "Tab bar",
+      "aliases": [
+        "Tabs",
+        "TabBar",
+        "TabList",
+        "SegmentedTabs"
+      ],
+      "element": "<fg-tabs>",
+      "disambiguation": "individual tab = .fg-tab"
+    },
+    {
+      "class": "fg-tab",
+      "selector": ".fg-tab",
+      "group": "Core",
+      "concept": "Single tab within a tab bar",
+      "aliases": [
+        "Tab",
+        "TabItem"
+      ],
+      "variants": [
+        "on"
+      ],
+      "element": "<fg-tab>"
+    },
+    {
+      "class": "fg-nav",
+      "selector": ".fg-nav",
+      "group": "Core",
+      "concept": "Vertical navigation rail / sidebar menu",
+      "aliases": [
+        "Sidebar",
+        "NavRail",
+        "NavMenu",
+        "SideNav",
+        "VerticalNav"
+      ],
+      "variants": [
+        "on"
+      ],
+      "parts": [
+        "eyebrow",
+        "item",
+        "icon",
+        "label",
+        "badge"
+      ],
+      "characterTokens": [
+        "--nav-item-radius"
+      ]
+    },
+    {
+      "class": "fg-tree",
+      "selector": ".fg-tree",
+      "group": "Core",
+      "concept": "Nested collapsible navigation tree (depth-indented)",
+      "aliases": [
+        "TreeView",
+        "FileTree",
+        "NavTree",
+        "Tree",
+        "Explorer"
+      ],
+      "variants": [
+        "on",
+        "closed",
+        "leaf"
+      ],
+      "parts": [
+        "row",
+        "caret",
+        "label",
+        "aside"
+      ],
+      "characterTokens": [
+        "--nav-item-radius"
+      ],
+      "disambiguation": "task subtask rows → .fg-subtask-tree (data, not nav)"
+    },
+    {
+      "class": "fg-group-head",
+      "selector": ".fg-group-head",
+      "group": "Core",
+      "concept": "Collapsible grouped-list section header",
+      "aliases": [
+        "GroupHeader",
+        "SectionHeader",
+        "CollapsibleHeader",
+        "GroupRow"
+      ],
+      "variants": [
+        "closed"
+      ],
+      "parts": [
+        "caret",
+        "label",
+        "count",
+        "aside"
+      ],
+      "characterTokens": [
+        "--nav-item-radius"
+      ]
+    },
+    {
+      "class": "fg-page",
+      "selector": ".fg-page",
+      "group": "Core",
+      "concept": "Centered page frame (max-width document column)",
+      "aliases": [
+        "PageFrame",
+        "PageContainer",
+        "Container",
+        "ContentWrap"
+      ],
+      "disambiguation": "header → .fg-pagehead"
+    },
+    {
+      "class": "fg-shell",
+      "selector": ".fg-shell",
+      "group": "Core",
+      "concept": "Workspace app shell — header/[left·main·right]/footer",
+      "aliases": [
+        "AppShell",
+        "WorkspaceLayout",
+        "AppFrame",
+        "Layout",
+        "AppChrome"
+      ],
+      "variants": [
+        "no-left",
+        "no-right"
+      ],
+      "parts": [
+        "header",
+        "body",
+        "rail",
+        "main",
+        "footer"
+      ]
+    },
+    {
+      "class": "fg-toolbar",
+      "selector": ".fg-toolbar",
+      "group": "Core",
+      "concept": "Horizontal toolbar / action & filter bar",
+      "aliases": [
+        "Toolbar",
+        "ActionBar",
+        "FilterBar"
+      ],
+      "parts": [
+        "spacer"
+      ],
+      "disambiguation": "filter selector part = .fg-fsel"
+    },
+    {
+      "class": "fg-breadcrumb",
+      "selector": ".fg-breadcrumb",
+      "group": "Core",
+      "concept": "Breadcrumb path navigation",
+      "aliases": [
+        "Breadcrumbs",
+        "Breadcrumb",
+        "PathNav"
+      ],
+      "parts": [
+        "sep",
+        "here"
+      ]
+    },
+    {
+      "class": "fg-pager",
+      "selector": ".fg-pager",
+      "group": "Core",
+      "concept": "Pagination control",
+      "aliases": [
+        "Pagination",
+        "Pager",
+        "PageNav"
+      ],
+      "variants": [
+        "on"
+      ],
+      "parts": [
+        "btn",
+        "info"
+      ]
+    },
+    {
+      "class": "fg-stepper",
+      "selector": ".fg-stepper",
+      "group": "Core",
+      "concept": "Multi-step / wizard progress indicator",
+      "aliases": [
+        "Steps",
+        "Stepper",
+        "Wizard",
+        "MultiStepIndicator",
+        "ProgressSteps"
+      ],
+      "variants": [
+        "on",
+        "done"
+      ],
+      "parts": [
+        "dot",
+        "rule"
+      ],
+      "disambiguation": "single step = .fg-step"
+    },
+    {
+      "class": "fg-modal",
+      "selector": ".fg-modal",
+      "group": "Core",
+      "concept": "Centered modal dialog (place inside .fg-scrim)",
+      "aliases": [
+        "Modal",
+        "Dialog",
+        "Popup",
+        "Overlay"
+      ],
+      "parts": [
+        "head",
+        "title",
+        "body",
+        "actions"
+      ],
+      "characterTokens": [
+        "--card-radius"
+      ],
+      "disambiguation": "backdrop = .fg-scrim"
+    },
+    {
+      "class": "fg-scrim",
+      "selector": ".fg-scrim",
+      "group": "Core",
+      "concept": "Full-viewport modal backdrop / overlay layer",
+      "aliases": [
+        "Scrim",
+        "Backdrop",
+        "Overlay",
+        "Dimmer"
+      ],
+      "characterTokens": [
+        "--color-scrim"
+      ]
+    },
+    {
+      "class": "fg-drawer",
+      "selector": ".fg-drawer",
+      "group": "Core",
+      "concept": "Edge-anchored slide-in panel",
+      "aliases": [
+        "Drawer",
+        "SidePanel",
+        "Sheet",
+        "SlideOver",
+        "OffCanvas"
+      ],
+      "parts": [
+        "head",
+        "body",
+        "foot"
+      ]
+    },
+    {
+      "class": "fg-menu",
+      "selector": ".fg-menu",
+      "group": "Core",
+      "concept": "Dropdown menu / popover action list",
+      "aliases": [
+        "Menu",
+        "Popover",
+        "DropdownMenu",
+        "ContextMenu",
+        "ActionList",
+        "List"
+      ],
+      "variants": [
+        "danger"
+      ],
+      "parts": [
+        "item",
+        "sep"
+      ],
+      "characterTokens": [
+        "--nav-item-radius"
+      ]
+    },
+    {
+      "class": "fg-tooltip",
+      "selector": ".fg-tooltip",
+      "group": "Core",
+      "concept": "Hover/focus tooltip",
+      "aliases": [
+        "Tooltip",
+        "Hint",
+        "PopoverTip"
+      ],
+      "parts": [
+        "tip"
+      ]
+    },
+    {
+      "class": "fg-toast",
+      "selector": ".fg-toast",
+      "group": "Core",
+      "concept": "Transient toast notification (stack in .fg-toast-stack)",
+      "aliases": [
+        "Toast",
+        "Snackbar",
+        "Notification",
+        "FlashMessage"
+      ],
+      "variants": [
+        "success",
+        "danger",
+        "info"
+      ],
+      "parts": [
+        "dot",
+        "act"
+      ]
+    },
+    {
+      "class": "fg-banner",
+      "selector": ".fg-banner",
+      "group": "Core",
+      "concept": "Persistent page-level inline notice",
+      "aliases": [
+        "AlertBanner",
+        "InlineAlert",
+        "Notice",
+        "MessageBar",
+        "Banner"
+      ],
+      "variants": [
+        "info",
+        "warning",
+        "danger",
+        "success"
+      ],
+      "parts": [
+        "dot",
+        "body",
+        "act"
+      ],
+      "element": "<fg-banner>",
+      "disambiguation": "block aside → .fg-caveat · transient → .fg-toast"
+    },
+    {
+      "class": "fg-caveat",
+      "selector": ".fg-caveat",
+      "group": "Core",
+      "concept": "Block-level callout / attention aside",
+      "aliases": [
+        "Callout",
+        "AttentionBox",
+        "InfoBox",
+        "Aside",
+        "Admonition"
+      ],
+      "variants": [
+        "info",
+        "warn",
+        "rule"
+      ],
+      "element": "<fg-caveat>",
+      "disambiguation": "page notice → .fg-banner · in-prose → .fg-callout"
+    },
+    {
+      "class": "fg-divider",
+      "selector": ".fg-divider",
+      "group": "Core",
+      "concept": "Divider / separator rule",
+      "aliases": [
+        "Divider",
+        "Separator",
+        "Rule",
+        "Hr"
+      ],
+      "variants": [
+        "dashed"
+      ]
+    },
+    {
+      "class": "fg-avatar",
+      "selector": ".fg-avatar",
+      "group": "Core",
+      "concept": "User/entity avatar",
+      "aliases": [
+        "Avatar",
+        "UserPic",
+        "ProfilePic",
+        "Gravatar"
+      ],
+      "variants": [
+        "more"
+      ],
+      "element": "<fg-avatar>",
+      "disambiguation": "overlap group → .fg-avatar-cluster"
+    },
+    {
+      "class": "fg-avatar-cluster",
+      "selector": ".fg-avatar-cluster",
+      "group": "Core",
+      "concept": "Overlapping avatar group (multi-assignee)",
+      "aliases": [
+        "AvatarGroup",
+        "AvatarStack",
+        "AvatarCluster",
+        "FacePile"
+      ],
+      "element": "<fg-avatar-cluster>"
+    },
+    {
+      "class": "fg-acc",
+      "selector": ".fg-acc",
+      "group": "Core",
+      "concept": "Accordion / disclosure (details+summary)",
+      "aliases": [
+        "Accordion",
+        "Disclosure",
+        "ExpandCollapse",
+        "Collapsible",
+        "Details"
+      ],
+      "parts": [
+        "body"
+      ]
+    },
+    {
+      "class": "fg-cmdk",
+      "selector": ".fg-cmdk",
+      "group": "Core",
+      "concept": "Command palette / quick-actions launcher",
+      "aliases": [
+        "CommandPalette",
+        "Spotlight",
+        "QuickActions",
+        "CommandMenu",
+        "CmdK",
+        "Launcher"
+      ],
+      "variants": [
+        "active"
+      ],
+      "parts": [
+        "head",
+        "input",
+        "body",
+        "group",
+        "item",
+        "kbd",
+        "foot"
+      ]
+    },
+    {
+      "class": "fg-upload",
+      "selector": ".fg-upload",
+      "group": "Core",
+      "concept": "File drop zone",
+      "aliases": [
+        "FileUpload",
+        "Dropzone",
+        "Uploader",
+        "FilePicker"
+      ],
+      "variants": [
+        "drag"
+      ],
+      "parts": [
+        "hint",
+        "browse"
+      ],
+      "disambiguation": "uploaded-file row = .fg-file"
+    },
+    {
+      "class": "fg-file",
+      "selector": ".fg-file",
+      "group": "Core",
+      "concept": "Uploaded-file row",
+      "aliases": [
+        "FileRow",
+        "AttachmentRow",
+        "FileItem"
+      ],
+      "parts": [
+        "size"
+      ]
+    },
+    {
+      "class": "fg-skeleton",
+      "selector": ".fg-skeleton",
+      "group": "Core",
+      "concept": "Shimmer loading placeholder",
+      "aliases": [
+        "Skeleton",
+        "Placeholder",
+        "ShimmerLoader",
+        "ContentLoader"
+      ]
+    },
+    {
+      "class": "fg-empty",
+      "selector": ".fg-empty",
+      "group": "Core",
+      "concept": "Empty / zero state",
+      "aliases": [
+        "EmptyState",
+        "ZeroState",
+        "NoData",
+        "BlankSlate"
+      ]
+    },
+    {
+      "class": "fg-spinner",
+      "selector": ".fg-spinner",
+      "group": "Core",
+      "concept": "Indeterminate loading spinner",
+      "aliases": [
+        "Spinner",
+        "Loader",
+        "ProgressCircle",
+        "ActivityIndicator"
+      ]
+    },
+    {
+      "class": "fg-sync",
+      "selector": ".fg-sync",
+      "group": "Core",
+      "concept": "Connection / sync-state indicator",
+      "aliases": [
+        "SyncStatus",
+        "ConnectionStatus",
+        "ConnectivityIndicator",
+        "SyncIndicator"
+      ],
+      "variants": [
+        "synced",
+        "syncing",
+        "offline",
+        "error"
+      ],
+      "parts": [
+        "dot",
+        "time"
+      ],
+      "characterTokens": [
+        "--status-glow"
+      ],
+      "disambiguation": "workflow readiness → .fg-status"
+    },
+    {
+      "class": "fg-slab",
+      "selector": ".fg-slab",
+      "group": "Signature",
+      "concept": "Edge-to-edge value slab / hero figure",
+      "aliases": [
+        "ValueSlab",
+        "HeroStat",
+        "FeatureValue",
+        "Slab"
+      ],
+      "parts": [
+        "label",
+        "value",
+        "side",
+        "verify",
+        "copy"
+      ]
+    },
+    {
+      "class": "fg-signature-border",
+      "selector": ".fg-signature-border",
+      "group": "Signature",
+      "concept": "Expressive animated conic/gradient border wrap",
+      "aliases": [
+        "GradientBorder",
+        "AnimatedBorder",
+        "GlowBorder",
+        "ConicBorder"
+      ],
+      "characterTokens": [
+        "--signature-gradient"
+      ]
+    },
+    {
+      "class": "fg-gradient-text",
+      "selector": ".fg-gradient-text",
+      "group": "Signature",
+      "concept": "Gradient-filled display text / wordmark",
+      "aliases": [
+        "GradientText",
+        "Wordmark",
+        "GradientHeading"
+      ],
+      "characterTokens": [
+        "--signature-gradient-text"
+      ]
+    },
+    {
+      "class": "fg-band",
+      "selector": ".fg-band",
+      "group": "Signature",
+      "concept": "Sunken section band / rhythm break",
+      "aliases": [
+        "SectionBand",
+        "Band",
+        "SectionBreak",
+        "TintBand"
+      ],
+      "variants": [
+        "tint"
+      ],
+      "characterTokens": [
+        "--signature-band-tint"
+      ]
+    },
+    {
+      "class": "fg-dark-panel",
+      "selector": ".fg-dark-panel",
+      "group": "Signature",
+      "concept": "Dark feature panel on a light page",
+      "aliases": [
+        "DarkPanel",
+        "FeaturePanel",
+        "InversePanel",
+        "DarkSection"
+      ],
+      "characterTokens": [
+        "--signature-dark-bg"
+      ]
+    },
+    {
+      "class": "fg-accent-swatches",
+      "selector": ".fg-accent-swatches",
+      "group": "Signature",
+      "concept": "Renders the alternate accent palette",
+      "aliases": [
+        "AccentSwatches",
+        "PaletteSwatches",
+        "ColorSwatches"
+      ],
+      "characterTokens": [
+        "--color-accent-alt-1..5"
+      ]
+    },
+    {
+      "class": "fg-reading-shell",
+      "selector": ".fg-reading-shell",
+      "group": "Editorial",
+      "concept": "3-column reading layout (chapters · column · TOC)",
+      "aliases": [
+        "ReadingLayout",
+        "ArticleShell",
+        "DocLayout",
+        "ThreeColReading"
+      ]
+    },
+    {
+      "class": "fg-reading",
+      "selector": ".fg-reading",
+      "group": "Editorial",
+      "concept": "Centered reading column",
+      "aliases": [
+        "ReadingColumn",
+        "ArticleBody",
+        "ContentColumn"
+      ]
+    },
+    {
+      "class": "fg-article-title",
+      "selector": ".fg-article-title",
+      "group": "Editorial",
+      "concept": "Article / document title",
+      "aliases": [
+        "ArticleTitle",
+        "PostTitle",
+        "DocTitle",
+        "Headline"
+      ]
+    },
+    {
+      "class": "fg-lede",
+      "selector": ".fg-lede",
+      "group": "Editorial",
+      "concept": "Lede / standfirst intro paragraph",
+      "aliases": [
+        "Lede",
+        "Standfirst",
+        "Dek",
+        "IntroParagraph"
+      ]
+    },
+    {
+      "class": "fg-prose",
+      "selector": ".fg-prose",
+      "group": "Editorial",
+      "concept": "Rich-text / markdown body (full H1–H4, lists, code, tables, quotes)",
+      "aliases": [
+        "Prose",
+        "RichText",
+        "MarkdownBody",
+        "Typography",
+        "ArticleContent"
+      ],
+      "disambiguation": "GFM task list, footnotes, heading anchors are prose sub-features"
+    },
+    {
+      "class": "fg-callout",
+      "selector": ".fg-callout",
+      "group": "Editorial",
+      "concept": "In-prose callout / admonition",
+      "aliases": [
+        "Callout",
+        "Admonition",
+        "Note",
+        "Aside"
+      ],
+      "variants": [
+        "success",
+        "warn",
+        "danger",
+        "note"
+      ],
+      "disambiguation": "app-chrome notice → .fg-banner/.fg-caveat"
+    },
+    {
+      "class": "fg-codeblock",
+      "selector": ".fg-codeblock",
+      "group": "Editorial",
+      "concept": "Code block with filename bar + syntax tokens",
+      "aliases": [
+        "CodeBlock",
+        "CodeFence",
+        "SyntaxBlock",
+        "Snippet"
+      ],
+      "characterTokens": [
+        "--code-keyword",
+        "--code-string",
+        "--code-fn",
+        "--code-num",
+        "--code-comment"
+      ]
+    },
+    {
+      "class": "fg-kbd",
+      "selector": ".fg-kbd",
+      "group": "Editorial",
+      "concept": "Keyboard key cap",
+      "aliases": [
+        "Kbd",
+        "KeyCap",
+        "ShortcutKey",
+        "Keyboard"
+      ]
+    },
+    {
+      "class": "fg-mark",
+      "selector": ".fg-mark",
+      "group": "Editorial",
+      "concept": "Inline highlight / marker",
+      "aliases": [
+        "Mark",
+        "Highlight",
+        "Highlighter"
+      ]
+    },
+    {
+      "class": "fg-chapters",
+      "selector": ".fg-chapters",
+      "group": "Editorial",
+      "concept": "Chapter navigation list",
+      "aliases": [
+        "Chapters",
+        "ChapterNav",
+        "SectionList"
+      ],
+      "variants": [
+        "on"
+      ],
+      "parts": [
+        "eyebrow",
+        "item",
+        "num"
+      ]
+    },
+    {
+      "class": "fg-toc",
+      "selector": ".fg-toc",
+      "group": "Editorial",
+      "concept": "Table of contents / on-this-page",
+      "aliases": [
+        "TableOfContents",
+        "TOC",
+        "OnThisPage",
+        "PageOutline"
+      ],
+      "variants": [
+        "on",
+        "sub"
+      ],
+      "parts": [
+        "eyebrow",
+        "item"
+      ]
+    },
+    {
+      "class": "fg-reading-progress",
+      "selector": ".fg-reading-progress",
+      "group": "Editorial",
+      "concept": "Scroll-linked reading progress hairline",
+      "aliases": [
+        "ReadingProgress",
+        "ScrollProgress",
+        "ScrollIndicator"
+      ]
+    },
+    {
+      "class": "fg-kanban",
+      "selector": ".fg-kanban",
+      "group": "Task",
+      "concept": "Kanban board with columns",
+      "aliases": [
+        "Kanban",
+        "Board",
+        "KanbanBoard",
+        "ColumnBoard"
+      ],
+      "parts": [
+        "col",
+        "head",
+        "title",
+        "count"
+      ]
+    },
+    {
+      "class": "fg-task",
+      "selector": ".fg-task",
+      "group": "Task",
+      "concept": "Task / issue card",
+      "aliases": [
+        "TaskCard",
+        "IssueCard",
+        "TicketCard"
+      ],
+      "parts": [
+        "title",
+        "meta",
+        "foot"
+      ]
+    },
+    {
+      "class": "fg-priority",
+      "selector": ".fg-priority",
+      "group": "Task",
+      "concept": "Priority flag / badge",
+      "aliases": [
+        "Priority",
+        "PriorityFlag",
+        "PriorityBadge"
+      ],
+      "variants": [
+        "urgent",
+        "high",
+        "normal",
+        "low"
+      ]
+    },
+    {
+      "class": "fg-progress",
+      "selector": ".fg-progress",
+      "group": "Task",
+      "concept": "Determinate progress / completion bar",
+      "aliases": [
+        "ProgressBar",
+        "Progress",
+        "CompletionBar",
+        "Meter"
+      ],
+      "parts": [
+        "bar"
+      ]
+    },
+    {
+      "class": "fg-tag",
+      "selector": ".fg-tag",
+      "group": "Task",
+      "concept": "Colored label tag (from accent-alt set)",
+      "aliases": [
+        "Tag",
+        "Label",
+        "ColorTag"
+      ],
+      "variants": [
+        "1",
+        "2",
+        "3",
+        "4"
+      ],
+      "disambiguation": "status text → .fg-chip"
+    },
+    {
+      "class": "fg-checklist",
+      "selector": ".fg-checklist",
+      "group": "Task",
+      "concept": "Checklist / subtask items",
+      "aliases": [
+        "Checklist",
+        "TodoList",
+        "SubtaskList",
+        "TaskItems"
+      ],
+      "variants": [
+        "done"
+      ],
+      "parts": [
+        "item"
+      ]
+    },
+    {
+      "class": "fg-assignee",
+      "selector": ".fg-assignee",
+      "group": "Task",
+      "concept": "Assignee / owner (composes avatar)",
+      "aliases": [
+        "Assignee",
+        "Owner",
+        "AssignedUser"
+      ],
+      "composes": [
+        "fg-avatar"
+      ]
+    },
+    {
+      "class": "fg-due",
+      "selector": ".fg-due",
+      "group": "Task",
+      "concept": "Due-date badge",
+      "aliases": [
+        "DueDate",
+        "Deadline",
+        "DueBadge"
+      ],
+      "variants": [
+        "overdue"
+      ]
+    },
+    {
+      "class": "fg-tasklist",
+      "selector": ".fg-tasklist",
+      "group": "Task",
+      "concept": "Flat task list view",
+      "aliases": [
+        "TaskList",
+        "ListView",
+        "IssueList",
+        "RowList"
+      ],
+      "disambiguation": "row = .fg-trow · nested = .fg-subtask-tree"
+    },
+    {
+      "class": "fg-subtasks",
+      "selector": ".fg-subtasks",
+      "group": "Task",
+      "concept": "Subtask count / roll-up",
+      "aliases": [
+        "Subtasks",
+        "SubtaskCount",
+        "ChildTasks"
+      ]
+    },
+    {
+      "class": "fg-subtask-tree",
+      "selector": ".fg-subtask-tree",
+      "group": "Task",
+      "concept": "Nested subtask rows within a task list (data)",
+      "aliases": [
+        "SubtaskTree",
+        "NestedTasks",
+        "TaskHierarchy"
+      ],
+      "disambiguation": "navigation tree → .fg-tree"
+    },
+    {
+      "class": "fg-effort",
+      "selector": ".fg-effort",
+      "group": "Task",
+      "concept": "Effort / story-point estimate",
+      "aliases": [
+        "Effort",
+        "StoryPoints",
+        "Estimate",
+        "Points"
+      ]
+    },
+    {
+      "class": "fg-blocked-by",
+      "selector": ".fg-blocked-by",
+      "group": "Task",
+      "concept": "Blocked-by dependency indicator",
+      "aliases": [
+        "BlockedBy",
+        "Blocker",
+        "Dependency",
+        "Blocked"
+      ]
+    },
+    {
+      "class": "fg-comment-count",
+      "selector": ".fg-comment-count",
+      "group": "Task",
+      "concept": "Comment / reply count",
+      "aliases": [
+        "CommentCount",
+        "Comments",
+        "ReplyCount"
+      ]
+    },
+    {
+      "class": "fg-cal",
+      "selector": ".fg-cal",
+      "group": "Task",
+      "concept": "Month calendar grid (doubles as date picker)",
+      "aliases": [
+        "Calendar",
+        "DatePicker",
+        "MonthGrid",
+        "MiniCalendar",
+        "DateGrid"
+      ],
+      "variants": [
+        "today",
+        "sel",
+        "out",
+        "evt"
+      ],
+      "parts": [
+        "head",
+        "title",
+        "grid",
+        "dow",
+        "day"
+      ]
+    },
+    {
+      "class": "fg-gantt",
+      "selector": ".fg-gantt",
+      "group": "Task",
+      "concept": "Gantt timeline",
+      "aliases": [
+        "Gantt",
+        "Timeline",
+        "GanttChart",
+        "ScheduleBar"
+      ],
+      "variants": [
+        "done",
+        "overdue"
+      ],
+      "parts": [
+        "row",
+        "label",
+        "track",
+        "bar",
+        "milestone",
+        "today"
+      ]
+    },
+    {
+      "class": "fg-status-lane",
+      "selector": ".fg-status-lane",
+      "group": "Task",
+      "concept": "Configurable workflow status lane / state label",
+      "aliases": [
+        "StatusLane",
+        "WorkflowStatus",
+        "StateLabel",
+        "StatusColumn",
+        "Lane"
+      ],
+      "parts": [
+        "dot",
+        "count"
+      ],
+      "characterTokens": [
+        "--status-lane-fill",
+        "--status-lane-text"
+      ],
+      "disambiguation": "lane set container = .fg-status-set"
+    },
+    {
+      "class": "fg-task-id",
+      "selector": ".fg-task-id",
+      "group": "Task",
+      "concept": "Mono task/issue identifier (CU-1284)",
+      "aliases": [
+        "TaskId",
+        "IssueKey",
+        "TicketId",
+        "RefId"
+      ]
+    },
+    {
+      "class": "fg-task-table",
+      "selector": ".fg-task-table",
+      "group": "Task",
+      "concept": "Grouped list-view table (composes .fg-table + .fg-group-head)",
+      "aliases": [
+        "TaskTable",
+        "GroupedTable",
+        "ListTable"
+      ],
+      "parts": [
+        "name",
+        "title",
+        "meta",
+        "add"
+      ],
+      "composes": [
+        "fg-table",
+        "fg-group-head"
+      ]
+    },
+    {
+      "class": "fg-td-lane",
+      "selector": ".fg-td-lane",
+      "group": "Task",
+      "concept": "Colored value table cell (status/category column)",
+      "aliases": [
+        "LaneCell",
+        "ColoredCell",
+        "StatusCell",
+        "CategoryCell"
+      ],
+      "characterTokens": [
+        "--status-lane-fill"
+      ],
+      "disambiguation": "color utilities .fg-lane--1..5"
+    },
+    {
+      "class": "fg-field-chip",
+      "selector": ".fg-field-chip",
+      "group": "Task",
+      "concept": "Custom-field key/value cell",
+      "aliases": [
+        "FieldChip",
+        "CustomField",
+        "PropertyCell",
+        "FieldCell"
+      ],
+      "variants": [
+        "dropdown",
+        "num",
+        "date",
+        "progress"
+      ],
+      "parts": [
+        "key",
+        "val"
+      ]
+    },
+    {
+      "class": "fg-view-bar",
+      "selector": ".fg-view-bar",
+      "group": "Task",
+      "concept": "View switcher bar (composes .fg-tabs)",
+      "aliases": [
+        "ViewBar",
+        "ViewTabs",
+        "ViewSwitcher"
+      ],
+      "parts": [
+        "count",
+        "add",
+        "actions"
+      ],
+      "composes": [
+        "fg-tabs"
+      ]
+    },
+    {
+      "class": "fg-time-track",
+      "selector": ".fg-time-track",
+      "group": "Task",
+      "concept": "Logged-vs-estimate time bar (composes .fg-progress)",
+      "aliases": [
+        "TimeTracking",
+        "TimeLog",
+        "LoggedVsEstimate"
+      ],
+      "variants": [
+        "over"
+      ],
+      "parts": [
+        "logged",
+        "est"
+      ],
+      "composes": [
+        "fg-progress"
+      ]
+    },
+    {
+      "class": "fg-profile",
+      "selector": ".fg-profile",
+      "group": "CRM",
+      "concept": "360 contact/profile header",
+      "aliases": [
+        "Profile",
+        "ContactHeader",
+        "PersonCard",
+        "ProfileHeader"
+      ],
+      "parts": [
+        "avatar",
+        "name",
+        "meta"
+      ]
+    },
+    {
+      "class": "fg-facts",
+      "selector": ".fg-facts",
+      "group": "CRM",
+      "concept": "Key/value facts grid",
+      "aliases": [
+        "FactList",
+        "DetailsList",
+        "PropertyList",
+        "KeyValue",
+        "DefinitionList"
+      ],
+      "disambiguation": "single item = .fg-fact"
+    },
+    {
+      "class": "fg-scard",
+      "selector": ".fg-scard",
+      "group": "CRM",
+      "concept": "Compact summary card",
+      "aliases": [
+        "SummaryCard",
+        "MiniCard",
+        "StatCard"
+      ],
+      "parts": [
+        "title"
+      ]
+    },
+    {
+      "class": "fg-activity",
+      "selector": ".fg-activity",
+      "group": "CRM",
+      "concept": "Activity timeline / audit feed",
+      "aliases": [
+        "ActivityFeed",
+        "Timeline",
+        "AuditLog",
+        "EventFeed",
+        "History"
+      ],
+      "variants": [
+        "success",
+        "warning",
+        "danger",
+        "neutral",
+        "hollow"
+      ],
+      "parts": [
+        "item",
+        "dot",
+        "kind",
+        "body",
+        "time"
+      ]
+    },
+    {
+      "class": "fg-pipeline",
+      "selector": ".fg-pipeline",
+      "group": "CRM",
+      "concept": "Deal / stage pipeline tracker",
+      "aliases": [
+        "Pipeline",
+        "StageTracker",
+        "DealStages",
+        "Funnel",
+        "StageBar"
+      ],
+      "variants": [
+        "on",
+        "done"
+      ],
+      "parts": [
+        "stage"
+      ]
+    },
+    {
+      "class": "fg-aq",
+      "selector": ".fg-aq",
+      "group": "CRM",
+      "concept": "Action-queue / next-best-action card",
+      "aliases": [
+        "ActionQueue",
+        "NextBestAction",
+        "RecommendedAction",
+        "TaskQueue"
+      ],
+      "parts": [
+        "top",
+        "value",
+        "rationale",
+        "foot"
+      ]
+    },
+    {
+      "class": "fg-note",
+      "selector": ".fg-note",
+      "group": "CRM",
+      "concept": "Note / annotation block",
+      "aliases": [
+        "Note",
+        "StickyNote",
+        "Annotation",
+        "Memo"
+      ],
+      "parts": [
+        "head",
+        "author",
+        "time",
+        "body"
+      ]
+    },
+    {
+      "class": "fg-rule",
+      "selector": ".fg-rule",
+      "group": "CRM",
+      "concept": "Segment / automation rule builder (composes select/input/btn)",
+      "aliases": [
+        "RuleBuilder",
+        "SegmentBuilder",
+        "ConditionBuilder",
+        "FilterBuilder",
+        "QueryBuilder"
+      ],
+      "parts": [
+        "row",
+        "join",
+        "join-line",
+        "join-pill",
+        "x"
+      ],
+      "composes": [
+        "fg-select",
+        "fg-input",
+        "fg-btn"
+      ]
+    },
+    {
+      "class": "fg-cmethod",
+      "selector": ".fg-cmethod",
+      "group": "CRM",
+      "concept": "Contact-method channel row with consent state",
+      "aliases": [
+        "ContactMethod",
+        "ContactChannel",
+        "ContactRow"
+      ],
+      "variants": [
+        "yes",
+        "no"
+      ],
+      "parts": [
+        "kind",
+        "value",
+        "consent"
+      ]
+    },
+    {
+      "class": "fg-thread",
+      "selector": ".fg-thread",
+      "group": "CRM",
+      "concept": "Conversation / message thread (chat bubbles)",
+      "aliases": [
+        "ConversationThread",
+        "MessageThread",
+        "ChatThread"
+      ],
+      "disambiguation": "single bubble = .fg-msg"
+    },
+    {
+      "class": "fg-msg",
+      "selector": ".fg-msg",
+      "group": "CRM",
+      "concept": "Chat message bubble",
+      "aliases": [
+        "Message",
+        "ChatBubble",
+        "MessageBubble"
+      ],
+      "variants": [
+        "out"
+      ],
+      "parts": [
+        "bubble",
+        "time"
+      ]
+    },
+    {
+      "class": "fg-convo",
+      "selector": ".fg-convo",
+      "group": "CRM",
+      "concept": "Conversation-list row (inbox item)",
+      "aliases": [
+        "ConversationRow",
+        "InboxItem",
+        "ThreadRow"
+      ],
+      "variants": [
+        "on"
+      ],
+      "parts": [
+        "main",
+        "name",
+        "preview",
+        "aside",
+        "unread"
+      ]
+    },
+    {
+      "class": "fg-segment",
+      "selector": ".fg-segment",
+      "group": "CRM",
+      "concept": "Customer-segment classification chip",
+      "aliases": [
+        "Segment",
+        "AudienceTag",
+        "SegmentChip",
+        "CustomerTier"
+      ],
+      "variants": [
+        "vip",
+        "risk",
+        "new"
+      ],
+      "characterTokens": [
+        "--chip-radius"
+      ]
+    },
+    {
+      "class": "fg-related",
+      "selector": ".fg-related",
+      "group": "CRM",
+      "concept": "Linked / related-record row",
+      "aliases": [
+        "RelatedRecords",
+        "LinkedRecords",
+        "Associations"
+      ],
+      "parts": [
+        "icon",
+        "name",
+        "sub"
+      ]
+    },
+    {
+      "class": "fg-quick-actions",
+      "selector": ".fg-quick-actions",
+      "group": "CRM",
+      "concept": "Icon-button cluster under a profile header",
+      "aliases": [
+        "QuickActions",
+        "ActionRow",
+        "ShortcutBar"
+      ]
+    },
+    {
+      "class": "fg-report-head",
+      "selector": ".fg-report-head",
+      "group": "Financial",
+      "concept": "Report header with reporting period",
+      "aliases": [
+        "ReportHeader",
+        "StatementHeader",
+        "PeriodHeader"
+      ],
+      "parts": [
+        "period"
+      ]
+    },
+    {
+      "class": "fg-stat",
+      "selector": ".fg-stat",
+      "group": "Financial",
+      "concept": "Report stat (label / value / sub)",
+      "aliases": [
+        "Stat",
+        "StatBlock",
+        "FigureBlock"
+      ],
+      "parts": [
+        "label",
+        "value",
+        "sub"
+      ]
+    },
+    {
+      "class": "fg-metric-grid",
+      "selector": ".fg-metric-grid",
+      "group": "Financial",
+      "concept": "Grid layout for report stats",
+      "aliases": [
+        "MetricGrid",
+        "StatGrid",
+        "KPIGrid"
+      ]
+    },
+    {
+      "class": "fg-ledger",
+      "selector": ".fg-ledger",
+      "group": "Financial",
+      "concept": "Financial ledger table (subtotals, totals)",
+      "aliases": [
+        "Ledger",
+        "AccountsTable",
+        "LedgerTable"
+      ],
+      "parts": [
+        "num",
+        "subtotal"
+      ]
+    },
+    {
+      "class": "fg-chart",
+      "selector": ".fg-chart",
+      "group": "Financial",
+      "concept": "Bar/line chart with legend (CSS)",
+      "aliases": [
+        "Chart",
+        "BarChart",
+        "LineChart",
+        "Graph"
+      ],
+      "variants": [
+        "2",
+        "3",
+        "4",
+        "5",
+        "muted"
+      ],
+      "parts": [
+        "plot",
+        "bar",
+        "legend",
+        "key",
+        "svg",
+        "line",
+        "area",
+        "pt"
+      ]
+    },
+    {
+      "class": "fg-sparkline",
+      "selector": ".fg-sparkline",
+      "group": "Financial",
+      "concept": "Inline sparkline",
+      "aliases": [
+        "Sparkline",
+        "MicroChart",
+        "TrendLine"
+      ]
+    },
+    {
+      "class": "fg-gauge",
+      "selector": ".fg-gauge",
+      "group": "Financial",
+      "concept": "Conic-ring gauge / progress dial",
+      "aliases": [
+        "Gauge",
+        "Dial",
+        "RadialProgress",
+        "ProgressRing"
+      ],
+      "characterTokens": [
+        "--fg-gauge-pct"
+      ]
+    },
+    {
+      "class": "fg-variance",
+      "selector": ".fg-variance",
+      "group": "Financial",
+      "concept": "Variance indicator (vs target/prior)",
+      "aliases": [
+        "Variance",
+        "BudgetVariance",
+        "Delta"
+      ]
+    },
+    {
+      "class": "fg-budget",
+      "selector": ".fg-budget",
+      "group": "Financial",
+      "concept": "Budget vs actual bar",
+      "aliases": [
+        "Budget",
+        "BudgetBar",
+        "BudgetVsActual"
+      ]
+    },
+    {
+      "class": "fg-period-compare",
+      "selector": ".fg-period-compare",
+      "group": "Financial",
+      "concept": "Period-over-period comparison",
+      "aliases": [
+        "PeriodCompare",
+        "PoP",
+        "ComparePeriods"
+      ]
+    },
+    {
+      "class": "fg-currency",
+      "selector": ".fg-currency",
+      "group": "Financial",
+      "concept": "Currency amount formatting helper",
+      "aliases": [
+        "CurrencyFormat",
+        "MoneyFormat",
+        "AmountFormat"
+      ],
+      "disambiguation": "direction-colored figure → .fg-money"
+    },
+    {
+      "class": "fg-table-wrap",
+      "selector": ".fg-table-wrap",
+      "group": "Financial",
+      "concept": "Scroll wrapper with sticky header/column",
+      "aliases": [
+        "StickyTable",
+        "ScrollTable",
+        "TableWrap"
+      ],
+      "variants": [
+        "sticky"
+      ]
+    },
+    {
+      "class": "fg-export-btn",
+      "selector": ".fg-export-btn",
+      "group": "Financial",
+      "concept": "Export / download action button",
+      "aliases": [
+        "ExportButton",
+        "DownloadButton",
+        "ExportAction"
+      ]
+    },
+    {
+      "class": "fg-diverge",
+      "selector": ".fg-diverge",
+      "group": "Financial",
+      "concept": "Two-sided divergence bar around a zero axis",
+      "aliases": [
+        "DivergenceBar",
+        "DivergingBar",
+        "PosNegBar"
+      ],
+      "variants": [
+        "pos",
+        "neg"
+      ],
+      "parts": [
+        "axis",
+        "bar"
+      ],
+      "characterTokens": [
+        "--color-positive",
+        "--color-negative"
+      ]
+    },
+    {
+      "class": "fg-cohort",
+      "selector": ".fg-cohort",
+      "group": "Financial",
+      "concept": "Cohort retention heat grid",
+      "aliases": [
+        "CohortGrid",
+        "RetentionHeatmap",
+        "HeatGrid",
+        "Heatmap"
+      ],
+      "variants": [
+        "head",
+        "lab",
+        "size",
+        "v",
+        "null"
+      ],
+      "parts": [
+        "row",
+        "cell"
+      ],
+      "characterTokens": [
+        "--cohort-heat-color",
+        "--cohort-heat-max"
+      ]
+    },
+    {
+      "class": "fg-waveform",
+      "selector": ".fg-waveform",
+      "group": "Media",
+      "concept": "Audio waveform bar display",
+      "aliases": [
+        "Waveform",
+        "AudioWave",
+        "WaveformBar"
+      ],
+      "variants": [
+        "played"
+      ],
+      "parts": [
+        "bar",
+        "cursor"
+      ],
+      "characterTokens": [
+        "--fg-wave"
+      ]
+    },
+    {
+      "class": "fg-scrubber",
+      "selector": ".fg-scrubber",
+      "group": "Media",
+      "concept": "Interactive playback scrubber (draggable handle)",
+      "aliases": [
+        "Scrubber",
+        "Seekbar",
+        "PlaybackSlider",
+        "ProgressSlider",
+        "Slider"
+      ],
+      "parts": [
+        "track",
+        "fill",
+        "handle"
+      ],
+      "characterTokens": [
+        "--fg-scrub"
+      ]
+    },
+    {
+      "class": "fg-transport",
+      "selector": ".fg-transport",
+      "group": "Media",
+      "concept": "Media transport / playback control bar",
+      "aliases": [
+        "Transport",
+        "PlaybackControls",
+        "MediaControls",
+        "PlayerBar"
+      ],
+      "parts": [
+        "play",
+        "time",
+        "rate"
+      ],
+      "composes": [
+        "fg-icon-btn",
+        "fg-scrubber"
+      ]
+    },
+    {
+      "class": "fg-transcript",
+      "selector": ".fg-transcript",
+      "group": "Media",
+      "concept": "Timestamped transcript / caption cues",
+      "aliases": [
+        "Transcript",
+        "Captions",
+        "CueList",
+        "Subtitles"
+      ],
+      "variants": [
+        "current"
+      ],
+      "parts": [
+        "cue",
+        "time",
+        "speaker",
+        "text"
+      ]
+    }
+  ]
+}

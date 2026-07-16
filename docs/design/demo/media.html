@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Contract — Media / Playback</title>
+<link rel="stylesheet" href="demo.css" />
+<link rel="stylesheet" href="../contract/contract.css" />
+<link rel="stylesheet" href="../contract/components.css" />
+<link rel="stylesheet" href="../contract/patterns/media.css" />
+<link rel="stylesheet" href="../themes/atelier.css" />
+<script src="theme-switcher.js"></script>
+</head>
+<body class="fg-root">
+
+<div id="fg-bar"></div>
+
+<main>
+  <div class="page-title"><a class="demo-back" href="core.html">← Core gallery</a><span class="t-title">Media / Playback</span><span class="t-body-sm" style="color:var(--color-text-subtle);">patterns/media.css · .fg-waveform · .fg-scrubber · .fg-transport · .fg-transcript</span></div>
+
+  <section>
+    <div class="sec-title">Waveform · .fg-waveform — played run + progress cursor</div>
+    <div class="fg-card" style="max-width:720px;">
+      <div class="fg-waveform" id="wave" style="--fg-wave:40;"></div>
+    </div>
+  </section>
+
+  <section>
+    <div class="sec-title">Transport · .fg-transport — composes .fg-icon-btn + .fg-scrubber + mono time</div>
+    <div style="max-width:720px;">
+      <div class="fg-transport">
+        <button class="fg-transport__play" aria-label="Play / pause">▶</button>
+        <button class="fg-icon-btn" aria-label="Back 5s">«</button>
+        <button class="fg-icon-btn" aria-label="Forward 5s">»</button>
+        <span class="fg-transport__time">01:24<span> / 04:12</span></span>
+        <div class="fg-scrubber" style="--fg-scrub:33;">
+          <span class="fg-scrubber__track"></span>
+          <span class="fg-scrubber__fill"></span>
+          <span class="fg-scrubber__handle"></span>
+        </div>
+        <button class="fg-transport__rate">1.0×</button>
+        <button class="fg-icon-btn" aria-label="Volume">♪</button>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="sec-title">Scrubber · .fg-scrubber — interactive progress with a handle (vs static .fg-progress)</div>
+    <div class="stack" style="max-width:520px;">
+      <div class="fg-scrubber" style="--fg-scrub:12;"><span class="fg-scrubber__track"></span><span class="fg-scrubber__fill"></span><span class="fg-scrubber__handle"></span></div>
+      <div class="fg-scrubber" style="--fg-scrub:56;"><span class="fg-scrubber__track"></span><span class="fg-scrubber__fill"></span><span class="fg-scrubber__handle"></span></div>
+      <div class="fg-scrubber" style="--fg-scrub:88;"><span class="fg-scrubber__track"></span><span class="fg-scrubber__fill"></span><span class="fg-scrubber__handle"></span></div>
+    </div>
+  </section>
+
+  <section>
+    <div class="sec-title">Transcript · .fg-transcript — timestamped cues, --current highlights the live line</div>
+    <div class="fg-card" style="max-width:640px;">
+      <div class="fg-transcript">
+        <button class="fg-transcript__cue">
+          <span class="fg-transcript__time">01:18</span>
+          <span class="fg-transcript__body"><span class="fg-transcript__speaker">Speaker A</span><span class="fg-transcript__text">When we talk about system architecture, the most important thing is understanding the data flows between components.</span></span>
+        </button>
+        <button class="fg-transcript__cue fg-transcript__cue--current">
+          <span class="fg-transcript__time">01:24</span>
+          <span class="fg-transcript__body"><span class="fg-transcript__speaker">Speaker A</span><span class="fg-transcript__text">Especially when handling complex network-failure scenarios and latency between regions.</span></span>
+        </button>
+        <button class="fg-transcript__cue">
+          <span class="fg-transcript__time">01:31</span>
+          <span class="fg-transcript__body"><span class="fg-transcript__speaker">Speaker B</span><span class="fg-transcript__text">Right — and consistency guarantees are the part teams most often get wrong.</span></span>
+        </button>
+      </div>
+    </div>
+  </section>
+</main>
+
+<script>
+  // Build a stable speech-like waveform: spans with amplitude heights; the
+  // leading run up to --fg-wave% is marked --played.
+  (function () {
+    var wave = document.getElementById("wave");
+    if (!wave) return;
+    var N = 96, s = 13713;
+    var rnd = function () { s = (s * 1103515245 + 12345) % 2147483648; return s / 2147483648; };
+    var progress = 40;
+    for (var i = 0; i < N; i++) {
+      var t = i / N;
+      var env = 0.55 + 0.35 * Math.sin(t * Math.PI * 2.5 + 0.6);
+      env *= 0.6 + 0.4 * Math.cos(t * Math.PI * 7 + 1.4);
+      if ((i + 7) % 21 < 2) env *= 0.2;
+      var amp = Math.max(0.08, Math.min(1, Math.abs(env) * (0.35 + rnd() * 0.65)));
+      var bar = document.createElement("span");
+      bar.className = "fg-waveform__bar" + ((i / N * 100) <= progress ? " fg-waveform__bar--played" : "");
+      bar.style.height = (amp * 92) + "%";
+      wave.appendChild(bar);
+    }
+    var cur = document.createElement("span");
+    cur.className = "fg-waveform__cursor";
+    wave.appendChild(cur);
+  })();
+</script>
+</body>
+</html>
