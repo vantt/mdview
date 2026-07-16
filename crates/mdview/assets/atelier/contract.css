@@ -1,0 +1,405 @@
+/* ============================================================
+   CANONICAL DESIGN CONTRACT — contract.css
+   Tier 2 (Semantic) + Tier 3 (Character) token interface.
+
+   This file declares EVERY canonical token name a theme-agnostic
+   component may read, with a neutral light default so anything
+   renders even before a theme adapter loads. Theme adapters
+   (themes/*.css) override these under html[data-theme="..."].
+
+   Rules for consumers (components.css, app code):
+   - Read ONLY the tokens below. Never read a theme's private
+     primitives (--_ink, --amber-500, --color-bone, …).
+   - Component "character" (radius/weight/elevation/border) comes
+     from the Tier-3 tokens, not hard-coded values.
+   ============================================================ */
+
+:root {
+  /* ─────────────────────────────────────────────────────────
+     TIER 2 · SEMANTIC — COLOR
+     ───────────────────────────────────────────────────────── */
+
+  /* Surfaces */
+  --color-bg:              #ffffff;
+  --color-surface:         #f7f7f8;
+  --color-surface-raised:  #ffffff;
+  --color-surface-sunken:  #eeeef1;
+  --color-scrim:           rgba(10,10,12,0.55);
+
+  /* Text */
+  --color-text:            #16161a;
+  --color-text-muted:      #55555f;
+  --color-text-subtle:     #86868f;
+  --color-text-disabled:   #b3b3bb;
+  --color-on-action:       #ffffff;
+  --color-on-brand:        #ffffff;
+  --color-on-dark:         #ffffff;
+
+  /* Lines */
+  --color-border:            #e4e4e8;
+  --color-border-strong:     #d0d0d6;
+  --color-border-interactive:#3b6fe0;
+  --border-width-hairline:   1px;   /* ordinary dividers, card + input borders */
+  --border-width-strong:     2px;   /* rule strips, ledger totals, focus accents */
+
+  /* Interactive roles — action ≠ brand ≠ link (kept separate on purpose) */
+  --color-action:        #16161a;
+  --color-action-hover:  #2a2a30;
+  --color-action-press:  #000000;
+  --color-brand:         #5b45e0;
+  --color-brand-tint:    #efecfd;
+  --color-link:          #2f6fe0;
+  --color-link-hover:    color-mix(in srgb, var(--color-link) 78%, var(--color-text));
+  --color-link-visited:  var(--color-link);
+
+  /* Status */
+  --color-success:       #2f9e57;
+  --color-success-tint:  #e3f3ea;
+  --color-warning:       #c78a1e;
+  --color-warning-tint:  #f8eed6;
+  --color-danger:        #d5423f;
+  --color-danger-tint:   #fbe2e1;
+  --color-info:          #2f6fe0;
+  --color-info-tint:     #e5eefb;
+
+  /* Derived interaction states (safe defaults; adapters may override) */
+  --color-surface-hover: var(--color-surface-sunken);   /* row / item hover wash */
+  --color-danger-hover:  color-mix(in srgb, var(--color-danger) 85%, var(--color-action-press));
+  --color-selection-bg:  color-mix(in srgb, var(--color-action) 28%, transparent);
+  --color-selection-text: var(--color-text);
+  --scrollbar-thumb:     var(--color-border-strong);
+  --scrollbar-track:     transparent;
+
+  /* Value direction — money in / out (distinct from status + action) */
+  --color-positive:      #2f9e57;
+  --color-positive-tint: #e3f3ea;
+  --color-negative:      #d5423f;
+  --color-negative-tint: #fbe2e1;
+
+  /* Optional alternate accent set (Tier-4 signature; e.g. beRich gemstones) */
+  --color-accent-alt-1:  var(--color-brand);
+  --color-accent-alt-2:  var(--color-info);
+  --color-accent-alt-3:  var(--color-success);
+  --color-accent-alt-4:  var(--color-warning);
+  --color-accent-alt-5:  var(--color-danger);
+
+  /* ─────────────────────────────────────────────────────────
+     TIER 2 · SEMANTIC — TYPOGRAPHY
+     ───────────────────────────────────────────────────────── */
+  --font-display: ui-sans-serif, system-ui, sans-serif;
+  --font-body:    ui-sans-serif, system-ui, sans-serif;
+  --font-mono:    ui-monospace, "SF Mono", Menlo, monospace;
+  --font-accent:  var(--font-display);
+  /* Variable-font optical sizing (opsz) — real effect on display/accent
+     faces like Fraunces/Newsreader; harmless `auto` on static faces. */
+  --font-optical-sizing: auto;
+
+  /* Semantic weight scale — a theme / typeface-set remaps these FOUR steps
+     ONCE, so a face that ships few weights degrades cleanly instead of the
+     browser synthesizing 500/600. Every role + emphasis token references
+     these, never a raw number. */
+  --weight-regular:  400;
+  --weight-medium:   500;
+  --weight-semibold: 600;
+  --weight-bold:     700;
+
+  /* Numeric rendering contract — tabular columns · unambiguous zero · lining
+     digits. Applied to every figure/ledger/table-number surface. Matters most
+     when --num-font swaps to a proportional sans (digits would otherwise jump
+     column width and 0/O collide). A theme may relax it (e.g. proportional
+     for a marketing hero) but the CRM default is columnar. */
+  --num-variant: tabular-nums slashed-zero lining-nums;
+
+  /* Type roles — each = size / leading / tracking / weight.
+     Component character (esp. weight & tracking) lives here so a
+     theme can give the same role a different personality. */
+  --type-display-size: 56px;  --type-display-leading: 1.05; --type-display-tracking: -0.02em; --type-display-weight: var(--weight-semibold);
+  --type-title-size: 34px;    --type-title-leading: 1.15;   --type-title-tracking: -0.02em;  --type-title-weight: var(--weight-semibold);
+  --type-heading-size: 22px;  --type-heading-leading: 1.2;  --type-heading-tracking: -0.01em; --type-heading-weight: var(--weight-semibold);
+  --type-subheading-size: 18px;--type-subheading-leading: 1.3;--type-subheading-tracking: -0.01em;--type-subheading-weight: var(--weight-semibold);
+  --type-heading-sm-size: 15px;--type-heading-sm-leading: 1.4; --type-heading-sm-tracking: 0;     --type-heading-sm-weight: var(--weight-semibold); /* H4 — smallest heading, sits above body */
+  --type-body-size: 15px;     --type-body-leading: 1.55;    --type-body-tracking: 0;          --type-body-weight: var(--weight-regular);
+  --type-body-sm-size: 13px;  --type-body-sm-leading: 1.5;  --type-body-sm-tracking: 0;       --type-body-sm-weight: var(--weight-regular);
+  --type-label-size: 10.5px;  --type-label-leading: 1.2;    --type-label-tracking: 0.14em;    --type-label-weight: var(--weight-medium);
+  --type-label-case: uppercase;   /* a theme may opt out of all-caps labels (set: none) */
+  --type-caption-size: 12px;  --type-caption-leading: 1.4;  --type-caption-tracking: 0;       --type-caption-weight: var(--weight-regular);
+  --type-micro-size: 10px;    --type-micro-leading: 1.3;    --type-micro-tracking: 0.02em;    --type-micro-weight: var(--weight-regular);
+
+  /* Interactive-control text (buttons · inputs · selects · nav · tabs) */
+  --type-ui-size: 14px;   --type-ui-leading: 1.2;  --type-ui-tracking: 0;      --type-ui-weight: var(--weight-medium);
+  /* Small mono UI tag text (chip · status · delta) */
+  --type-tag-size: 11px;  --type-tag-leading: 1.2; --type-tag-tracking: 0.04em; --type-tag-weight: var(--weight-medium);
+  /* Numeric figure ramp — big numbers (KPI · value slab · hero stat) */
+  --type-figure-sm-size: 26px; --type-figure-sm-leading: 1; --type-figure-sm-tracking: -0.01em; --type-figure-sm-weight: var(--weight-semibold);
+  --type-figure-md-size: 30px; --type-figure-md-leading: 1; --type-figure-md-tracking: -0.01em; --type-figure-md-weight: var(--weight-semibold);
+  --type-figure-lg-size: 44px; --type-figure-lg-leading: 1; --type-figure-lg-tracking: -0.02em; --type-figure-lg-weight: var(--weight-bold);
+
+  /* Emphasis weights — for locally-bold text inside a role (a name in a
+     note, a totals row, avatar initials). Not per-role; theme-overridable. */
+  --weight-emphasis: var(--weight-semibold);
+  --weight-strong:   var(--weight-bold);
+
+  /* Which family each role uses (a theme can re-point these) */
+  --type-display-font: var(--font-display);
+  --type-title-font:   var(--font-display);
+  --type-heading-font: var(--font-display);
+  --type-subheading-font: var(--font-display);
+  --type-heading-sm-font: var(--font-display);
+  --type-body-font:    var(--font-body);
+  --type-body-sm-font: var(--font-body);
+  --type-label-font:   var(--font-mono);
+  --type-caption-font: var(--font-body);
+  --type-micro-font:   var(--font-mono);
+  --type-ui-font:      var(--font-body);
+  --type-tag-font:     var(--font-mono);
+  --type-figure-font:  var(--num-font);
+
+  /* Reading / long-form layer (editorial · markdown viewer) */
+  --reading-col:     720px;
+  --reading-measure: 68ch;
+  --fs-article-title: 40px;
+  --fs-lede:      20px;
+  --fs-prose-h1:  34px;
+  --fs-prose-h2:  28px;
+  --fs-prose-h3:  20px;
+  --fs-prose-h4:  15px;
+  --fs-prose:     17px;
+  --fs-prose-sm:  14.5px;
+  --fs-prose-code:14.5px;
+  --fs-pullquote: 24px;
+  --lh-prose:      1.7;
+  --lh-pullquote:  1.4;
+  --lh-lede:       1.5;
+  --lh-prose-head: 1.2;
+  --lh-prose-code: 1.6;
+  --flow:       1.35em;
+  --flow-tight: 0.5em;
+  --flow-loose: 2.1em;
+
+  /* ─────────────────────────────────────────────────────────
+     TIER 2 · SEMANTIC — SPACING / LAYOUT
+     ───────────────────────────────────────────────────────── */
+  --space-0: 0;   --space-1: 4px;  --space-2: 8px;  --space-3: 12px;
+  --space-4: 16px;--space-5: 24px; --space-6: 36px; --space-7: 56px; --space-8: 80px;
+
+  --layout-page-max:    1200px;
+  --layout-section-gap: 56px;
+  --layout-card-pad:    24px;
+  --layout-element-gap: 12px;
+
+  /* ─────────────────────────────────────────────────────────
+     TIER 2 · SEMANTIC — RADIUS SCALE (values only; per-component
+     assignment happens in Tier 3)
+     ───────────────────────────────────────────────────────── */
+  --radius-none: 0;
+  --radius-xs:   2px;
+  --radius-sm:   4px;
+  --radius-md:   8px;
+  --radius-lg:   12px;
+  --radius-pill: 9999px;
+
+  /* ─────────────────────────────────────────────────────────
+     TIER 2 · SEMANTIC — ELEVATION SCALE
+     ───────────────────────────────────────────────────────── */
+  --elevation-none: none;
+  --elevation-sm: 0 1px 3px rgba(0,0,0,0.10), 0 1px 2px -1px rgba(0,0,0,0.10);
+  --elevation-md: 0 4px 12px rgba(0,0,0,0.12);
+  --elevation-lg: 0 12px 28px rgba(0,0,0,0.16);
+
+  /* ─────────────────────────────────────────────────────────
+     TIER 2 · SEMANTIC — MOTION
+     ───────────────────────────────────────────────────────── */
+  --motion-fast:   120ms;
+  --motion-settle: 200ms;
+  --motion-open:   260ms;
+  --motion-expressive: 450ms;   /* long expressive tier (ClickUp settling) */
+  --ease-standard:   cubic-bezier(.2,0,.1,1);
+  --ease-decelerate: cubic-bezier(.2,.8,.2,1);
+  --ease-expressive: cubic-bezier(.33,1,.68,1);
+
+  /* ─────────────────────────────────────────────────────────
+     TIER 2 · SEMANTIC — Z-INDEX SCALE
+     ───────────────────────────────────────────────────────── */
+  --z-nav:     50;    /* sticky bars / rails */
+  --z-popover: 80;    /* menus, tooltips, dropdowns */
+  --z-modal:   100;   /* scrim + modal + drawer */
+  --z-toast:   120;   /* notifications, above everything */
+
+  /* ─────────────────────────────────────────────────────────
+     TIER 2 · SEMANTIC — CODE SYNTAX (used on the dark code
+     surface --signature-dark-bg; adapters may re-point)
+     ───────────────────────────────────────────────────────── */
+  --code-keyword: #c0a5f5;
+  --code-string:  #9ecb88;
+  --code-fn:      #8fbfe8;
+  --code-num:     #e0b06a;
+  --code-comment: color-mix(in srgb, var(--signature-dark-text) 45%, transparent);
+
+  /* ─────────────────────────────────────────────────────────
+     TIER 3 · CHARACTER — per-component personality.
+     Defaults below are "neutral"; adapters re-point them to make
+     the SAME markup feel sharp / soft / pill, flat / shadowed …
+     ───────────────────────────────────────────────────────── */
+
+  /* Button */
+  --btn-radius: var(--radius-md);
+  --btn-weight: var(--weight-semibold);
+  --btn-pad-y:  10px;
+  --btn-pad-x:  18px;
+
+  /* Card */
+  --card-radius:       var(--radius-lg);
+  --card-elevation:    var(--elevation-none);
+  --card-border-width: 1px;
+  --card-pad:          var(--layout-card-pad);
+
+  /* Chip / Badge */
+  --chip-radius: var(--radius-sm);
+  --chip-weight: var(--weight-medium);
+
+  /* Input */
+  --input-radius: var(--radius-md);
+  --input-height: 38px;
+
+  /* Nav */
+  --nav-item-radius: var(--radius-md);
+
+  /* Media (images / figures inside prose & cards) */
+  --media-radius: var(--card-radius);
+
+  /* Status pill — glow follows the dot's own color; a theme may set `none`
+     (flat systems) or a stronger spread (CRT phosphor) */
+  --status-glow: 0 0 8px color-mix(in srgb, currentColor 45%, transparent);
+
+  /* Status lanes (workflow-taxonomy chips: task statuses, board lanes).
+     The lane COLOR comes per-instance via --fg-lane-color (drawn from the
+     accent-alt set / semantic tokens); these two control how the chip
+     RENDERS: tinted plate + lane-colored text (neutral default) vs solid
+     plate + on-dark text (ClickUp product UI). */
+  --status-lane-fill: 16%;   /* ASSUMPTION: neutral tint strength (matches .fg-tag's 12–16% family) */
+  --status-lane-text: var(--fg-lane-color, var(--color-text-muted));
+
+  /* Cohort heat grid (patterns/financial · .fg-cohort) — the retention heat
+     ramp is built from tokens, never hex: each cell mixes --cohort-heat-color
+     into the surface, scaled by the per-cell --fg-heat (0–100) data value.
+     A theme may re-point the hue (e.g. brand) or damp the max strength. */
+  --cohort-heat-color: var(--color-positive);
+  --cohort-heat-max:   60;   /* mix strength (%) at heat = 100 */
+
+  /* Focus (keyboard) */
+  --focus-color:  var(--color-action);
+  --focus-width:  2px;
+  --focus-offset: 2px;
+
+  /* Density (driven by data-density) */
+  --density-row-pad-y: 11px;
+  --density-card-pad:  var(--layout-card-pad);
+
+  /* Number font (driven by data-num-font) */
+  --num-font: var(--font-mono);
+
+  /* Signature (optional expressive slot) */
+  --signature-gradient: conic-gradient(from 90deg,
+    #7d5be7, #bc3fda, #fa24ce, #fb49a5, #fc6d7b, #fd8461,
+    #fd9a46, #f687c6, #a3a0e0, #4fb9fa, #0091ff, #7d5be7);
+  --signature-gradient-text: linear-gradient(83deg, var(--color-brand), var(--color-link));
+  --signature-band-tint: var(--color-brand-tint);
+  --signature-dark-bg:   #14141a;
+  --signature-dark-text: #ffffff;
+  --signature-vignette:  none;
+  --signature-speed:     4s;   /* conic-border rotation period */
+}
+
+/* ── Density modifier (canonical, cross-theme) ─────────────── */
+html[data-density="compact"] {
+  --density-row-pad-y: 6px;
+  --density-card-pad: 16px;
+  --card-pad: 16px;
+  --input-height: 34px;
+}
+
+/* ── Number-font modifier (canonical, cross-theme) ─────────── */
+html[data-num-font="sans"] { --num-font: var(--font-body); }
+html[data-num-font="mono"] { --num-font: var(--font-mono); }
+
+/* ── Scheme modifier (canonical axis: data-scheme) ──────────────
+   Values: light (the :root tokens above — default) · dark. The scheme
+   axis swaps ONLY the color layer; type, radius, weight, elevation and
+   every Tier-3 character token are untouched (a theme keeps its
+   personality across both schemes). Each theme owns its opposite-scheme
+   palette under html[data-theme="X"][data-scheme="Y"] in themes/*.css;
+   the block below is the theme-agnostic NEUTRAL DARK fallback — the same
+   standing as the :root neutral light default, so the axis renders even
+   before/without a theme adapter. Specificity (0,1,1) ties every theme's
+   base block; contract.css loads FIRST, so a theme always overrides it. */
+html[data-scheme="dark"] {
+  --color-bg:#121214; --color-surface:#1b1b1f; --color-surface-raised:#24242a; --color-surface-sunken:#0d0d0f;
+  --color-scrim:rgba(0,0,0,0.62);
+  --color-text:#f2f2f5; --color-text-muted:#a6a6b0; --color-text-subtle:#74747e; --color-text-disabled:#4a4a53;
+  --color-on-action:#121214; --color-on-brand:#ffffff; --color-on-dark:#ffffff;
+  --color-border:#2b2b31; --color-border-strong:#3a3a42; --color-border-interactive:#5b8cff;
+  --color-action:#f0f0f3; --color-action-hover:#ffffff; --color-action-press:#d6d6da;
+  --color-brand:#8b73f5; --color-brand-tint:#241f3d;
+  --color-link:#6aa8ff;
+  --color-success:#3ecf8e; --color-success-tint:#10281d;
+  --color-warning:#e6b23e; --color-warning-tint:#2c2410;
+  --color-danger:#ff5f63;  --color-danger-tint:#2e1315;
+  --color-info:#5b9dff;    --color-info-tint:#12243a;
+  --color-positive:#3ecf8e; --color-positive-tint:#10281d;
+  --color-negative:#ff5f63; --color-negative-tint:#2e1315;
+  --color-surface-hover:var(--color-surface-raised);
+  --color-selection-bg:color-mix(in srgb, var(--color-action) 32%, transparent);
+  --scrollbar-thumb:var(--color-border-strong);
+}
+
+/* ── Typeface-set modifier (canonical axis) ────────────────
+   A NAMED font combination re-points the 4 family slots (+ optional weight
+   remap) in one place. Themes register their own sets under
+   html[data-theme="X"][data-typeface-set="Y"] in themes/*.css; components
+   never know how many physical faces a set loads — they read the 4 slots.
+   Unset = the theme's default families. `system` is a universal set kept
+   here so every theme has a guaranteed zero-download fallback option. The
+   [data-theme] qualifier gives it the same specificity as the per-theme named
+   sets so it reliably wins over a theme's own default families (which load
+   later). */
+html[data-theme][data-typeface-set="system"] {
+  --font-display: ui-sans-serif, system-ui, sans-serif;
+  --font-body:    ui-sans-serif, system-ui, sans-serif;
+  --font-mono:    ui-monospace, "SF Mono", Menlo, monospace;
+  --font-accent:  var(--font-display);
+  --font-optical-sizing: auto;
+  --weight-regular: 400; --weight-medium: 500; --weight-semibold: 600; --weight-bold: 700;
+}
+
+/* ─────────────────────────────────────────────────────────────
+   TYPE HELPER CLASSES — bundle each role's 5 properties.
+   ───────────────────────────────────────────────────────────── */
+.t-display    { font-family: var(--type-display-font);    font-size: var(--type-display-size);    line-height: var(--type-display-leading);    letter-spacing: var(--type-display-tracking);    font-weight: var(--type-display-weight); font-optical-sizing: var(--font-optical-sizing); }
+.t-title      { font-family: var(--type-title-font);      font-size: var(--type-title-size);      line-height: var(--type-title-leading);      letter-spacing: var(--type-title-tracking);      font-weight: var(--type-title-weight); font-optical-sizing: var(--font-optical-sizing); }
+.t-heading    { font-family: var(--type-heading-font);    font-size: var(--type-heading-size);    line-height: var(--type-heading-leading);    letter-spacing: var(--type-heading-tracking);    font-weight: var(--type-heading-weight); font-optical-sizing: var(--font-optical-sizing); }
+.t-subheading { font-family: var(--type-subheading-font); font-size: var(--type-subheading-size); line-height: var(--type-subheading-leading); letter-spacing: var(--type-subheading-tracking); font-weight: var(--type-subheading-weight); font-optical-sizing: var(--font-optical-sizing); }
+.t-heading-sm { font-family: var(--type-heading-sm-font); font-size: var(--type-heading-sm-size); line-height: var(--type-heading-sm-leading); letter-spacing: var(--type-heading-sm-tracking); font-weight: var(--type-heading-sm-weight); font-optical-sizing: var(--font-optical-sizing); }
+.t-body       { font-family: var(--type-body-font);       font-size: var(--type-body-size);       line-height: var(--type-body-leading);       letter-spacing: var(--type-body-tracking);       font-weight: var(--type-body-weight); }
+.t-body-sm    { font-family: var(--type-body-sm-font);    font-size: var(--type-body-sm-size);    line-height: var(--type-body-sm-leading);    letter-spacing: var(--type-body-sm-tracking);    font-weight: var(--type-body-sm-weight); }
+.t-label      { font-family: var(--type-label-font);      font-size: var(--type-label-size);      line-height: var(--type-label-leading);      letter-spacing: var(--type-label-tracking);      font-weight: var(--type-label-weight); text-transform: var(--type-label-case); }
+.t-caption    { font-family: var(--type-caption-font);    font-size: var(--type-caption-size);    line-height: var(--type-caption-leading);    letter-spacing: var(--type-caption-tracking);    font-weight: var(--type-caption-weight); }
+.t-micro      { font-family: var(--type-micro-font);      font-size: var(--type-micro-size);      line-height: var(--type-micro-leading);      letter-spacing: var(--type-micro-tracking);      font-weight: var(--type-micro-weight); }
+.t-ui         { font-family: var(--type-ui-font);         font-size: var(--type-ui-size);         line-height: var(--type-ui-leading);         letter-spacing: var(--type-ui-tracking);         font-weight: var(--type-ui-weight); }
+.t-tag        { font-family: var(--type-tag-font);        font-size: var(--type-tag-size);        line-height: var(--type-tag-leading);        letter-spacing: var(--type-tag-tracking);        font-weight: var(--type-tag-weight); }
+.t-figure-sm  { font-family: var(--type-figure-font);     font-size: var(--type-figure-sm-size);  line-height: var(--type-figure-sm-leading);  letter-spacing: var(--type-figure-sm-tracking);  font-weight: var(--type-figure-sm-weight); font-variant-numeric: var(--num-variant); }
+.t-figure-md  { font-family: var(--type-figure-font);     font-size: var(--type-figure-md-size);  line-height: var(--type-figure-md-leading);  letter-spacing: var(--type-figure-md-tracking);  font-weight: var(--type-figure-md-weight); font-variant-numeric: var(--num-variant); }
+.t-figure-lg  { font-family: var(--type-figure-font);     font-size: var(--type-figure-lg-size);  line-height: var(--type-figure-lg-leading);  letter-spacing: var(--type-figure-lg-tracking);  font-weight: var(--type-figure-lg-weight); font-variant-numeric: var(--num-variant); }
+
+/* Text selection — token-driven */
+.fg-root ::selection { background: var(--color-selection-bg); color: var(--color-selection-text); }
+
+/* Base document defaults */
+.fg-root {
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-family: var(--font-body);
+  font-size: var(--type-body-size);
+  line-height: var(--type-body-leading);
+  -webkit-font-smoothing: antialiased;
+  scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track); /* inherits into every scroll container */
+}
