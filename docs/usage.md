@@ -82,15 +82,17 @@ after writing docs.
 ## 4. CLI reference
 
 ```bash
-mdview serve [--port 7700] [--host 127.0.0.1]   # optional: pre-start the daemon (auto-starts otherwise)
+mdview serve [--port 7700] [--host 0.0.0.0]     # optional: pre-start the daemon (auto-starts otherwise)
 mdview register <dir> [--name "My App"]         # index a project
 mdview open <file.md>                           # print the browser URL for a file
 mdview list                                     # list projects
 mdview search "query" [--project <id>]          # full-text search
 mdview refresh [<project-id>]                   # re-scan to reconcile the index
 mdview status                                   # daemon status
+mdview config edit                              # edit ~/.mdview/config.toml in $EDITOR
 mdview unregister <project-id>                  # remove a project (files kept)
 mdview stop                                     # stop the daemon
+mdview restart                                  # restart the daemon (apply config changes)
 mdview doctor [--fix] [--json] [--dry-run]      # diagnose & repair integration
 ```
 Most commands accept `--json` for scripting.
@@ -99,10 +101,19 @@ Most commands accept `--json` for scripting.
 
 ## 5. Settings
 
-Open <http://localhost:7700/settings> to change server host/port, theme,
-indexing (debounce, max file size, exclude patterns), and MCP options. Changes
-are written to `~/.mdview/config.toml`. Server/indexing changes apply after a
-restart (`mdview stop && mdview serve`).
+Two ways to change settings — server host/port, theme, indexing (debounce, max
+file size, exclude patterns), and MCP options — both writing the same
+`~/.mdview/config.toml`:
+
+- **Web UI:** open <http://localhost:7700/settings> and edit the form.
+- **CLI / editor:** run `mdview config edit`. It opens `~/.mdview/config.toml`
+  in your `$VISUAL`/`$EDITOR` (falling back to `vi`, or `notepad` on Windows),
+  pre-filled with the current values. On save it validates the TOML and warns if
+  it's broken (an invalid file is ignored — mdview falls back to defaults until
+  you fix it).
+
+Server/indexing changes apply after a daemon restart — `mdview restart` (or
+`mdview stop && mdview serve`).
 
 ---
 

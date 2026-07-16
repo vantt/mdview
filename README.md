@@ -31,20 +31,24 @@ Or from source:
 cargo install --git https://github.com/vantt/mdview mdview
 ```
 
+## Agent integration (MCP)
+
+`mdview doctor --fix` do follwing things:
+
+1. Registers the MCP server with Claude Code which provides a single tool:
+
+- **`mdview_view_file(project_root, relative_path)`** 
+  → returns a clickable `url` to the markdown file.
+  → auto-registers the project on first use and indexes markdown files immediately
+
+2. Drop the snippet in [`docs/mdview-agents-template.md`](docs/mdview-agents-template.md)
+into your project's `AGENTS.md` / `CLAUDE.md` so agents surface a viewable URL
+after writing docs.
+
 ## Use
 
-```sh
-mdview open docs/architecture.md     # print the browser URL (starts the daemon if needed)
-mdview register /path/to/project     # recursive scan + index
-mdview search "deployment"           # full-text search (FTS5)
-mdview status                        # is the daemon up?
-mdview doctor                        # diagnose integration, --fix to repair
-mdview serve                         # optional: pre-start the daemon (or set host/port)
-```
-
-The daemon **auto-starts** on the first `open` or MCP call — you don't need to
-run `mdview serve` first. Run `serve` only to pre-start it or to bind a custom
-host/port (`mdview serve --host 0.0.0.0 --port 7700`).
+The daemon **auto-starts** on the first MCP call or cli command `mdview open` — you don't need to
+run `mdview serve` first. Run `serve` only to pre-start it or to bind a custom host/port (`mdview serve --host 0.0.0.0 --port 7700`).
 
 Open <http://localhost:7700> to browse projects; click through links across
 folders without broken links. Edits on disk live-reload the page.
@@ -54,21 +58,20 @@ folders without broken links. Edits on disk live-reload the page.
 ssh -L 7700:localhost:7700 user@host   # then open http://localhost:7700
 ```
 
+### CLI Commands
+```sh
+mdview open docs/architecture.md     # print the browser URL (starts the daemon if needed)
+mdview register /path/to/project     # recursive scan + index
+mdview search "deployment"           # full-text search (FTS5)
+mdview status                        # is the daemon up?
+mdview config edit                   # edit ~/.mdview/config.toml in $EDITOR
+mdview doctor                        # diagnose integration, --fix to repair
+mdview serve                         # optional: pre-start the daemon (or set host/port)
+```
+
+
 See the **[full usage guide](docs/usage.md)** for SSH workflows, MCP setup,
 settings, and the desktop app.
-
-## Agent integration (MCP)
-
-`mdview doctor --fix` registers the MCP server with Claude Code. The single tool
-is:
-
-- **`mdview_view_file(project_root, relative_path)`** → returns a browser `url`.
-  Auto-registers the project on first use and indexes the file immediately — no
-  separate registration step.
-
-Drop the snippet in [`docs/mdview-agents-template.md`](docs/mdview-agents-template.md)
-into your project's `AGENTS.md` / `CLAUDE.md` so agents surface a viewable URL
-after writing docs.
 
 ## How it works
 
@@ -102,11 +105,7 @@ lessons from two prior open-source markdown servers. Grateful thanks to both:
   Recursive folder tree that respects `.gitignore`, atomic corrupt-resilient
   settings persistence, sanitize-before-serve, and nucleo-backed fuzzy search.
 
-What mdview took are these design ideas, adapted into its own Rust
-implementation; the per-feature record lives in
-[docs/distillery/porting-log.md](docs/distillery/porting-log.md).
 
 ## License
 
-MIT — see [LICENSE](LICENSE). The upstream projects credited above are MIT
-(mdserve) and Apache-2.0 (marky), both compatible with mdview's MIT license.
+MIT — see [LICENSE](LICENSE).
