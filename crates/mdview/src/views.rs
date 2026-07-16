@@ -99,7 +99,7 @@ window.addEventListener('DOMContentLoaded', renderMermaid);
   <main class="content">
     {breadcrumb}
     <div class="fg-reading">
-      <article class="fg-prose">{html}</article>
+      <article class="fg-prose markdown-body">{html}</article>
     </div>
     <script type="application/json" id="mdsource">{source_json}</script>
   </main>
