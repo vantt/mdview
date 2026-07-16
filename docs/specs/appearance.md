@@ -75,10 +75,11 @@ presentation layer and the scheme control — not what any individual page shows
 ### Offline appearance
 
 - **What it guarantees:** the interface renders fully without any network access
-  — no fonts, styles, or assets are fetched from the internet (per R5). When the
-  style's preferred display typeface is not installed locally, text falls back to
-  the operating system's default sans-serif; every other visual property
-  (colors, spacing, rounding, elevation) is exact regardless.
+  — no fonts, styles, or assets are fetched from the internet (per R5). The
+  preferred display typeface ships **embedded** in the stylesheet (Latin +
+  Vietnamese coverage, all weights), so the intended typography renders offline
+  and identically on every machine, no local install required. Scripts outside
+  the embedded coverage fall back to the system sans-serif.
 
 ### Desktop loading screen
 
@@ -133,8 +134,8 @@ authentication. The scheme choice is per-browser (local), not shared or synced.
   control the pages honor. Whether the saved Settings value should seed the
   first-load scheme (instead of only the OS preference) is not settled — the two
   are currently independent.
-- Bundling the preferred display typeface locally for exact offline typography is
-  deferred (product backlog PBI-09); until then the system-font fallback stands.
+- The preferred display typeface is embedded for Latin + Vietnamese; other
+  scripts (Cyrillic, Greek, extended Latin) fall back to the system font.
 - No settled appearance snapshots are captured yet; Light and Dark reference
   screenshots under `docs/specs/visuals/appearance/` are an open item.
 
