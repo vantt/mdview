@@ -4,9 +4,15 @@
 <meta charset="utf-8">
 <title>mdview</title>
 <style>
-  html, body { height: 100%; margin: 0; font-family: system-ui, sans-serif; background: #0d1117; color: #e6edf3; }
+  @media (prefers-color-scheme: light) {
+    html, body { height: 100%; margin: 0; font-family: system-ui, sans-serif; background: #fdfbf7; color: #0f172a; }
+    .muted { color: #6c6f7c; font-size: 13px; }
+  }
+  @media (prefers-color-scheme: dark) {
+    html, body { height: 100%; margin: 0; font-family: system-ui, sans-serif; background: #1a110c; color: #f5efe6; }
+    .muted { color: #a4988e; font-size: 13px; }
+  }
   .center { height: 100%; display: flex; align-items: center; justify-content: center; flex-direction: column; gap: 12px; }
-  .muted { color: #8b949e; font-size: 13px; }
 </style>
 </head>
 <body>
