@@ -122,6 +122,9 @@ authentication. The scheme choice is per-browser (local), not shared or synced.
   first paint, matching the page (no light-then-dark flash) (per R3).
 - Inline code inside prose (not a fenced block) → follows the scheme, unlike
   fenced blocks which are always dark (per R4).
+- A rendered diagram (mermaid) is not code: it renders on a normal
+  scheme-appropriate surface, never on the fixed dark code panel, and keeps its
+  zoom/pan/fullscreen controls.
 
 ## Open Gaps
 
