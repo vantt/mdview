@@ -135,13 +135,23 @@ async fn api_projects(State(st): State<AppState>) -> impl IntoResponse {
         .into_iter()
         .map(|p| {
             let count = st.engine.file_count(&p.id).unwrap_or(0);
-            json!({
-                "id": p.id, "name": p.name, "root_path": p.root_path,
-                "file_count": count, "url": format!("/p/{}/", p.id),
-            })
+            project_summary_json(&p.id, &p.name, count)
         })
         .collect();
     Json(json!({ "projects": arr }))
+}
+
+/// One project's public API summary. Deliberately omits the absolute
+/// `root_path`: the server has no authentication, so exposing each project's
+/// filesystem layout over `/api/projects` leaks it to anyone who can reach the
+/// port (see the non-loopback bind warning in `serve`).
+fn project_summary_json(id: &str, name: &str, file_count: usize) -> serde_json::Value {
+    json!({
+        "id": id,
+        "name": name,
+        "file_count": file_count,
+        "url": format!("/p/{id}/"),
+    })
 }
 
 async fn api_config(State(st): State<AppState>) -> impl IntoResponse {
@@ -538,6 +548,19 @@ mod asset_response_tests {
         assert_eq!(h.get(header::CONTENT_TYPE).unwrap(), "image/png");
         assert_eq!(h.get(header::CONTENT_SECURITY_POLICY).unwrap(), "sandbox");
         assert_eq!(h.get(header::X_CONTENT_TYPE_OPTIONS).unwrap(), "nosniff");
+    }
+
+    #[test]
+    fn project_summary_json_omits_filesystem_path() {
+        let v = project_summary_json("abc", "My Proj", 3);
+        assert!(
+            v.get("root_path").is_none(),
+            "unauthenticated API must not leak the project filesystem path"
+        );
+        assert_eq!(v["id"], "abc");
+        assert_eq!(v["name"], "My Proj");
+        assert_eq!(v["file_count"], 3);
+        assert_eq!(v["url"], "/p/abc/");
     }
 
     #[test]
