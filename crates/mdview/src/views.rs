@@ -441,6 +441,8 @@ fn esc(s: &str) -> String {
 }
 
 pub const APP_CSS: &str = concat!(
+    include_str!("../assets/atelier/fonts.css"),
+    "\n",
     include_str!("../assets/atelier/contract.css"),
     "\n",
     include_str!("../assets/atelier/components.css"),
