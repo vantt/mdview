@@ -378,14 +378,17 @@ async fn bind_with_retry(host: &str, port: u16) -> Result<(tokio::net::TcpListen
 }
 
 fn build_highlight_css(engine: &Engine) -> String {
-    // Light + dark code themes, each scoped to the active data-theme.
-    let light = theme_css("InspiredGitHub").unwrap_or_default();
+    // Atelier renders code blocks (`.fg-prose pre`) on a fixed dark "signature"
+    // panel in both page schemes (D5), so syntect must emit a dark palette that
+    // stays readable on that panel whether the page is in light or dark scheme.
+    // Scope the same dark theme under both data-scheme values rather than
+    // pairing a light theme with the light scheme.
     let dark = theme_css("base16-ocean.dark").unwrap_or_default();
     let _ = &engine.config.renderer.syntax_highlight_theme; // reserved for user override
     format!(
         "{}\n{}",
-        scope_css(&light, ":root[data-theme=\"light\"]"),
-        scope_css(&dark, ":root[data-theme=\"dark\"]")
+        scope_css(&dark, ":root[data-scheme=\"light\"]"),
+        scope_css(&dark, ":root[data-scheme=\"dark\"]")
     )
 }
 
@@ -486,6 +489,27 @@ fn internal_error(msg: &str) -> Response {
         Html(views::error_page(500, msg)),
     )
         .into_response()
+}
+
+#[cfg(test)]
+mod highlight_css_tests {
+    use super::*;
+
+    #[test]
+    fn dark_theme_is_scoped_to_both_schemes_without_page_wide_background() {
+        let dark = theme_css("base16-ocean.dark").unwrap_or_default();
+        let scoped = format!(
+            "{}\n{}",
+            scope_css(&dark, ":root[data-scheme=\"light\"]"),
+            scope_css(&dark, ":root[data-scheme=\"dark\"]")
+        );
+        assert!(scoped.contains(":root[data-scheme=\"light\"]"));
+        assert!(scoped.contains(":root[data-scheme=\"dark\"]"));
+        // Every scoped selector must target something under the prefix, never
+        // the bare :root itself, or the theme's background would leak page-wide.
+        assert!(!scoped.contains(":root[data-scheme=\"light\"] {"));
+        assert!(!scoped.contains(":root[data-scheme=\"dark\"] {"));
+    }
 }
 
 #[cfg(test)]
