@@ -20,6 +20,8 @@ authentication — anyone who can reach the settings page can change it.
   running server restarts).
 - `/settings?saved=1` → the same page with a "Saved" confirmation banner,
   reached automatically right after a successful save.
+- The settings page shows the running application version (`mdview v<version>`)
+  in a footer — the same single-source version reported by the CLI and `/health`.
 - Save button on the settings page → posts the form, then redirects back to
   `/settings?saved=1`.
 - Start-up CLI overrides (`serve --host <host> --port <port>`) → persist the

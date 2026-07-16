@@ -56,7 +56,8 @@ launcher — CLI, MCP, future desktop — coordinates through `~/.mdview/daemon.
   relative_path)`, that ensures the project exists, indexes the file, ensures the
   daemon is up, and returns a viewable URL.
 - **CLI** — `serve` (daemon), plus `register / open / list / search / status /
-  refresh / unregister / stop`, and `doctor`.
+  refresh / unregister / stop`, `doctor`, and `version` (prints the single-source
+  app version, same as `--version`).
 - **Settings** — view and change the server binding, renderer theme, indexing
   behavior, and MCP transport, from a web page or `serve` CLI overrides.
   Server/Indexing/MCP changes need a restart to take effect. An optional
