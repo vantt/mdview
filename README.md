@@ -1,7 +1,7 @@
 # mdview
 
 <!-- BEE:BACKLOG-BADGES:START -->
-![backlog done](https://img.shields.io/badge/backlog%20done-10-brightgreen) ![backlog in-flight](https://img.shields.io/badge/backlog%20in--flight-0-blue) ![backlog proposed](https://img.shields.io/badge/backlog%20proposed-6-lightgrey)
+![backlog done](https://img.shields.io/badge/backlog%20done-11-brightgreen) ![backlog in-flight](https://img.shields.io/badge/backlog%20in--flight-0-blue) ![backlog proposed](https://img.shields.io/badge/backlog%20proposed-5-lightgrey)
 <!-- BEE:BACKLOG-BADGES:END -->
 
 Multi-project markdown viewer for AI agent workflows. A local background server
