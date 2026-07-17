@@ -122,3 +122,7 @@
 .fg-codeblock { border: var(--border-width-hairline) solid var(--color-border); border-radius: var(--radius-md); overflow: hidden; }
 .fg-codeblock__bar { display: flex; align-items: center; justify-content: space-between; padding: 7px var(--space-3); background: var(--color-surface-sunken); border-bottom: var(--border-width-hairline) solid var(--color-border); font-family: var(--type-tag-font); font-size: var(--type-tag-size); color: var(--color-text-subtle); }
 .fg-codeblock pre { margin: 0; border-radius: 0; }
+.fg-codeblock__lang { text-transform: uppercase; letter-spacing: var(--type-label-tracking); }
+.fg-codeblock__copy { appearance: none; border: var(--border-width-hairline) solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-surface); color: var(--color-text-muted); font-family: var(--type-tag-font); font-size: var(--type-tag-size); padding: 2px 10px; cursor: pointer; transition: color var(--motion-fast) var(--ease-standard), border-color var(--motion-fast) var(--ease-standard); }
+.fg-codeblock__copy:hover { color: var(--color-text); border-color: var(--color-border-strong); }
+.fg-codeblock__copy.is-copied { color: var(--color-action); border-color: var(--color-action); }

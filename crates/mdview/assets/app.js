@@ -278,23 +278,172 @@
     });
   })();
 
+  // Project card timestamps: the server sends a raw ISO instant in
+  // <time datetime>; render it in the viewer's own locale/timezone as a short
+  // relative age (older than a week → an absolute date).
+  (function () {
+    var times = document.querySelectorAll("time.proj-card__time[datetime]");
+    if (!times.length) return;
+    function fmt(iso) {
+      var d = new Date(iso);
+      if (isNaN(d.getTime())) return null;
+      var secs = (Date.now() - d.getTime()) / 1000;
+      if (secs < 60) return "just now";
+      if (secs < 3600) return Math.floor(secs / 60) + " min ago";
+      if (secs < 86400) return Math.floor(secs / 3600) + "h ago";
+      if (secs < 604800) return Math.floor(secs / 86400) + "d ago";
+      return d.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
+    }
+    times.forEach(function (t) {
+      var iso = t.getAttribute("datetime");
+      var s = fmt(iso);
+      if (!s) return;
+      t.textContent = s;
+      t.title = new Date(iso).toLocaleString();
+    });
+  })();
+
+  // Project delete (home page): confirm before unregistering. The form still
+  // POSTs normally if scripting is off — this only guards against a stray tap.
+  (function () {
+    var forms = document.querySelectorAll(".proj-card__delete");
+    if (!forms.length) return;
+    forms.forEach(function (f) {
+      f.addEventListener("submit", function (e) {
+        var name = f.getAttribute("data-project") || "this project";
+        var ok = window.confirm(
+          "Remove “" + name + "” from mdview?\n\n" +
+          "The files stay on disk — only the registry entry and its index are removed. " +
+          "Re-registering re-scans them."
+        );
+        if (!ok) e.preventDefault();
+      });
+    });
+  })();
+
+  // Mobile sidebar drawer: the file-tree sidebar is hidden at narrow widths,
+  // so the topbar hamburger toggles it open as an overlay (with a backdrop).
+  (function () {
+    var layout = document.querySelector(".layout");
+    var toggle = document.getElementById("sidebar-toggle");
+    if (!layout || !toggle) return;
+    var backdrop = layout.querySelector(".sidebar-backdrop");
+    function set(open) {
+      layout.classList.toggle("sidebar-open", open);
+      toggle.setAttribute("aria-expanded", open ? "true" : "false");
+    }
+    toggle.addEventListener("click", function () {
+      set(!layout.classList.contains("sidebar-open"));
+    });
+    if (backdrop) backdrop.addEventListener("click", function () { set(false); });
+    document.addEventListener("keydown", function (e) {
+      if (e.key === "Escape") set(false);
+    });
+    // Picking a file navigates (full reload); a folder click only zooms the
+    // tree in place, so close only when an actual file link is chosen.
+    var sb = layout.querySelector(".sidebar");
+    if (sb) sb.addEventListener("click", function (e) {
+      if (e.target.closest(".chap-file")) set(false);
+    });
+  })();
+
+  // Code-block copy button. Each rendered code block (`<pre class="code">`, not
+  // mermaid) gets wrapped in the design system's .fg-codeblock component with a
+  // top bar carrying its language label and a Copy button. Done client-side
+  // because the server's HTML sanitizer would strip a server-emitted <button>.
+  (function () {
+    var blocks = document.querySelectorAll(".fg-prose pre.code");
+    if (!blocks.length || !document.body) return;
+
+    function langOf(pre) {
+      var code = pre.querySelector("code");
+      if (!code) return "";
+      var m = /(?:^|\s)language-([\w+#.-]+)/.exec(code.className || "");
+      return m ? m[1] : "";
+    }
+
+    function copyText(text, btn) {
+      function ok() {
+        var prev = btn.textContent;
+        btn.textContent = "Copied";
+        btn.classList.add("is-copied");
+        setTimeout(function () {
+          btn.textContent = prev;
+          btn.classList.remove("is-copied");
+        }, 1400);
+      }
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(ok, function () { fallback(text, ok); });
+      } else {
+        fallback(text, ok);
+      }
+    }
+    function fallback(text, ok) {
+      var ta = document.createElement("textarea");
+      ta.value = text;
+      ta.style.position = "fixed";
+      ta.style.opacity = "0";
+      document.body.appendChild(ta);
+      ta.select();
+      try { document.execCommand("copy"); ok(); } catch (e) {}
+      document.body.removeChild(ta);
+    }
+
+    blocks.forEach(function (pre) {
+      if (pre.parentElement && pre.parentElement.classList.contains("fg-codeblock")) return;
+      var code = pre.querySelector("code");
+      if (!code) return;
+
+      var wrap = document.createElement("div");
+      wrap.className = "fg-codeblock";
+      var bar = document.createElement("div");
+      bar.className = "fg-codeblock__bar";
+      var label = document.createElement("span");
+      label.className = "fg-codeblock__lang";
+      label.textContent = langOf(pre) || "text";
+      var btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "fg-codeblock__copy";
+      btn.textContent = "Copy";
+      btn.setAttribute("aria-label", "Copy code to clipboard");
+      btn.addEventListener("click", function () { copyText(code.textContent, btn); });
+      bar.appendChild(label);
+      bar.appendChild(btn);
+
+      pre.parentNode.insertBefore(wrap, pre);
+      wrap.appendChild(bar);
+      wrap.appendChild(pre);
+    });
+  })();
+
   // Mermaid pan/zoom + fullscreen. Mermaid renders <pre class="mermaid"> into an
   // <svg> asynchronously (client-side, CDN); we watch for that SVG and wrap each
   // diagram with wheel-zoom / drag-pan / fullscreen — no extra library.
   (function () {
-    var pres = document.querySelectorAll("pre.mermaid");
-    if (!pres.length) return;
+    if (!document.querySelector("pre.mermaid")) return;
 
     function enhance(pre) {
-      var svg = pre.querySelector("svg");
-      if (!svg || pre.classList.contains("zoomable")) return;
+      if (!pre.querySelector("svg")) return;
+      // Controls must live OUTSIDE the <pre>: mermaid overwrites pre.innerHTML
+      // (sometimes more than once), which wipes anything appended inside it. So
+      // wrap the pre and hang the toolbar on the wrapper instead. The wrapper's
+      // presence is also the idempotency guard.
+      if (pre.parentElement && pre.parentElement.classList.contains("mermaid-wrap")) return;
+      var wrap = document.createElement("div");
+      wrap.className = "mermaid-wrap";
+      pre.parentNode.insertBefore(wrap, pre);
+      wrap.appendChild(pre);
       pre.classList.add("zoomable");
       pre.setAttribute("tabindex", "0");
 
       var state = { scale: 1, x: 0, y: 0 };
       function apply() {
-        svg.style.transform =
-          "translate(" + state.x + "px," + state.y + "px) scale(" + state.scale + ")";
+        // Query the svg fresh — mermaid may replace it (e.g. on theme change).
+        var s = pre.querySelector("svg");
+        if (s) {
+          s.style.transform =
+            "translate(" + state.x + "px," + state.y + "px) scale(" + state.scale + ")";
+        }
       }
       function clampScale(s) { return Math.min(8, Math.max(0.2, s)); }
 
@@ -307,7 +456,23 @@
         state.scale = next;
         apply();
       }
-      function reset() { state = { scale: 1, x: 0, y: 0 }; apply(); }
+      // Center the diagram at scale 1 within the current pre box (works for
+      // both the normal column and fullscreen, where the pre fills the
+      // viewport). Centering lives in the transform so it stays consistent with
+      // the zoom/pan math (transform-origin is the svg's top-left).
+      function fit() {
+        var s = pre.querySelector("svg");
+        if (!s) return;
+        state.scale = 1;
+        state.x = 0;
+        state.y = 0;
+        s.style.transform = "";
+        var sr = s.getBoundingClientRect();
+        state.x = Math.max(0, (pre.clientWidth - sr.width) / 2);
+        state.y = Math.max(0, (pre.clientHeight - sr.height) / 2);
+        apply();
+      }
+      function reset() { fit(); }
 
       pre.addEventListener("wheel", function (e) {
         e.preventDefault();
@@ -333,6 +498,47 @@
         dragging = false; pre.classList.remove("grabbing");
       });
 
+      // Touch: one-finger pan, two-finger pinch-zoom. Mobile has no hover, so
+      // the controls stay visible there (CSS @media (hover: none)) and these
+      // gestures make the diagram actually navigable once zoomed.
+      var tPan = false, tsx = 0, tsy = 0, tox = 0, toy = 0, pinch = 0;
+      function touchDist(t) {
+        return Math.hypot(t[0].clientX - t[1].clientX, t[0].clientY - t[1].clientY);
+      }
+      pre.addEventListener("touchstart", function (e) {
+        if (e.target.closest(".mermaid-controls")) return;
+        if (e.touches.length === 1) {
+          tPan = true; tsx = e.touches[0].clientX; tsy = e.touches[0].clientY;
+          tox = state.x; toy = state.y;
+        } else if (e.touches.length === 2) {
+          tPan = false; pinch = touchDist(e.touches);
+        }
+      }, { passive: true });
+      pre.addEventListener("touchmove", function (e) {
+        if (e.touches.length === 2 && pinch > 0) {
+          e.preventDefault();
+          var rect = pre.getBoundingClientRect();
+          var cx = (e.touches[0].clientX + e.touches[1].clientX) / 2 - rect.left;
+          var cy = (e.touches[0].clientY + e.touches[1].clientY) / 2 - rect.top;
+          var d = touchDist(e.touches);
+          zoomAt(d / pinch, cx, cy);
+          pinch = d;
+        } else if (tPan && e.touches.length === 1) {
+          e.preventDefault();
+          state.x = tox + (e.touches[0].clientX - tsx);
+          state.y = toy + (e.touches[0].clientY - tsy);
+          apply();
+        }
+      }, { passive: false });
+      pre.addEventListener("touchend", function (e) {
+        if (e.touches.length === 0) { tPan = false; pinch = 0; }
+        else if (e.touches.length === 1) {
+          // A pinch dropped to one finger → resume panning from here.
+          tPan = true; tsx = e.touches[0].clientX; tsy = e.touches[0].clientY;
+          tox = state.x; toy = state.y; pinch = 0;
+        }
+      }, { passive: true });
+
       // Controls toolbar.
       var controls = document.createElement("div");
       controls.className = "mermaid-controls";
@@ -353,23 +559,43 @@
       });
       btn("⟲", "Reset", reset);
       btn("⛶", "Fullscreen", function () {
-        if (document.fullscreenElement === pre) {
+        // Fullscreen the wrapper so the toolbar stays visible in fullscreen.
+        if (document.fullscreenElement === wrap) {
           if (document.exitFullscreen) document.exitFullscreen();
-        } else if (pre.requestFullscreen) {
-          pre.requestFullscreen();
+        } else if (wrap.requestFullscreen) {
+          wrap.requestFullscreen();
         }
       });
-      pre.appendChild(controls);
+      wrap.appendChild(controls);
+
+      // Center on first paint and whenever fullscreen toggles (the pre box
+      // changes size). rAF so layout has settled before we measure.
+      fit();
+      requestAnimationFrame(fit);
+      document.addEventListener("fullscreenchange", function () {
+        requestAnimationFrame(fit);
+      });
     }
 
-    pres.forEach(function (pre) {
-      if (pre.querySelector("svg")) { enhance(pre); return; }
-      // mermaid injects the <svg> later; observe until it appears.
-      var obs = new MutationObserver(function () {
-        if (pre.querySelector("svg")) { obs.disconnect(); enhance(pre); }
+    // Enhance every diagram that already has its <svg>. Idempotent (enhance
+    // no-ops on an already-zoomable pre), so it is safe to call repeatedly.
+    function enhanceAll() {
+      document.querySelectorAll("pre.mermaid").forEach(function (p) {
+        // Isolate failures: one diagram erroring must not block the others.
+        try { enhance(p); } catch (e) { console.error("mermaid enhance:", e); }
       });
-      obs.observe(pre, { childList: true, subtree: true });
-    });
+    }
+
+    // mermaid renders asynchronously. We attach the toolbar through three
+    // independent triggers so a missed one never leaves a diagram uncontrolled:
+    //   1. the explicit "done" event the page fires after mermaid.run() resolves,
+    //   2. a DOM observer catching the injected <svg>,
+    //   3. timed sweeps as a final backstop.
+    document.addEventListener("mdview:mermaid-done", enhanceAll);
+    var obs = new MutationObserver(enhanceAll);
+    obs.observe(document.body, { childList: true, subtree: true });
+    [200, 800, 2000, 4000].forEach(function (t) { setTimeout(enhanceAll, t); });
+    enhanceAll();
   })();
 
   // TOC scrollspy: highlight the "On this page" link matching the heading

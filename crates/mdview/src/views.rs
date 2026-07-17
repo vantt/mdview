@@ -36,27 +36,37 @@ pub fn layout(title: &str, head_extra: &str, body: &str) -> String {
 }
 
 pub fn project_list_page(projects: &[(Project, usize)]) -> String {
-    let mut rows = String::new();
-    if projects.is_empty() {
-        rows.push_str("<p class=\"fg-empty\">Chưa có project nào. Đăng ký: <code>mdview register &lt;dir&gt;</code> hoặc gọi MCP <code>mdview_view_file</code>.</p>");
-    }
-    for (p, count) in projects {
-        rows.push_str(&format!(
-            r#"<a class="fg-card" href="/p/{id}/">
-  <div class="fg-card__title">{name}</div>
-  <div class="fg-card__sub">{count} markdown files · {seen}</div>
-</a>"#,
-            id = esc(&p.id),
-            name = esc(&p.name),
-            count = count,
-            seen = esc(&p.last_seen_at),
-        ));
-    }
+    let listing = if projects.is_empty() {
+        "<p class=\"fg-empty\">Chưa có project nào. Đăng ký: <code>mdview register &lt;dir&gt;</code> hoặc gọi MCP <code>mdview_view_file</code>.</p>".to_string()
+    } else {
+        // Cards (not a table — cards read better on phones/tablets). Each card is
+        // a clickable link to the project plus a delete control that unregisters
+        // it. The filesystem path is deliberately omitted (unauthenticated page).
+        let mut cards = String::new();
+        for (p, count) in projects {
+            cards.push_str(&format!(
+                r#"<div class="proj-card">
+  <a class="fg-card proj-card__link" href="/p/{id}/">
+    <div class="fg-card__title">{name}</div>
+    <div class="fg-card__sub">{count} markdown files · <time class="proj-card__time" datetime="{seen}">{seen}</time></div>
+  </a>
+  <form class="proj-card__delete" method="post" action="/api/projects/{id}/unregister" data-project="{name}">
+    <button type="submit" class="proj-card__del" aria-label="Remove {name} from mdview" title="Remove from mdview">✕</button>
+  </form>
+</div>"#,
+                id = esc(&p.id),
+                name = esc(&p.name),
+                count = count,
+                seen = esc(&p.last_seen_at),
+            ));
+        }
+        format!(r#"<div class="proj-cards">{cards}</div>"#, cards = cards)
+    };
     let body = format!(
         r#"{topbar}
-<main class="fg-page"><h2 class="fg-pagehead__title">Projects</h2>{rows}</main>"#,
+<main class="fg-page"><h2 class="fg-pagehead__title">Projects</h2>{listing}</main>"#,
         topbar = topbar(""),
-        rows = rows
+        listing = listing
     );
     layout("Projects", "", &body)
 }
@@ -76,16 +86,43 @@ pub fn file_page(
     // so a source containing "</script>" can't break out of the tag.
     let source_json = escape_json_for_script(&page.source);
     let head_extra = if page.has_mermaid {
-        // PRD §9: Mermaid via CDN for AI-generated docs.
-        r#"<script type="module">
-import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs';
-window.__mermaid = mermaid;
-function renderMermaid() {
-  var dark = document.documentElement.getAttribute('data-scheme') === 'dark';
-  mermaid.initialize({ startOnLoad: false, theme: dark ? 'dark' : 'default' });
-  mermaid.run({ querySelector: 'pre.mermaid' });
-}
-window.addEventListener('DOMContentLoaded', renderMermaid);
+        // Mermaid is vendored and served locally (/static/mermaid.min.js) rather
+        // than loaded from a CDN: the daemon commonly runs on a LAN/offline host
+        // where a CDN is unreachable, which would leave diagrams unrendered.
+        r#"<script src="/static/mermaid.min.js" defer></script>
+<script>
+(function () {
+  // Surface a render failure ON the page (mobile has no dev console), so a
+  // broken diagram shows why instead of silently staying blank.
+  function fail(msg) {
+    document.querySelectorAll('pre.mermaid').forEach(function (p) {
+      if (p.querySelector('svg') || p.dataset.err) return;
+      p.dataset.err = '1';
+      var d = document.createElement('div');
+      d.className = 'mermaid-error';
+      d.textContent = 'Mermaid did not render: ' + msg;
+      p.parentNode.insertBefore(d, p.nextSibling);
+    });
+  }
+  function renderMermaid() {
+    if (!window.mermaid) { fail('library /static/mermaid.min.js did not load'); return; }
+    window.__mermaid = window.mermaid;
+    var dark = document.documentElement.getAttribute('data-scheme') === 'dark';
+    try { window.mermaid.initialize({ startOnLoad: false, theme: dark ? 'dark' : 'default' }); }
+    catch (e) { fail('initialize: ' + ((e && e.message) || e)); return; }
+    var done = function () { document.dispatchEvent(new Event('mdview:mermaid-done')); };
+    var onErr = function (e) { fail((e && e.message) || String(e)); done(); };
+    try {
+      var r = window.mermaid.run({ querySelector: 'pre.mermaid' });
+      if (r && r.then) { r.then(done, onErr); } else { done(); }
+    } catch (e) { onErr(e); }
+  }
+  if (document.readyState === 'loading') {
+    window.addEventListener('DOMContentLoaded', renderMermaid);
+  } else {
+    renderMermaid();
+  }
+})();
 </script>"#
     } else {
         ""
@@ -93,7 +130,8 @@ window.addEventListener('DOMContentLoaded', renderMermaid);
     let body = format!(
         r#"{topbar}
 <div class="layout">
-  <aside class="sidebar">{tree}</aside>
+  <aside id="sidebar" class="sidebar">{tree}</aside>
+  <div class="sidebar-backdrop"></div>
   <main class="content">
     {breadcrumb}
     <div class="fg-reading">
@@ -103,11 +141,14 @@ window.addEventListener('DOMContentLoaded', renderMermaid);
   </main>
   {right}
 </div>"#,
-        topbar = topbar(&format!(
-            "<span class=\"crumb\">{pname} / {rel}</span>",
-            pname = esc(&project.name),
-            rel = esc(&file.rel_path),
-        )),
+        topbar = topbar_with_lead(
+            sidebar_toggle(),
+            &format!(
+                "<span class=\"crumb\">{pname} / {rel}</span>",
+                pname = esc(&project.name),
+                rel = esc(&file.rel_path),
+            )
+        ),
         tree = tree,
         breadcrumb = breadcrumb,
         html = page.html,
@@ -257,17 +298,31 @@ fn theme_toggle() -> &'static str {
     r#"<button id="theme-toggle" class="theme-toggle fg-btn fg-btn--ghost" title="Toggle theme">◐</button>"#
 }
 
+/// Hamburger that opens the file-tree sidebar on mobile (hidden on wide
+/// screens via CSS). Only file pages carry a sidebar, so only they render it.
+fn sidebar_toggle() -> &'static str {
+    r#"<button id="sidebar-toggle" class="sidebar-toggle" type="button" aria-label="Toggle file navigation" aria-controls="sidebar" aria-expanded="false">☰</button>"#
+}
+
 /// Shared top bar for every page: brand, a page-specific center slot (crumb or
 /// empty), the Settings link, and the theme toggle. Keeps the Settings link on
 /// all pages and stops each view re-inventing its own header.
 fn topbar(center: &str) -> String {
+    topbar_with_lead("", center)
+}
+
+/// `topbar` with an optional leading slot before the brand (e.g. the mobile
+/// sidebar toggle on file pages).
+fn topbar_with_lead(lead: &str, center: &str) -> String {
     format!(
         r#"<header class="topbar">
+  {lead}
   <a href="/" class="home">mdview</a>
   {center}
   <a class="nav-link" href="/settings">Settings</a>
   {toggle}
 </header>"#,
+        lead = lead,
         center = center,
         toggle = theme_toggle(),
     )
@@ -457,6 +512,9 @@ pub const APP_CSS: &str = concat!(
     include_str!("../assets/app.css"),
 );
 pub const APP_JS: &str = include_str!("../assets/app.js");
+/// Vendored Mermaid (self-contained UMD build) served at /static/mermaid.min.js
+/// so diagrams render without a CDN. Only loaded on pages that contain a diagram.
+pub const MERMAID_JS: &str = include_str!("../assets/mermaid.min.js");
 
 #[cfg(test)]
 mod tests {

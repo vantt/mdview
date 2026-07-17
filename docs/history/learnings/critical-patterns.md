@@ -120,3 +120,32 @@ bee-compounding appends hard-won patterns here; keep it short and current.
   examples, check each one literally in the rendered output — a thematic
   match ("it's restyled") is not evidence a named example was delivered.
   (2026-07-16, `20260716-ui-polish-settings-sidebar.md`)
+- **Mermaid owns `pre.mermaid`'s innerHTML — never append overlays inside it.**
+  `mermaid.run()` sets `element.innerHTML = <svg>` and may do so more than once
+  (intermediate state, and again on theme re-render). Any control/toolbar
+  appended as a *child of the `pre`* is silently wiped by a later innerHTML
+  write, and if enhancement is guarded by a one-shot flag (a `.zoomable` class
+  on the `pre`) it is never re-added — so you get `class present, controls
+  gone` with no error. Fix: wrap the `pre` in a sibling container
+  (`.mermaid-wrap`) and hang the toolbar on the *wrapper*; use the wrapper's
+  presence as the idempotency guard; and in pan/zoom handlers query
+  `pre.querySelector('svg')` fresh each call (mermaid may swap the svg). This
+  cost many round-trips because the failure was client-only and silent
+  (diagram renders fine, buttons just missing) — the thing that finally cracked
+  it was a temporary on-page diagnostic overlay dumping DOM state
+  (`hasSVG`/`zoomable`/`hasControls` + caught enhance error), since no server
+  check and no headless tool available here could observe post-render client
+  DOM. Reach for an on-page diagnostic early for "renders but a client-built
+  widget is missing" bugs. (2026-07-17, mermaid-touch/vendor/zoom work)
+- **Vendor client libs that must work on a LAN/offline daemon — and never
+  inline a large JS bundle into `<script>…</script>`.** Mermaid was loaded from
+  a CDN whose ESM build fetches more chunks at runtime; on a `0.0.0.0`/LAN or
+  offline host those never arrive, so diagrams never render (→ no svg → no
+  zoom). Fix: vendor the self-contained UMD build (`assets/mermaid.min.js`,
+  served at `/static/mermaid.min.js`, loaded via `<script src>`), not the ESM.
+  Separately: building a self-contained *preview* by inlining that 3.4 MB
+  bundle into `<script>…</script>` silently breaks it — the bundle contains a
+  literal `</script>`, which closes the tag early and leaves `window.mermaid`
+  undefined. Inlined previews of pages that load big vendored scripts are
+  therefore misleading; serve the real external files (e.g. a throwaway
+  `python -m http.server`) instead. (2026-07-17, same work)

@@ -39,7 +39,7 @@ content itself.
 | 5 | Chapter focus (file pages) | Which single folder the sidebar is currently showing | a folder within the project; starts at the viewed file's folder |
 | 6 | Chapter breadcrumb | The ancestor path of the focused folder, each segment selectable | project root → … → focused folder |
 | 7 | File label | How a file is named in the sidebar | its title (first H1); the file name when it has no title |
-| 8 | Project card (project list) | One registered project | shows the project's name, its indexed markdown file count, and when it was last seen — never the project's filesystem path (per R5) |
+| 8 | Project card (project list) | One registered project | a card linking to the project — its name, indexed markdown file count, and when it was last seen (never the filesystem path, per R5) — with a delete control that unregisters it |
 | 9 | Reading breadcrumb (file pages) | Orientation trail above the article, distinct from the chapter sidebar's zoom breadcrumb | project name → each path segment of the file, in order; segments are not independently clickable (orientation only) |
 | 10 | "On this page" (TOC) | Right-hand list of the current file's headings (levels 1-4) | one entry per heading, indented by level, linking to that heading |
 | 11 | "Linked from" (backlinks) | Right-hand list of other files that link to the one being viewed | empty when nothing links here; hidden entirely when both this and the TOC are empty |
@@ -49,13 +49,23 @@ content itself.
 ### Project list
 
 - **Triggers:** opening `/` or clicking the brand from anywhere.
-- **What it shows:** one card per registered project, each linking to that
-  project's default file. A card shows the project's name, its indexed
-  markdown file count, and when it was last seen. It never shows the
-  project's filesystem path (per R5).
-- **Side effects:** none.
+- **What it shows:** one card per registered project (a responsive grid, so it
+  wraps cleanly on phones/tablets). A card links to the project's default file
+  and shows its name, file count, and last-seen time — never the filesystem
+  path (per R5). Each card carries a delete control (top-right) that
+  unregisters the project.
+- **Delete / unregister:** activating a card's delete control asks the operator
+  to confirm, then removes the project from the registry and returns to the
+  list. This removes only the registry entry and its index — **the files on
+  disk are untouched**, and re-registering re-scans them. The endpoint is
+  unauthenticated like the rest of the server, so anyone who can reach it can
+  unregister a project (reversible; no data loss).
+- **Which file a project opens to:** a fixed, predictable rule (never "whatever
+  was indexed first"): a `README.md` wins over everything, else an `index.md`,
+  else the shallowest-path then alphabetically-first markdown file. Basename
+  matching is case-insensitive. So a project with a README lands on it.
 - **Afterwards:** the operator picks a project by name without seeing where
-  it lives on disk.
+  it lives on disk, or removes one it no longer wants listed.
 
 ### Reading breadcrumb (file pages)
 

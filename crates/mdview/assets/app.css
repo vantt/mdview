@@ -65,6 +65,30 @@
 .theme-toggle:hover {
   background: var(--color-surface-hover);
 }
+/* Mobile-only hamburger for the file-tree sidebar (shown via the max-width
+   media query below; hidden on wide screens). */
+.sidebar-toggle {
+  display: none;
+  width: 32px; /* structural: fixed icon-button footprint */
+  height: 32px;
+  padding: 0;
+  align-items: center;
+  justify-content: center;
+  border: var(--border-width-hairline) solid var(--color-border);
+  border-radius: var(--btn-radius);
+  background: none;
+  color: var(--color-text);
+  font-size: var(--type-ui-size);
+  cursor: pointer;
+}
+.sidebar-toggle:hover {
+  background: var(--color-surface-hover);
+}
+/* The drawer backdrop only exists on file pages; hidden until the drawer opens
+   on mobile (see the media query). */
+.sidebar-backdrop {
+  display: none;
+}
 
 /* ── Page layout grid: sidebar / content / right rail ───────────── */
 /* Column widths are structural geometry (not on the space scale). */
@@ -76,6 +100,57 @@
   flex: 1;
   min-width: 0;
 }
+/* ── Home: project cards ─────────────────────────────────────────
+   Cards (not a table) — they wrap gracefully and stay tap-friendly on
+   phones/tablets. Each card is a link to the project with a delete
+   control overlaid top-right that unregisters it. */
+.proj-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: var(--space-4);
+}
+.proj-card {
+  position: relative;
+  display: flex;
+}
+.proj-card__link {
+  flex: 1;
+  text-decoration: none;
+  padding-right: var(--space-7); /* reserve the top-right corner for delete */
+}
+.proj-card__link:hover {
+  border-color: var(--color-border-strong);
+}
+.proj-card__delete {
+  position: absolute;
+  top: var(--space-3);
+  right: var(--space-3);
+  margin: 0;
+}
+.proj-card__del {
+  width: 28px; /* structural: fixed icon-button footprint */
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: var(--border-width-hairline) solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  color: var(--color-text-subtle);
+  font-size: var(--type-body-sm-size);
+  line-height: 1;
+  cursor: pointer;
+  transition: color var(--motion-fast) var(--ease-standard),
+    border-color var(--motion-fast) var(--ease-standard),
+    background var(--motion-fast) var(--ease-standard);
+}
+.proj-card__del:hover {
+  color: var(--color-danger);
+  border-color: var(--color-danger);
+  background: var(--color-danger-tint);
+}
+
 .sidebar,
 .rightbar {
   box-sizing: border-box;
@@ -169,6 +244,12 @@
 .chap-folder::before {
   content: "\1F4C1 "; /* folder glyph */
 }
+/* Sidebar files are <a> links, so the browser's :visited color would tint
+   already-opened files and read like a second "active" state. Keep every file
+   the same color; only the single .active item stands out. */
+.chap-file:visited {
+  color: var(--color-text);
+}
 .chap-up:hover,
 .chap-folder:hover,
 .chap-file:hover {
@@ -178,6 +259,10 @@
   background: transparent;
   border-left: var(--border-width-strong) solid var(--color-action);
   padding-left: calc(var(--space-2) - var(--border-width-strong));
+  /* Keep the accent bar a crisp vertical line: the base .chap-file radius
+     would otherwise round the top/bottom of the left border. */
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
 }
 
 /* ── Right panel: table of contents + backlinks ─────────────────── */
@@ -250,8 +335,30 @@
   }
 }
 @media (max-width: 700px) {
+  .sidebar-toggle {
+    display: inline-flex;
+  }
+  /* Hidden by default on mobile; the hamburger opens it as an overlay drawer. */
   .sidebar {
     display: none;
+  }
+  .layout.sidebar-open .sidebar {
+    display: block;
+    position: fixed;
+    top: 53px; /* below the sticky topbar (matches its rendered height) */
+    left: 0;
+    bottom: 0;
+    width: 82vw;
+    max-width: 320px;
+    z-index: var(--z-modal);
+    box-shadow: var(--elevation-lg);
+  }
+  .layout.sidebar-open .sidebar-backdrop {
+    display: block;
+    position: fixed;
+    inset: 53px 0 0 0;
+    background: rgba(0, 0, 0, 0.4);
+    z-index: var(--z-popover);
   }
   .breadcrumb {
     padding: var(--space-3) var(--space-4);
@@ -355,12 +462,16 @@
 pre.mermaid.zoomable {
   background: var(--color-surface);
   color: var(--color-text);
+  padding: 0; /* a diagram, not code — no inner padding, so centering is exact */
+}
+/* The wrapper is the positioned ancestor for the toolbar (which lives on the
+   wrapper, not inside the mermaid-owned <pre>). */
+.mermaid-wrap {
+  position: relative;
 }
 pre.mermaid.zoomable {
-  position: relative;
   overflow: hidden;
   cursor: grab;
-  text-align: left;
 }
 pre.mermaid.zoomable.grabbing {
   cursor: grabbing;
@@ -369,6 +480,7 @@ pre.mermaid.zoomable > svg {
   transform-origin: 0 0;
   will-change: transform;
   max-width: none; /* let it scale beyond the container while panning */
+  display: block; /* centering is done via transform (see fit() in app.js) */
 }
 .mermaid-controls {
   position: absolute;
@@ -376,13 +488,35 @@ pre.mermaid.zoomable > svg {
   right: var(--space-2);
   display: flex;
   gap: var(--space-1);
-  opacity: 0;
+  /* Always visible — hover-only reveal made the zoom controls undiscoverable
+     (and invisible entirely on touch, which has no hover). Dim at rest,
+     full-strength on hover/focus. */
+  opacity: 0.85;
   transition: opacity var(--motion-fast) var(--ease-standard);
   z-index: var(--z-popover);
 }
 pre.mermaid.zoomable:hover .mermaid-controls,
 pre.mermaid.zoomable:focus-within .mermaid-controls {
   opacity: 1;
+}
+/* Touch has no hover: bigger tap targets. */
+@media (hover: none) {
+  .mermaid-controls button {
+    width: 36px;
+    height: 36px;
+  }
+}
+.mermaid-error {
+  margin: var(--space-2) 0;
+  padding: var(--space-3);
+  border: var(--border-width-hairline) solid var(--color-danger);
+  border-radius: var(--radius-sm);
+  background: var(--color-danger-tint);
+  color: var(--color-danger);
+  font-family: var(--font-mono);
+  font-size: var(--type-body-sm-size);
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 .mermaid-controls button {
   width: 28px; /* structural: fixed icon-button footprint */
@@ -399,12 +533,17 @@ pre.mermaid.zoomable:focus-within .mermaid-controls {
 .mermaid-controls button:hover {
   background: var(--color-surface-hover);
 }
-pre.mermaid.zoomable:fullscreen {
+/* Fullscreen targets the WRAPPER (so the toolbar comes along); the pre fills
+   it and fit() re-centers the diagram in the viewport. */
+.mermaid-wrap:fullscreen {
+  display: flex;
   background: var(--color-bg);
-  padding: 0;
-  border-radius: 0;
 }
-pre.mermaid.zoomable:fullscreen .mermaid-controls {
+.mermaid-wrap:fullscreen > pre.mermaid.zoomable {
+  width: 100%;
+  height: 100%;
+}
+.mermaid-wrap:fullscreen .mermaid-controls {
   opacity: 1;
 }
 

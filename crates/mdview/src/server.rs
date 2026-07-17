@@ -10,7 +10,7 @@ use axum::{
     },
     http::{header, StatusCode},
     response::{Html, IntoResponse, Redirect, Response},
-    routing::get,
+    routing::{get, post},
     Json, Router,
 };
 use mdview_core::indexer::now_rfc3339;
@@ -97,8 +97,10 @@ fn router(state: AppState) -> Router {
         .route("/api/projects", get(api_projects))
         .route("/settings", get(settings_page_handler))
         .route("/api/config", get(api_config).post(update_config))
+        .route("/api/projects/:id/unregister", post(unregister_project))
         .route("/static/app.css", get(css_asset))
         .route("/static/app.js", get(js_asset))
+        .route("/static/mermaid.min.js", get(mermaid_asset))
         .route("/highlight.css", get(highlight_asset))
         .route("/ws", get(ws_handler))
         .route("/p/:id/", get(project_home))
@@ -247,30 +249,98 @@ async fn update_config(Form(form): Form<SettingsForm>) -> Response {
     Redirect::to("/settings?saved=1").into_response()
 }
 
+/// Remove a project from the registry, then return to the project list. This
+/// only deletes the registry entry and index — the project's files on disk are
+/// untouched, and re-registering re-scans them. NOTE: like every route here it
+/// is unauthenticated, so it is reachable by anyone who can reach the server.
+async fn unregister_project(State(st): State<AppState>, Path(id): Path<String>) -> Response {
+    let _ = st.engine.unregister(&id);
+    Redirect::to("/").into_response()
+}
+
+// The CSS/JS assets are compiled into the binary and change whenever the daemon
+// is upgraded, but their URLs never change. Without a cache directive a browser
+// (mobile especially) may keep serving a stale copy after an upgrade, so UI
+// fixes silently never arrive. `no-cache` forces a revalidation each load; the
+// files are tiny and served locally, so the cost is negligible.
+const NO_CACHE: (header::HeaderName, &str) = (header::CACHE_CONTROL, "no-cache");
+
 async fn css_asset() -> impl IntoResponse {
-    ([(header::CONTENT_TYPE, "text/css")], views::APP_CSS)
+    (
+        [(header::CONTENT_TYPE, "text/css"), NO_CACHE],
+        views::APP_CSS,
+    )
 }
 async fn js_asset() -> impl IntoResponse {
     (
-        [(header::CONTENT_TYPE, "application/javascript")],
+        [(header::CONTENT_TYPE, "application/javascript"), NO_CACHE],
         views::APP_JS,
     )
 }
 async fn highlight_asset(State(st): State<AppState>) -> impl IntoResponse {
     (
-        [(header::CONTENT_TYPE, "text/css")],
+        [(header::CONTENT_TYPE, "text/css"), NO_CACHE],
         st.highlight_css.to_string(),
+    )
+}
+/// Vendored Mermaid bundle. It is large (~3.4 MB) but static across a daemon
+/// version, so it may be cached hard — unlike the app's own CSS/JS.
+async fn mermaid_asset() -> impl IntoResponse {
+    (
+        [
+            (header::CONTENT_TYPE, "application/javascript"),
+            (header::CACHE_CONTROL, "public, max-age=604800"),
+        ],
+        views::MERMAID_JS,
     )
 }
 
 async fn project_home(State(st): State<AppState>, Path(id): Path<String>) -> Response {
     match st.engine.list_files(&id) {
         Ok(files) if !files.is_empty() => {
-            Redirect::to(&format!("/p/{}/{}", id, files[0].rel_path)).into_response()
+            let entry = pick_entry_file(&files).unwrap_or(&files[0]);
+            Redirect::to(&format!("/p/{}/{}", id, entry.rel_path)).into_response()
         }
         Ok(_) => not_found("project has no markdown files"),
         Err(_) => not_found("project not found"),
     }
+}
+
+/// Which file a project opens to — a fixed, predictable rule instead of
+/// "whatever the index lists first". Precedence: a `README.md` wins over
+/// everything, then an `index.md`, then any other file; within the same rank the
+/// shallowest path wins, then case-insensitive alphabetical order. So a
+/// project's README is the landing page when it has one, and the choice never
+/// looks random.
+fn pick_entry_file(
+    files: &[mdview_core::domain::IndexedFile],
+) -> Option<&mdview_core::domain::IndexedFile> {
+    fn rank(rel: &str) -> u8 {
+        match rel
+            .rsplit('/')
+            .next()
+            .unwrap_or(rel)
+            .to_ascii_lowercase()
+            .as_str()
+        {
+            "readme.md" => 0,
+            "index.md" => 1,
+            _ => 2,
+        }
+    }
+    fn depth(rel: &str) -> usize {
+        rel.bytes().filter(|&b| b == b'/').count()
+    }
+    files.iter().min_by(|a, b| {
+        rank(&a.rel_path)
+            .cmp(&rank(&b.rel_path))
+            .then_with(|| depth(&a.rel_path).cmp(&depth(&b.rel_path)))
+            .then_with(|| {
+                a.rel_path
+                    .to_ascii_lowercase()
+                    .cmp(&b.rel_path.to_ascii_lowercase())
+            })
+    })
 }
 
 async fn project_path(
@@ -583,6 +653,44 @@ mod asset_response_tests {
             normalize_hostname(Some("  host.local ".into())),
             Some("host.local".to_string())
         );
+    }
+
+    fn f(rel: &str) -> mdview_core::domain::IndexedFile {
+        mdview_core::domain::IndexedFile {
+            project_id: "p".into(),
+            abs_path: std::path::PathBuf::from(rel),
+            rel_path: rel.into(),
+            title: rel.into(),
+            size_bytes: 0,
+            modified_at: String::new(),
+        }
+    }
+
+    #[test]
+    fn entry_file_prefers_readme_then_index_then_shallow_alpha() {
+        // README wins even when a non-README sorts earlier alphabetically.
+        let files = vec![f("architecture.md"), f("README.md"), f("guide.md")];
+        assert_eq!(pick_entry_file(&files).unwrap().rel_path, "README.md");
+
+        // README anywhere beats a root-level non-README (README is the rule).
+        let files = vec![f("guide.md"), f("docs/README.md")];
+        assert_eq!(pick_entry_file(&files).unwrap().rel_path, "docs/README.md");
+
+        // A shallower README beats a deeper one.
+        let files = vec![f("docs/README.md"), f("README.md")];
+        assert_eq!(pick_entry_file(&files).unwrap().rel_path, "README.md");
+
+        // No README → index.md wins.
+        let files = vec![f("zoo.md"), f("index.md"), f("apple.md")];
+        assert_eq!(pick_entry_file(&files).unwrap().rel_path, "index.md");
+
+        // Neither → shallowest, then alphabetical.
+        let files = vec![f("docs/a.md"), f("beta.md"), f("alpha.md")];
+        assert_eq!(pick_entry_file(&files).unwrap().rel_path, "alpha.md");
+
+        // Case-insensitive basename match.
+        let files = vec![f("intro.md"), f("ReadMe.md")];
+        assert_eq!(pick_entry_file(&files).unwrap().rel_path, "ReadMe.md");
     }
 
     #[test]
