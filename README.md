@@ -18,11 +18,11 @@
   can open any doc it just wrote.
 </p>
 
-<!-- ▶ HERO DEMO — see "Media checklist" at the bottom.
-     File: docs/assets/hero-demo.gif (or .mp4) -->
+<!-- ▶ HERO DEMO — add docs/assets/hero-demo.gif (or .mp4), then uncomment:
 <p align="center">
   <img src="docs/assets/hero-demo.gif" alt="mdview turning a project's markdown into a linked, live-reloading site" width="820">
 </p>
+-->
 
 ---
 
