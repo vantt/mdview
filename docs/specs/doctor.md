@@ -1,7 +1,7 @@
 ---
 area: doctor
-updated: 2026-07-15
-sources: [mdview-hostname-doctor-fix]
+updated: 2026-07-17
+sources: [mdview-hostname-doctor-fix, doctor-multi-agent-mcp]
 decisions: [864f6f00]
 coverage: partial
 ---
@@ -29,26 +29,34 @@ Flags:
 | 2 | `--dry-run` | Report only — no check performs any write, even if `--fix` is also given | on / off | no | off |
 | 3 | `--fix` | Apply every safe, automatic repair for a check that is not already fine | on / off | no | off |
 
-Checks (each produces one result row: OK / FIXED / MANUAL / WARN, plus a
-one-line detail):
+Checks (each produces one result row: OK / FIXED / MANUAL / WARN / SKIP, plus a
+one-line detail). SKIP means the target agent tool is not installed on this
+machine, so nothing was written for it — mdview never registers blindly.
 
 | # | Check | Confirms | Auto-fixable |
 |---|---|---|---|
 | 1 | Binary in PATH | The `mdview` executable can be found on the operator's PATH | No — reported WARN with the current executable's actual location; the operator edits PATH by hand |
 | 2 | Config | The configuration file exists and loads | Yes — see Rule R2 below (not gated by `--fix`) |
 | 3 | Daemon | A viewer server is currently running and answers its health check | No — reported WARN; the operator starts one with `mdview serve` |
-| 4 | MCP registration | mdview is registered as an MCP server for Claude Code | Yes, with `--fix` |
-| 5 | Agent instruction | AGENTS.md and CLAUDE.md, in the current directory, carry mdview's current instruction block (marker-delimited) | Yes, with `--fix` |
-| 6 | Skill | The global Claude Code skill `~/.claude/skills/mdview/SKILL.md` (the `/mdview <path>` command) is installed and matches the shipped template | Yes, with `--fix` |
+| 4 | MCP · Claude Code | If Claude Code is present, mdview is registered as an MCP server in `~/.claude.json` (`mcpServers`, JSON) | Yes, with `--fix`; SKIP when Claude Code isn't detected |
+| 5 | MCP · Codex | If Codex is present, mdview is registered in `~/.codex/config.toml` (`[mcp_servers.mdview]`, TOML) | Yes, with `--fix`; SKIP when Codex isn't detected |
+| 6 | MCP · Antigravity | If Antigravity is present, mdview is registered in `~/.gemini/config/mcp_config.json` (`mcpServers`, JSON — shared by the IDE/CLI/2.0) | Yes, with `--fix`; SKIP when Antigravity isn't detected |
+| 7 | Agent instruction | AGENTS.md and CLAUDE.md, in the current directory, carry mdview's current instruction block (marker-delimited). AGENTS.md is the shared instruction file every agent tool (Claude Code, Codex, Antigravity CLI) reads | Yes, with `--fix` |
+| 8 | Skill | The global Claude Code skill `~/.claude/skills/mdview/SKILL.md` (the `/mdview <path>` command) is installed and matches the shipped template | Yes, with `--fix`; SKIP when Claude Code isn't detected |
+
+**Detection** (a tool counts as installed when either signal is present):
+Claude Code — `~/.claude.json`, a `~/.claude/` directory, or `claude` on PATH.
+Codex — a `~/.codex/` directory or `codex` on PATH. Antigravity — a
+`~/.gemini/config/` directory or `antigravity` on PATH.
 
 ## Behaviors & Operations
 
 ### Run diagnostics (`mdview doctor`)
 
 - **Triggers:** the CLI command, with or without `--json`.
-- **What happens:** all 5 checks run in order (PATH, Config, Daemon, MCP
-  registration, Agent instruction) and each reports OK / FIXED / MANUAL / WARN
-  with a one-line detail.
+- **What happens:** the checks run in order (PATH, Config, Daemon, MCP · Claude
+  Code, MCP · Codex, MCP · Antigravity, Agent instruction, Skill) and each
+  reports OK / FIXED / MANUAL / WARN / SKIP with a one-line detail.
 - **Side effects:** the Config check writes a default configuration file the
   moment one is missing, **whenever `--dry-run` is not given** — see Rule R2;
   this is the one check whose write is not conditional on `--fix`.
@@ -59,9 +67,14 @@ one-line detail):
 
 - **Triggers:** the CLI command with `--fix` (and without `--dry-run`).
 - **What changes:**
-  - MCP registration, if not already registered: mdview is added to the
-    Claude Code MCP server list, leaving every other registered server
-    untouched.
+  - MCP registration, per detected tool, if not already registered: mdview is
+    added to that tool's MCP server list (Claude Code, Codex, Antigravity),
+    leaving every other registered server untouched. A tool that isn't installed
+    is skipped entirely — no config file is created for it. The JSON targets
+    (Claude, Antigravity) merge into the `mcpServers` object; the Codex TOML
+    target is edited format-preserving (`toml_edit`) so existing settings and
+    comments survive, and a malformed `config.toml` is reported WARN and left
+    untouched rather than clobbered.
   - Agent instruction, for each of AGENTS.md and CLAUDE.md whose managed block
     is missing or out of date: mdview's instruction snippet is written as a
     marker-delimited block (`<!-- mdview:START -->` … `<!-- mdview:END -->`).
@@ -90,9 +103,11 @@ remote caller and no distinct roles.
 
 ## Business Rules
 
-- **R1.** The MCP-registration fix preserves the original `.claude.json` as a
-  `.bak` before changing it, so nothing an operator configured is lost. The
-  Agent-instruction fix does not need this: it edits only the text between its
+- **R1.** Every MCP-registration fix preserves the original config as a `.bak`
+  sibling before changing it (`~/.claude.json.bak`, `config.toml.bak`,
+  `mcp_config.json.bak`), so nothing an operator configured is lost; a tool that
+  isn't installed is never written to at all. The Agent-instruction fix does not
+  need this: it edits only the text between its
   `<!-- mdview:START -->` / `<!-- mdview:END -->` markers and leaves all other
   content in place, so there is nothing to preserve separately. (Supersedes the
   `.bak`-for-agent-instruction clause of D 864f6f00, which predated the marker
@@ -130,12 +145,15 @@ Not applicable — CLI output only, no screen.
 
 ## Pointers (implementation)
 
-- `crates/mdview/src/doctor.rs` — all 5 checks, `run()` entry point.
+- `crates/mdview/src/doctor.rs` — all checks + `run()`; detection helpers
+  (`claude_present`/`codex_present`/`antigravity_present`, `bin_on_path`) and the
+  two registrars (`register_json_mcp`, `register_toml_mcp`).
 - `crates/mdview/src/cli.rs` — `Command::Doctor { json, dry_run, fix }` flag
   definitions and dispatch.
 - `docs/mdview-agents-template.md` — source text for the Agent-instruction
   fix's snippet (the file's content after its `---` separator is what gets
   copied; the preamble above it is not).
-- `~/.claude.json` — the MCP-registration fix's target file.
+- MCP targets: `~/.claude.json` (Claude Code), `~/.codex/config.toml` (Codex),
+  `~/.gemini/config/mcp_config.json` (Antigravity).
 - `./AGENTS.md`, `./CLAUDE.md` (relative to the command's working directory)
   — the Agent-instruction fix's target files.

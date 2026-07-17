@@ -103,7 +103,9 @@ ssh -L 7700:localhost:7700 user@host   # then open http://localhost:7700
 
 ## Agent integration (MCP)
 
-`mdview doctor --fix` registers an MCP server with Claude Code that exposes a single tool:
+`mdview doctor --fix` registers an MCP server — with **Claude Code, Codex, and Antigravity**,
+for whichever of them it detects on your machine (it never writes config for a tool you
+don't have) — exposing a single tool:
 
 - **`mdview_view_file(project_root, relative_path)`** → returns a clickable `url` to the
   rendered markdown, **auto-registering** the project and indexing the file on first use.

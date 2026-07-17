@@ -17,6 +17,7 @@ repository = "https://github.com/vantt/mdview"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 toml = "0.8"
+toml_edit = "0.22"
 thiserror = "1"
 anyhow = "1"
 tracing = "0.1"

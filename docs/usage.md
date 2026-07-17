@@ -62,12 +62,21 @@ mdview serve --host 0.0.0.0
 
 ---
 
-## 3. Agent integration (Claude Code / MCP)
+## 3. Agent integration (MCP)
 
 ```bash
-mdview doctor --fix     # register the MCP server in ~/.claude.json (backs up first)
-mdview doctor           # re-check: PATH, config, daemon, MCP registration
+mdview doctor --fix     # register the MCP server for every agent tool present
+mdview doctor           # re-check: PATH, config, daemon, MCP per tool, skill
 ```
+
+`doctor --fix` sets up the MCP server for **whichever agent tools it detects** on
+your machine — and never touches one you don't have (reported `SKIP`):
+
+| Tool | Detected by | MCP config it writes (backed up first) |
+|---|---|---|
+| Claude Code | `~/.claude.json` / `~/.claude/` / `claude` on PATH | `~/.claude.json` (`mcpServers`) |
+| Codex | `~/.codex/` / `codex` on PATH | `~/.codex/config.toml` (`[mcp_servers.mdview]`, format-preserving) |
+| Antigravity | `~/.gemini/config/` / `antigravity` on PATH | `~/.gemini/config/mcp_config.json` (`mcpServers`) |
 
 After that, an agent calls the single tool
 **`mdview_view_file(project_root, relative_path)`** and gets a browser URL back.
