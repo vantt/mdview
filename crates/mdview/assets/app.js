@@ -48,6 +48,11 @@
 
     var focus = dirOf(current); // start in the current file's folder
 
+    // Whether the subfolders disclosure is expanded — remembered for the
+    // session (auto-opens when a folder has no files of its own, see below).
+    var foldersOpen = false;
+    try { foldersOpen = sessionStorage.getItem("mdview-folders-open") === "1"; } catch (e) {}
+
     function render() {
       root.textContent = "";
 
@@ -81,33 +86,55 @@
         if (slash < 0) here.push(f);
         else folders[rest.slice(0, slash)] = true;
       });
+      var folderNames = Object.keys(folders).sort();
 
-      // "Up one level" affordance when not at root.
-      if (focus) {
-        var up = el("button", "chap-up", "↑ ..");
-        up.addEventListener("click", function () { focus = dirOf(focus); render(); });
-        root.appendChild(up);
+      // Every subfolder collapses into ONE disclosure bar, so however many there
+      // are they never crowd out the chapter list. Collapsed by default; opens
+      // automatically when this folder has no files (else it would look empty).
+      if (folderNames.length) {
+        var open = foldersOpen || here.length === 0;
+        var box = el("div", "chap-folders" + (open ? " is-open" : ""));
+
+        var bar = el("button", "chap-folders__bar");
+        bar.setAttribute("aria-expanded", open ? "true" : "false");
+        bar.appendChild(el("span", "chap-folders__chev", "›"));
+        bar.appendChild(el("span", "chap-folders__label", "Subfolders"));
+        bar.appendChild(el("span", "chap-folders__count", String(folderNames.length)));
+        bar.addEventListener("click", function () {
+          foldersOpen = !box.classList.contains("is-open");
+          try { sessionStorage.setItem("mdview-folders-open", foldersOpen ? "1" : "0"); } catch (e) {}
+          box.classList.toggle("is-open", foldersOpen);
+          bar.setAttribute("aria-expanded", foldersOpen ? "true" : "false");
+        });
+        box.appendChild(bar);
+
+        var list = el("div", "chap-folders__list");
+        var inner = el("div", "chap-folders__inner");
+        folderNames.forEach(function (name) {
+          var b = el("button", "chap-subfolder", name);
+          b.addEventListener("click", function () {
+            focus = focus ? focus + "/" + name : name;
+            render();
+          });
+          inner.appendChild(b);
+        });
+        list.appendChild(inner);
+        box.appendChild(list);
+        root.appendChild(box);
       }
 
-      // Subfolders first (zoom in), sorted.
-      Object.keys(folders).sort().forEach(function (name) {
-        var b = el("button", "chap-folder", name + "/");
-        b.addEventListener("click", function () {
-          focus = focus ? focus + "/" + name : name;
-          render();
-        });
-        root.appendChild(b);
-      });
-
-      // Files by title (fallback to basename), sorted by label; current active.
-      here
-        .map(function (f) { return { f: f, label: f.t && f.t.length ? f.t : baseOf(f.p) }; })
-        .sort(function (a, b) { return a.label.localeCompare(b.label); })
-        .forEach(function (item) {
-          var a = el("a", "chap-file" + (item.f.p === current ? " active" : ""), item.label);
-          a.href = "/p/" + pid + "/" + item.f.p;
-          root.appendChild(a);
-        });
+      // The chapter list: files in this folder, by title, current one active.
+      if (here.length) {
+        root.appendChild(el("div", "chap-sec", "Chapters"));
+        here
+          .map(function (f) { return { f: f, label: f.t && f.t.length ? f.t : baseOf(f.p) }; })
+          .sort(function (a, b) { return a.label.localeCompare(b.label); })
+          .forEach(function (item) {
+            var a = el("a", "chap-file" + (item.f.p === current ? " active" : ""), item.label);
+            a.href = "/p/" + pid + "/" + item.f.p;
+            root.appendChild(a);
+          });
+      }
     }
 
     render();
@@ -413,6 +440,43 @@
       pre.parentNode.insertBefore(wrap, pre);
       wrap.appendChild(bar);
       wrap.appendChild(pre);
+    });
+  })();
+
+  // Copy the whole page's Markdown source (embedded as JSON in #mdsource) —
+  // complements the selection-based copy-as-markdown above.
+  (function () {
+    var btn = document.getElementById("copy-md");
+    var src = document.getElementById("mdsource");
+    if (!btn || !src) return;
+    var md;
+    try { md = JSON.parse(src.textContent || '""'); } catch (e) { md = src.textContent || ""; }
+    var txt = btn.querySelector(".copy-md__txt");
+    function ok() {
+      btn.classList.add("is-copied");
+      var prev = txt ? txt.textContent : null;
+      if (txt) txt.textContent = "Copied";
+      setTimeout(function () {
+        btn.classList.remove("is-copied");
+        if (txt && prev != null) txt.textContent = prev;
+      }, 1400);
+    }
+    function fallback() {
+      var ta = document.createElement("textarea");
+      ta.value = md;
+      ta.style.position = "fixed";
+      ta.style.opacity = "0";
+      document.body.appendChild(ta);
+      ta.select();
+      try { document.execCommand("copy"); ok(); } catch (e) {}
+      document.body.removeChild(ta);
+    }
+    btn.addEventListener("click", function () {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(md).then(ok, fallback);
+      } else {
+        fallback();
+      }
     });
   })();
 

@@ -141,13 +141,14 @@ pub fn file_page(
   </main>
   {right}
 </div>"#,
-        topbar = topbar_with_lead(
+        topbar = topbar_full(
             sidebar_toggle(),
             &format!(
                 "<span class=\"crumb\">{pname} / {rel}</span>",
                 pname = esc(&project.name),
                 rel = esc(&file.rel_path),
-            )
+            ),
+            copy_md_button(),
         ),
         tree = tree,
         breadcrumb = breadcrumb,
@@ -304,26 +305,35 @@ fn sidebar_toggle() -> &'static str {
     r#"<button id="sidebar-toggle" class="sidebar-toggle" type="button" aria-label="Toggle file navigation" aria-controls="sidebar" aria-expanded="false">☰</button>"#
 }
 
+/// Copy-the-whole-page-as-Markdown action for the top bar (file pages only; it
+/// reads the `#mdsource` blob). Icon collapses to just the glyph on mobile.
+fn copy_md_button() -> &'static str {
+    r#"<button id="copy-md" class="copy-md" type="button" title="Copy page as Markdown" aria-label="Copy page as Markdown"><svg class="copy-md__icon" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg><span class="copy-md__txt">Copy</span></button>"#
+}
+
 /// Shared top bar for every page: brand, a page-specific center slot (crumb or
 /// empty), the Settings link, and the theme toggle. Keeps the Settings link on
 /// all pages and stops each view re-inventing its own header.
 fn topbar(center: &str) -> String {
-    topbar_with_lead("", center)
+    topbar_full("", center, "")
 }
 
-/// `topbar` with an optional leading slot before the brand (e.g. the mobile
-/// sidebar toggle on file pages).
-fn topbar_with_lead(lead: &str, center: &str) -> String {
+/// Full top bar: an optional `lead` slot (before the brand) and an optional
+/// `actions` slot (page-specific buttons before the theme toggle, e.g. the
+/// copy-page-as-Markdown button on file pages).
+fn topbar_full(lead: &str, center: &str, actions: &str) -> String {
     format!(
         r#"<header class="topbar">
   {lead}
   <a href="/" class="home">mdview</a>
   {center}
+  {actions}
   <a class="nav-link" href="/settings">Settings</a>
   {toggle}
 </header>"#,
         lead = lead,
         center = center,
+        actions = actions,
         toggle = theme_toggle(),
     )
 }

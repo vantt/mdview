@@ -110,15 +110,19 @@ content itself.
 ### Chapter sidebar (file pages) — breadcrumb zoom
 
 - **Triggers:** viewing any file.
-- **What it shows:** exactly **one** folder's contents at a time (per R2) — the
-  focused folder's immediate subfolders (each selectable to go into it), and the
-  files directly in it, each labelled by title. The currently-viewed file is
-  highlighted. When the focus is below the project root, an "up one level"
-  affordance is shown.
+- **What it shows:** exactly **one** folder's contents at a time (per R2),
+  presented as a book's chapter list — the files directly in the focused folder
+  (each labelled by title, the currently-viewed one highlighted) are the primary
+  content, under a "Chapters" label. The focused folder's immediate subfolders
+  are **all collapsed into a single disclosure bar** ("Subfolders" + a count)
+  above the chapter list, so however many subfolders exist they never crowd out
+  the chapters. The bar is collapsed by default and remembered for the session;
+  it opens automatically when the focused folder has no files of its own.
 - **Default focus:** the folder containing the file being viewed.
 - **Zoom out:** selecting any breadcrumb segment refocuses the sidebar on that
-  ancestor folder.
-- **Zoom in:** selecting a subfolder refocuses on it.
+  ancestor folder (this is also how you go up a level).
+- **Zoom in:** expanding the subfolders bar and selecting a subfolder refocuses
+  on it.
 - **What changes:** refocusing changes only what the sidebar lists — it does not
   navigate or reload. Selecting a *file* opens that file's page normally.
 - **Afterwards:** the operator sees a short, folder-scoped list instead of the
@@ -141,8 +145,12 @@ content itself.
 
 ### Copy as markdown (file pages)
 
-- **Triggers:** selecting text inside a rendered file and copying it (the normal
-  copy gesture).
+- **Whole page:** a Copy button in the top bar (beside Settings and the theme
+  toggle) copies the **entire page's raw markdown source** to the clipboard in
+  one click, with brief "Copied" feedback. Because the top bar is sticky it
+  stays reachable while scrolling; on narrow screens the button is icon-only.
+- **Triggers (selection):** selecting text inside a rendered file and copying it
+  (the normal copy gesture).
 - **What it does:** instead of the rendered HTML/plain text, the clipboard
   receives the **raw markdown** of the source lines the selection spans. The
   granularity is whole source lines of the blocks the selection touches — a

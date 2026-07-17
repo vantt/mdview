@@ -16,6 +16,19 @@
    redefine an Atelier token custom property.
    ============================================================ */
 
+/* Reserve the sticky topbar's height when the browser scrolls something into
+   view (an autofocused search input, a heading anchor, a focused control), so
+   it never lands hidden underneath the bar. */
+html {
+  scroll-padding-top: calc(53px + var(--space-3));
+}
+/* The simple pages (home / search / settings / error) render their content
+   flush under the sticky topbar; give them breathing room so the first element
+   — e.g. the autofocused search input — is never clipped by the bar. */
+main.fg-page {
+  padding-top: var(--space-5);
+}
+
 /* ── Topbar: sticky header bar (no horizontal app-bar core role) ── */
 .topbar {
   display: flex;
@@ -218,8 +231,107 @@
 .chap-sep {
   color: var(--color-text-subtle);
 }
-.chap-up,
-.chap-folder,
+/* ── Subfolders disclosure: all sibling folders collapse into ONE bar so the
+   chapter (file) list stays the focus of the navigation. ─────────────── */
+.chap-folders {
+  margin: var(--space-2) 0 var(--space-1);
+}
+.chap-folders__bar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  box-sizing: border-box;
+  padding: var(--space-1) var(--space-2);
+  border: 0;
+  border-radius: var(--nav-item-radius);
+  background: none;
+  color: var(--color-text-muted);
+  font: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+.chap-folders__bar:hover {
+  background: var(--color-surface-hover);
+  color: var(--color-text);
+}
+.chap-folders__chev {
+  flex: none;
+  line-height: 1;
+  color: var(--color-text-subtle);
+  transition: transform var(--motion-fast) var(--ease-standard);
+}
+.chap-folders.is-open .chap-folders__chev {
+  transform: rotate(90deg);
+}
+.chap-folders__label {
+  flex: 1;
+  font-family: var(--type-label-font);
+  font-size: var(--type-label-size);
+  letter-spacing: var(--type-label-tracking);
+  text-transform: var(--type-label-case);
+}
+.chap-folders__count {
+  flex: none;
+  min-width: 20px;
+  padding: 0 var(--space-2);
+  border-radius: var(--radius-pill);
+  background: var(--color-surface-sunken);
+  color: var(--color-text-subtle);
+  font-family: var(--num-font);
+  font-size: var(--type-tag-size);
+  line-height: 18px;
+  text-align: center;
+}
+/* Smooth height reveal via the grid 0fr→1fr trick (needs the inner wrapper). */
+.chap-folders__list {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows var(--motion-open) var(--ease-standard);
+}
+.chap-folders.is-open .chap-folders__list {
+  grid-template-rows: 1fr;
+}
+.chap-folders__inner {
+  min-height: 0;
+  overflow: hidden;
+}
+.chap-subfolder {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  box-sizing: border-box;
+  width: 100%;
+  padding: var(--space-1) var(--space-2) var(--space-1) var(--space-4);
+  border: 0;
+  border-radius: var(--nav-item-radius);
+  background: none;
+  color: var(--color-text-muted);
+  font: inherit;
+  font-size: var(--type-body-sm-size);
+  text-align: left;
+  cursor: pointer;
+  word-break: break-word;
+}
+.chap-subfolder::before {
+  content: "\1F4C1"; /* folder glyph */
+  flex: none;
+  opacity: 0.7;
+}
+.chap-subfolder:hover {
+  background: var(--color-surface-hover);
+  color: var(--color-text);
+}
+/* ── Chapter section label + file list ──────────────────────────────── */
+.chap-sec {
+  margin: var(--space-3) 0 var(--space-1);
+  padding: 0 var(--space-2);
+  font-family: var(--type-label-font);
+  font-size: var(--type-label-size);
+  letter-spacing: var(--type-label-tracking);
+  text-transform: var(--type-label-case);
+  color: var(--color-text-subtle);
+}
 .chap-file {
   display: block;
   box-sizing: border-box;
@@ -235,23 +347,12 @@
   cursor: pointer;
   word-break: break-word;
 }
-.chap-up {
-  color: var(--color-text-muted);
-}
-.chap-folder {
-  font-weight: var(--weight-semibold);
-}
-.chap-folder::before {
-  content: "\1F4C1 "; /* folder glyph */
-}
 /* Sidebar files are <a> links, so the browser's :visited color would tint
    already-opened files and read like a second "active" state. Keep every file
    the same color; only the single .active item stands out. */
 .chap-file:visited {
   color: var(--color-text);
 }
-.chap-up:hover,
-.chap-folder:hover,
 .chap-file:hover {
   background: var(--color-surface-hover);
 }
@@ -327,6 +428,38 @@
   margin: 0 var(--space-0);
   color: var(--color-text-subtle);
 }
+.copy-md {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-3);
+  border: var(--border-width-hairline) solid var(--color-border);
+  border-radius: var(--radius-pill);
+  background: var(--color-surface);
+  color: var(--color-text-muted);
+  font-family: var(--type-tag-font);
+  font-size: var(--type-tag-size);
+  cursor: pointer;
+  transition: color var(--motion-fast) var(--ease-standard),
+    border-color var(--motion-fast) var(--ease-standard),
+    background var(--motion-fast) var(--ease-standard);
+}
+.copy-md:hover {
+  color: var(--color-text);
+  border-color: var(--color-border-strong);
+  background: var(--color-surface-hover);
+}
+.copy-md.is-copied {
+  color: var(--color-action);
+  border-color: var(--color-action);
+}
+.copy-md__icon {
+  width: 18px;
+  height: 18px;
+  flex: none;
+  display: block;
+}
 
 /* ── Responsive: hide rails on narrow viewports ─────────────────── */
 @media (max-width: 900px) {
@@ -362,6 +495,13 @@
   }
   .breadcrumb {
     padding: var(--space-3) var(--space-4);
+  }
+  /* Save width on phones: icon-only copy button in the top bar. */
+  .copy-md__txt {
+    display: none;
+  }
+  .copy-md {
+    padding: var(--space-1) var(--space-2);
   }
 }
 
