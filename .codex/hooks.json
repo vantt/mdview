@@ -25,7 +25,7 @@
     ],
     "PreToolUse": [
       {
-        "matcher": "Edit|Write|MultiEdit|Bash|Read|Glob|Grep",
+        "matcher": "Edit|Write|MultiEdit|Bash|Read|Glob|Grep|AskUserQuestion",
         "hooks": [
           {
             "type": "command",
@@ -33,16 +33,35 @@
             "statusMessage": "bee: write guard"
           }
         ]
+      },
+      {
+        "matcher": "spawn_agent",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "r=\"$(git rev-parse --show-toplevel 2>/dev/null)\"\n[ -n \"$r\" ] || { echo \"bee: hook transport unavailable (no git root)\" >&2; exit 0; }\nexec node \"$r\"/.bee/bin/hooks/bee-model-guard.mjs --source=repo",
+            "statusMessage": "bee: model-tier guard"
+          }
+        ]
       }
     ],
     "PostToolUse": [
       {
-        "matcher": "TaskCreate|TaskUpdate|TodoWrite",
+        "matcher": "update_plan|TaskCreate|TaskUpdate|TodoWrite",
         "hooks": [
           {
             "type": "command",
             "command": "r=\"$(git rev-parse --show-toplevel 2>/dev/null)\"\n[ -n \"$r\" ] || { echo \"bee: hook transport unavailable (no git root)\" >&2; exit 0; }\nexec node \"$r\"/.bee/bin/hooks/bee-state-sync.mjs --source=repo",
             "statusMessage": "bee: state sync"
+          }
+        ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "r=\"$(git rev-parse --show-toplevel 2>/dev/null)\"\n[ -n \"$r\" ] || { echo \"bee: hook transport unavailable (no git root)\" >&2; exit 0; }\nexec node \"$r\"/.bee/bin/hooks/bee-tools-logger.mjs --source=repo",
+            "statusMessage": "bee: tools logger"
           }
         ]
       }
@@ -59,6 +78,15 @@
             "type": "command",
             "command": "r=\"$(git rev-parse --show-toplevel 2>/dev/null)\"\n[ -n \"$r\" ] || { echo \"bee: hook transport unavailable (no git root)\" >&2; exit 0; }\nexec node \"$r\"/.bee/bin/hooks/bee-chain-nudge.mjs --source=repo",
             "statusMessage": "bee: chain nudge"
+          }
+        ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "r=\"$(git rev-parse --show-toplevel 2>/dev/null)\"\n[ -n \"$r\" ] || { echo \"bee: hook transport unavailable (no git root)\" >&2; exit 0; }\nexec node \"$r\"/.bee/bin/hooks/bee-codex-subagent-audit.mjs --source=repo",
+            "statusMessage": "bee: subagent stop audit"
           }
         ]
       }
@@ -86,6 +114,17 @@
             "type": "command",
             "command": "r=\"$(git rev-parse --show-toplevel 2>/dev/null)\"\n[ -n \"$r\" ] || { echo \"bee: hook transport unavailable (no git root)\" >&2; exit 0; }\nexec node \"$r\"/.bee/bin/hooks/bee-session-close.mjs --source=repo",
             "statusMessage": "bee: session close check"
+          }
+        ]
+      }
+    ],
+    "SubagentStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "r=\"$(git rev-parse --show-toplevel 2>/dev/null)\"\n[ -n \"$r\" ] || { echo \"bee: hook transport unavailable (no git root)\" >&2; exit 0; }\nexec node \"$r\"/.bee/bin/hooks/bee-codex-subagent-audit.mjs --source=repo",
+            "statusMessage": "bee: subagent start audit"
           }
         ]
       }

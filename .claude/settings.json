@@ -23,7 +23,7 @@
     ],
     "PreToolUse": [
       {
-        "matcher": "Edit|Write|MultiEdit|Bash|Read|Glob|Grep",
+        "matcher": "Edit|Write|MultiEdit|Bash|Read|Glob|Grep|AskUserQuestion",
         "hooks": [
           {
             "type": "command",
@@ -43,11 +43,19 @@
     ],
     "PostToolUse": [
       {
-        "matcher": "TaskCreate|TaskUpdate|TodoWrite",
+        "matcher": "update_plan|TaskCreate|TaskUpdate|TodoWrite",
         "hooks": [
           {
             "type": "command",
             "command": "node \"$CLAUDE_PROJECT_DIR\"/.bee/bin/hooks/bee-state-sync.mjs"
+          }
+        ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$CLAUDE_PROJECT_DIR\"/.bee/bin/hooks/bee-tools-logger.mjs"
           }
         ]
       }
