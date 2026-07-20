@@ -9,6 +9,12 @@
 .bee/HANDOFF.json
 .bee/spikes/
 .bee/manifest-hash.json
+.bee/sessions/
+.bee/claims/
+.bee/runtime/
+.bee/cache/
+.bee/doctor-attest.json
+.bee/native-transport-probe.json
 # BEE:END
 # DISTILL:START
 /upstreams/
@@ -22,6 +28,10 @@
 .bee/
 .claude/skills/bee-*/
 .agents/skills/bee-*/
+.claude/agents/bee-*.md
+.claude/skills/.bee-*.json
+.agents/skills/.bee-*.json
+*.bak
 .claude/skills/distill/
 .agents/skills/distill/
 
