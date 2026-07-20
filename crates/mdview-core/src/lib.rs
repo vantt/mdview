@@ -12,6 +12,7 @@ pub mod error;
 pub mod fuzzy;
 pub mod indexer;
 pub mod link_resolver;
+pub mod process;
 pub mod render;
 pub mod repository;
 

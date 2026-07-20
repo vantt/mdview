@@ -1191,6 +1191,7 @@ dependencies = [
  "comrak",
  "dirs",
  "ignore",
+ "libc",
  "notify",
  "notify-debouncer-full",
  "nucleo-matcher",
