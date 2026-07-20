@@ -149,3 +149,43 @@ bee-compounding appends hard-won patterns here; keep it short and current.
   undefined. Inlined previews of pages that load big vendored scripts are
   therefore misleading; serve the real external files (e.g. a throwaway
   `python -m http.server`) instead. (2026-07-17, same work)
+- **Cross-crate platform-conditional logic: extract vs. duplicate is decided by
+  the *target* crate's CI coverage, not by "is this shared code."** D1
+  (`is_wildcard`, a 2-line predicate) was correctly duplicated into
+  `mdview-core/src/daemon.rs` rather than shared with `runtime.rs`'s existing,
+  already-tested copy. D3 (`apply_detach`) was correctly extracted into
+  `mdview-core/src/process.rs` — re-exported from `runtime.rs` via
+  `pub(crate) use mdview_core::process::apply_detach;` so its existing test
+  needed zero changes — specifically because `mdview-desktop` has zero
+  compile coverage anywhere in this repo's CI; writing that logic directly in
+  `main.rs` would have made it permanently unverifiable. Same shape of
+  decision, opposite correct answers: check the target crate's coverage
+  before choosing, not just whether the code "looks shared." A blanket
+  "no coverage → always extract" rule is also wrong (would have wrongly
+  recommended extracting D1's trivial predicate too). (2026-07-20,
+  `20260720-windows-daemon-fixes.md`)
+- **A cell's test-recipe action must cite the actual success/failure predicate
+  of the function under test, not just the test's setup shape.** A cell
+  drafted from CONTEXT.md's "bind a real `0.0.0.0` listener and assert
+  `health_check` finds it" phrasing instructed a bare `TcpListener` with no
+  responder — but `health_check`'s real success check
+  (`buf.contains("\"mdview\"") || buf.contains("200 OK")`) needs an actual
+  HTTP response body, so the recipe as drafted could never pass. Two
+  independent validating-phase reviewers (plan-checker, cell-reviewer)
+  converged on the identical root cause from different angles — read the
+  target function's body and state its real predicate in the cell action at
+  authoring time, not only as something validating is expected to catch.
+  (2026-07-20, `20260720-windows-daemon-fixes.md`)
+- **Superseding an old locked decision whose original CONTEXT.md/plan.md no
+  longer exists must say so explicitly, citing whatever secondary source
+  establishes the old lock existed.** D1 supersedes `multi-ip-urls-1`
+  (PBI-04)'s prior prohibition on touching `health_check`, but
+  `docs/history/multi-ip-urls-1/` no longer exists and no decision-log entry
+  records the original lock — the only surviving anchor is prose in another
+  feature's review-findings report plus a backlog row with no `[history](...)`
+  link. The supersession here was well-reasoned (independently checked
+  against the PBI-04 backlog row's own text), but a future agent re-deriving
+  "what exactly was locked and why" from a pruned history dir has only a
+  paraphrase to work from. Name the gap in the new decision's rationale rather
+  than presenting the supersession as though the original were still directly
+  checkable. (2026-07-20, `20260720-windows-daemon-fixes.md`)

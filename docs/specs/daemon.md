@@ -1,8 +1,8 @@
 ---
 area: daemon
-updated: 2026-07-16
-sources: [daemon-auto-spawn-detach, hostname-port-truth]
-decisions: [625c69fa, 1c8473f4]
+updated: 2026-07-20
+sources: [daemon-auto-spawn-detach, hostname-port-truth, windows-daemon-fixes]
+decisions: [625c69fa, 1c8473f4, 08b4c8c3, d1429530]
 coverage: partial
 ---
 
@@ -77,6 +77,14 @@ serves (see the web-interface and agent-integration areas for that).
 - **On a stale record:** if the record names a process that is no longer
   answering, it is treated as "not running" and a fresh daemon may be started;
   the stale record does not block startup.
+- **Liveness check on an all-interfaces bind (per D 08b4c8c3):** when the
+  daemon is bound to listen on all interfaces (no single specific host), the
+  liveness check dials the local loopback address rather than the wildcard
+  address itself — dialing the wildcard address directly is unreliable across
+  operating systems. This keeps R2's single-daemon guarantee intact regardless
+  of which host the daemon is bound to; before this fix, a launcher on some
+  operating systems could wrongly conclude an all-interfaces-bound daemon was
+  not running and start a duplicate.
 
 ### Stop (`mdview stop`)
 
@@ -104,11 +112,14 @@ serves (see the web-interface and agent-integration areas for that).
 
 ## Business Rules
 
-- **R1 (per D 625c69fa).** An auto-started daemon runs in its own session
-  (detached from the launching process's session and process group), so it
-  survives the exit of the command or agent that started it, and a session
-  close (terminal hang-up) or a process-group signal aimed at the launcher does
-  not stop it. Only an explicit stop or a machine restart ends it.
+- **R1 (per D 625c69fa; the guarantee extends to every launcher per D d1429530).**
+  An auto-started daemon runs in its own session (detached from the launching
+  process's session and process group), so it survives the exit of the
+  command, agent, or desktop shell that started it, and a session close
+  (terminal hang-up) or a process-group signal aimed at the launcher does not
+  stop it. Only an explicit stop or a machine restart ends it. This holds
+  identically no matter which launcher started the daemon — CLI, agent/MCP, or
+  the desktop shell all detach it the same way.
 - **R2.** At most one daemon owns the registry at a time; launchers reuse a live
   daemon and never start a second concurrent one.
 
@@ -126,6 +137,12 @@ serves (see the web-interface and agent-integration areas for that).
   daemon record, per D 1c8473f4), not the originally-configured one. Before
   this fix, a caller unlucky enough to ask during that window could receive a
   URL pointing at the wrong port.
+- Daemon bound to listen on all interfaces (no single specific host) → the
+  liveness check still correctly finds it as running (per D 08b4c8c3), so
+  `open`/`restart`/agent calls reuse it instead of spawning a duplicate.
+- Daemon started by the desktop shell → detaches from its launching session
+  exactly like a CLI/agent-started daemon (per D d1429530); it is not tied to
+  the desktop app's own process lifetime.
 
 ## Open Gaps
 
@@ -143,11 +160,17 @@ Not applicable — background process, no screen.
 
 - `crates/mdview/src/runtime.rs` — `ensure_bind`/`ensure_daemon_bases`
   (auto-start + readiness wait; `bind_fallback` is the pure function deciding
-  real-record-port vs. configured-port on a readiness timeout, per D 1c8473f4),
-  `spawn_daemon_detached` (session detach: Unix `setsid`, Windows
-  `DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP`).
+  real-record-port vs. configured-port on a readiness timeout, per D 1c8473f4);
+  re-exports the shared `apply_detach` (below) as its own `spawn_daemon_detached`
+  detach step.
+- `crates/mdview-core/src/process.rs` — `apply_detach` (the session-detach
+  guarantee behind R1, per D d1429530: Unix `setsid`, Windows
+  `DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP`), shared by every launcher.
 - `crates/mdview-core/src/daemon.rs` — the daemon record (`~/.mdview/daemon.lock`),
-  `running_daemon`, `health_check`.
+  `running_daemon`, `health_check` (dials loopback instead of an all-interfaces
+  bind address when checking liveness, per D 08b4c8c3).
 - `crates/mdview/src/server.rs` — `serve` (bind with port auto-increment, write
   the record, print every reachable URL via `runtime::display_urls_for`).
 - `crates/mdview/src/cli.rs` — `serve` / `status` / `stop` commands.
+- `crates/mdview-desktop/src/main.rs` — `spawn_mdview_serve` (the desktop
+  shell's launcher; calls the same shared `apply_detach`, per D d1429530).
