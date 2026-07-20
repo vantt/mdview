@@ -117,13 +117,13 @@ fn ensure_daemon() -> String {
 }
 
 fn spawn_mdview_serve() -> std::io::Result<()> {
-    std::process::Command::new(find_mdview())
-        .arg("serve")
+    let mut cmd = std::process::Command::new(find_mdview());
+    cmd.arg("serve")
         .stdin(Stdio::null())
         .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .spawn()
-        .map(|_| ())
+        .stderr(Stdio::null());
+    mdview_core::process::apply_detach(&mut cmd);
+    cmd.spawn().map(|_| ())
 }
 
 /// Prefer a `mdview` binary next to this executable; else rely on PATH.
