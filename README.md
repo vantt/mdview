@@ -71,6 +71,13 @@ curl -fsSL https://raw.githubusercontent.com/vantt/mdview/main/install.sh | sh
 mdview doctor --fix     # wire up Claude Code MCP integration
 ```
 
+Windows (PowerShell):
+
+```powershell
+irm https://raw.githubusercontent.com/vantt/mdview/main/install.ps1 | iex
+mdview doctor --fix     # wire up Claude Code MCP integration
+```
+
 Or from source (needs Rust):
 
 ```sh
