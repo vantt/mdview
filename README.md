@@ -86,31 +86,13 @@ cargo install --git https://github.com/vantt/mdview mdview
 
 ---
 
-## Use in 30 seconds
-
-```sh
-mdview open docs/architecture.md
-```
-
-That's it. The daemon **auto-starts**, indexes the project, resolves the links, and prints
-a browser URL. Open <http://localhost:7700> to browse every project; edits on disk
-live-reload the page.
-
-**Reading from a remote server over SSH?** Forward the port and browse locally:
-
-```sh
-ssh -L 7700:localhost:7700 user@host   # then open http://localhost:7700
-```
-
-> mdview can also bind your LAN (`mdview serve --host 0.0.0.0`) to read from a phone or
-> another machine. It has **no authentication**, so only expose it on networks you trust —
-> details in the [usage guide](docs/usage.md).
-
----
-
 ## Agent integration (MCP)
 
-`mdview doctor --fix` registers an MCP server — with **Claude Code, Codex, and Antigravity**,
+```
+mdview doctor --fix
+``` 
+
+Registers an MCP server — with **Claude Code, Codex, and Antigravity**,
 for whichever of them it detects on your machine (it never writes config for a tool you
 don't have) — exposing a single tool:
 
@@ -124,6 +106,36 @@ the moment it finishes writing docs.
 <!-- ▶ OPTIONAL VIDEO — agent → view_file → browser. See "Media checklist". -->
 
 ---
+
+## Use in 30 seconds
+
+```sh
+mdview open docs/architecture.md
+```
+
+That's it. The daemon **auto-starts**, indexes the project, resolves the links, and prints
+a browser URL. Open <http://localhost:7700> to browse every project; edits on disk
+live-reload the page.
+
+**From inside an AI agent (Claude Code, Codex, …):** say your agent just wrote
+`docs/spec/prd.md`. Two ways to see it:
+
+- **Skill:** run `/mdview docs/spec/prd.md` in the agent's terminal — it replies with a URL to open.
+- **MCP already wired up?** No need to ask — the agent calls `mdview_view_file` itself
+  and hands you the URL right after it finishes writing the file.
+
+**Reading from a remote server over SSH?** Forward the port and browse locally:
+
+```sh
+ssh -L 7700:localhost:7700 user@host   # then open http://localhost:7700
+```
+
+> mdview can also bind your LAN (`mdview serve --host 0.0.0.0`) to read from a phone or
+> another machine. It has **no authentication**, so only expose it on networks you trust —
+> details in the [usage guide](docs/usage.md).
+
+---
+
 
 ## CLI
 
