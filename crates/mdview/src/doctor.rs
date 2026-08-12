@@ -51,6 +51,7 @@ pub fn run(as_json: bool, dry_run: bool, fix: bool) -> Result<()> {
     checks.push(check_config(dry_run));
     let daemon = check_daemon();
     checks.push(daemon);
+    checks.push(check_index_schema());
     checks.push(check_mcp_claude(dry_run, fix));
     checks.push(check_mcp_codex(dry_run, fix));
     checks.push(check_mcp_antigravity(dry_run, fix));
@@ -141,18 +142,99 @@ fn check_config(dry_run: bool) -> Check {
 
 fn check_daemon() -> Check {
     match runtime::running_daemon() {
-        Some(info) => Check {
-            name: "daemon".into(),
-            status: Status::Ok,
-            detail: format!(
+        Some(info) => {
+            let running = format!(
                 "running on http://{}:{} (pid {})",
                 info.host, info.port, info.pid
-            ),
-        },
+            );
+            let expected = env!("CARGO_PKG_VERSION");
+            // Ask the live process, not the lock file: upgrading the binary
+            // leaves an already-serving daemon untouched, and it is that
+            // in-memory process which lacks the newer routes.
+            let reported = mdview_core::daemon::daemon_version(&info.host, info.port);
+            let (status, detail) = daemon_version_verdict(&running, reported.as_deref(), expected);
+            Check {
+                name: "daemon".into(),
+                status,
+                detail,
+            }
+        }
         None => Check {
             name: "daemon".into(),
             status: Status::Warn,
             detail: "not running — start with `mdview serve`".into(),
+        },
+    }
+}
+
+/// Compare a running daemon's reported version against this binary's.
+///
+/// Pure so the upgrade case can be tested without a live daemon. `None` means the
+/// daemon answered without a version, which only a build predating that field
+/// does — so it is treated as stale, not as unknown.
+fn daemon_version_verdict(
+    running: &str,
+    reported: Option<&str>,
+    expected: &str,
+) -> (Status, String) {
+    match reported {
+        Some(v) if v == expected => (Status::Ok, format!("{running}, v{v}")),
+        Some(v) => (
+            Status::Manual,
+            format!(
+                "{running} is v{v} but this binary is v{expected} — \
+                 short links will 404 until you run `mdview restart`"
+            ),
+        ),
+        None => (
+            Status::Manual,
+            format!(
+                "{running} predates version reporting, so it is older than \
+                 v{expected} — run `mdview restart`"
+            ),
+        ),
+    }
+}
+
+/// Report the index database's migration state.
+///
+/// Opening the store is what migrates it, so this check both reports and (as a
+/// side effect of the normal open path) completes any pending upgrade — there is
+/// no separate `mdview migrate` command to forget to run.
+fn check_index_schema() -> Check {
+    let path = config::registry_db_path();
+    if !path.exists() {
+        return Check {
+            name: "index schema".into(),
+            status: Status::Skip,
+            detail: format!("no database yet at {}", path.display()),
+        };
+    }
+    match mdview_core::SqliteStore::open(&path) {
+        Ok(store) => match store.schema_report() {
+            Ok((version, unhashed)) if unhashed == 0 => Check {
+                name: "index schema".into(),
+                status: Status::Ok,
+                detail: format!("v{version}, every file has a short-link code"),
+            },
+            Ok((version, unhashed)) => Check {
+                name: "index schema".into(),
+                status: Status::Manual,
+                detail: format!(
+                    "v{version}, but {unhashed} file(s) still have no short-link code — \
+                     run `mdview refresh`"
+                ),
+            },
+            Err(e) => Check {
+                name: "index schema".into(),
+                status: Status::Manual,
+                detail: format!("could not read schema state: {e}"),
+            },
+        },
+        Err(e) => Check {
+            name: "index schema".into(),
+            status: Status::Manual,
+            detail: format!("could not open {}: {e}", path.display()),
         },
     }
 }
@@ -569,6 +651,37 @@ fn check_skill_at(path: &std::path::Path, dry_run: bool, fix: bool) -> Check {
             status: Status::Manual,
             detail: format!("write failed: {e}"),
         },
+    }
+}
+
+#[cfg(test)]
+mod daemon_version_tests {
+    use super::*;
+
+    #[test]
+    fn a_matching_version_is_ok() {
+        let (status, detail) = daemon_version_verdict("running on x", Some("0.6.0"), "0.6.0");
+        assert_eq!(status, Status::Ok);
+        assert!(detail.contains("v0.6.0"));
+    }
+
+    /// The upgrade trap: a new binary wrote short links into the index while the
+    /// old process, which has no `/s/` route, is still the one serving them.
+    #[test]
+    fn an_older_running_daemon_asks_for_a_restart() {
+        let (status, detail) = daemon_version_verdict("running on x", Some("0.5.2"), "0.6.0");
+        assert_eq!(status, Status::Manual);
+        assert!(detail.contains("mdview restart"), "got: {detail}");
+        assert!(detail.contains("0.5.2") && detail.contains("0.6.0"));
+    }
+
+    /// Only a build predating the field answers without a version, so silence
+    /// means stale rather than unknown.
+    #[test]
+    fn a_daemon_reporting_no_version_is_treated_as_stale() {
+        let (status, detail) = daemon_version_verdict("running on x", None, "0.6.0");
+        assert_eq!(status, Status::Manual);
+        assert!(detail.contains("mdview restart"), "got: {detail}");
     }
 }
 

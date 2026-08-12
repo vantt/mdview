@@ -252,12 +252,19 @@ fn cmd_open(path: &Path, json: bool) -> Result<()> {
     let root = find_project_root(&engine, &abs);
     let rel = indexer::rel_path_str(&root, &abs);
     let vf = engine.view_file(&root, &rel)?;
-    let urls: Vec<String> = runtime::ensure_daemon_bases()
+    // Short form, same as the MCP tool emits (D9): a deep path pushes the full
+    // URL past a terminal's width, where it wraps and stops being clickable.
+    let bases = runtime::ensure_daemon_bases();
+    let urls: Vec<String> = bases
+        .iter()
+        .map(|base| format!("{base}/s/{}", vf.code))
+        .collect();
+    let long_urls: Vec<String> = bases
         .iter()
         .map(|base| format!("{base}{}", vf.url))
         .collect();
     if json {
-        println!("{}", open_json(&urls, &vf.project_id));
+        println!("{}", open_json(&urls, &long_urls, &vf.code, &vf.project_id));
     } else if urls.len() > 1 {
         println!("{}", format_url_choices(&urls));
     } else {
@@ -270,9 +277,21 @@ fn cmd_open(path: &Path, json: bool) -> Result<()> {
 /// daemon): `url` stays the primary (first) URL for back-compat, `urls` is
 /// the full list mirroring the MCP `structuredContent` contract
 /// (decision `d88c028b`).
-fn open_json(urls: &[String], project_id: &str) -> serde_json::Value {
+fn open_json(
+    urls: &[String],
+    long_urls: &[String],
+    code: &str,
+    project_id: &str,
+) -> serde_json::Value {
     let primary = urls.first().cloned().unwrap_or_default();
-    serde_json::json!({ "url": primary, "urls": urls, "project_id": project_id })
+    serde_json::json!({
+        "url": primary,
+        "urls": urls,
+        "long_url": long_urls.first().cloned().unwrap_or_default(),
+        "long_urls": long_urls,
+        "code": code,
+        "project_id": project_id
+    })
 }
 
 /// Multi-line "pick a reachable IP" framing for text-mode output when
@@ -592,27 +611,49 @@ mod open_url_shape_tests {
 
     #[test]
     fn open_json_single_url_sets_url_and_urls_consistently() {
-        let u = urls(&["http://127.0.0.1:7700"]);
-        let v = open_json(&u, "proj1");
-        assert_eq!(v["url"], "http://127.0.0.1:7700");
-        assert_eq!(v["urls"], serde_json::json!(["http://127.0.0.1:7700"]));
+        let u = urls(&["http://127.0.0.1:7700/s/a3f9c1d20b74"]);
+        let long = urls(&["http://127.0.0.1:7700/p/proj1/docs/a.md"]);
+        let v = open_json(&u, &long, "a3f9c1d20b74", "proj1");
+        assert_eq!(v["url"], "http://127.0.0.1:7700/s/a3f9c1d20b74");
+        assert_eq!(
+            v["urls"],
+            serde_json::json!(["http://127.0.0.1:7700/s/a3f9c1d20b74"])
+        );
         assert_eq!(v["project_id"], "proj1");
     }
 
     #[test]
     fn open_json_multi_url_keeps_primary_as_first_and_lists_all() {
-        let u = urls(&["http://192.168.1.5:7700", "http://10.0.0.2:7700"]);
-        let v = open_json(&u, "proj1");
-        assert_eq!(v["url"], "http://192.168.1.5:7700");
+        let u = urls(&[
+            "http://192.168.1.5:7700/s/a3f9c1d20b74",
+            "http://10.0.0.2:7700/s/a3f9c1d20b74",
+        ]);
+        let long = urls(&[
+            "http://192.168.1.5:7700/p/proj1/docs/a.md",
+            "http://10.0.0.2:7700/p/proj1/docs/a.md",
+        ]);
+        let v = open_json(&u, &long, "a3f9c1d20b74", "proj1");
+        assert_eq!(v["url"], "http://192.168.1.5:7700/s/a3f9c1d20b74");
         assert_eq!(v["urls"], serde_json::json!(u));
         assert_eq!(v["url"], v["urls"][0]);
     }
 
     #[test]
     fn open_json_empty_urls_defaults_primary_to_empty_string() {
-        let v = open_json(&[], "proj1");
+        let v = open_json(&[], &[], "", "proj1");
         assert_eq!(v["url"], "");
         assert_eq!(v["urls"], serde_json::json!(Vec::<String>::new()));
+    }
+
+    /// The long form stays reachable for anyone who still wants the real path;
+    /// only which one is *primary* changed.
+    #[test]
+    fn open_json_still_carries_the_long_url() {
+        let u = urls(&["http://127.0.0.1:7700/s/a3f9c1d20b74"]);
+        let long = urls(&["http://127.0.0.1:7700/p/proj1/docs/a.md"]);
+        let v = open_json(&u, &long, "a3f9c1d20b74", "proj1");
+        assert_eq!(v["long_url"], "http://127.0.0.1:7700/p/proj1/docs/a.md");
+        assert_eq!(v["code"], "a3f9c1d20b74");
     }
 
     #[test]

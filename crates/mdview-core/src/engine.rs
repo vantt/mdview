@@ -22,6 +22,8 @@ pub struct ViewFile {
     pub url: String,
     pub project_id: String,
     pub rel_path: String,
+    /// Short code for this file — the `<code>` in `/s/<code>`.
+    pub code: String,
 }
 
 impl Engine {
@@ -103,10 +105,12 @@ impl Engine {
         if rel.is_empty() {
             return Err(Error::PathOutsideProject(abs));
         }
+        let code = crate::short_link::short_code(&crate::short_link::path_hash(&project.id, &rel));
         Ok(ViewFile {
             url: format!("/p/{}/{}", project.id, rel),
             project_id: project.id,
             rel_path: rel,
+            code,
         })
     }
 

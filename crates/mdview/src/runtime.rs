@@ -379,6 +379,7 @@ mod tests {
             host: "127.0.0.1".into(),
             port: 7701, // bind_with_retry auto-incremented past the configured port
             started_at: "2026-07-16T00:00:00Z".into(),
+            version: None,
         };
         assert_eq!(
             bind_fallback(Some(lock), &cfg),

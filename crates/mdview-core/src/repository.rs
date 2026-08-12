@@ -3,6 +3,7 @@
 
 use crate::domain::{IndexedFile, Project, SearchResult};
 use crate::error::Result;
+use crate::short_link;
 use rusqlite::{params, Connection};
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
@@ -31,6 +32,7 @@ impl SqliteStore {
         conn.pragma_update(None, "journal_mode", "WAL").ok();
         conn.pragma_update(None, "foreign_keys", "ON").ok();
         conn.execute_batch(SCHEMA)?;
+        migrate(&conn)?;
         Ok(Self {
             conn: Mutex::new(conn),
         })
@@ -94,17 +96,18 @@ impl SqliteStore {
     pub fn upsert_file(&self, f: &IndexedFile, content: &str) -> Result<()> {
         let c = self.conn.lock().unwrap();
         c.execute(
-            "INSERT INTO files(project_id,rel_path,abs_path,title,size_bytes,modified_at)
-             VALUES(?1,?2,?3,?4,?5,?6)
+            "INSERT INTO files(project_id,rel_path,abs_path,title,size_bytes,modified_at,path_hash)
+             VALUES(?1,?2,?3,?4,?5,?6,?7)
              ON CONFLICT(project_id,rel_path) DO UPDATE SET
-               abs_path=?3, title=?4, size_bytes=?5, modified_at=?6",
+               abs_path=?3, title=?4, size_bytes=?5, modified_at=?6, path_hash=?7",
             params![
                 f.project_id,
                 f.rel_path,
                 f.abs_path.to_string_lossy(),
                 f.title,
                 f.size_bytes as i64,
-                f.modified_at
+                f.modified_at,
+                short_link::path_hash(&f.project_id, &f.rel_path)
             ],
         )?;
         c.execute(
@@ -196,6 +199,56 @@ impl SqliteStore {
         Ok(rows.filter_map(|r| r.ok()).map(PathBuf::from).collect())
     }
 
+    /// The file a short code points at, or `None` when nothing matches.
+    ///
+    /// The pattern is built in Rust and bound as one parameter. Concatenating in
+    /// SQL (`path_hash GLOB ?1 || '*'`) returns the same rows but makes the
+    /// right-hand side an expression, which disables SQLite's GLOB index
+    /// optimisation and silently turns this into a full table scan — see
+    /// `short_link::hash_prefix_pattern`.
+    ///
+    /// Two files sharing a 12-character prefix is ~1.8e-5 likely even at 100k
+    /// files, so the tie-break only has to be *stable*, not clever: order by the
+    /// primary key and take the first.
+    pub fn find_by_hash_prefix(&self, code: &str) -> Result<Option<(String, String)>> {
+        if code.is_empty() {
+            return Ok(None);
+        }
+        let c = self.conn.lock().unwrap();
+        let mut stmt = c.prepare(
+            "SELECT project_id, rel_path FROM files
+             WHERE path_hash GLOB ?1
+             ORDER BY project_id, rel_path
+             LIMIT 1",
+        )?;
+        let mut rows = stmt.query(params![short_link::hash_prefix_pattern(code)])?;
+        match rows.next()? {
+            Some(r) => Ok(Some((r.get(0)?, r.get(1)?))),
+            None => Ok(None),
+        }
+    }
+
+    /// Query plan for [`find_by_hash_prefix`], so a test can prove it still uses
+    /// the hash index rather than only proving it returns the right row.
+    #[cfg(test)]
+    fn hash_prefix_query_plan(&self, code: &str) -> Result<String> {
+        let c = self.conn.lock().unwrap();
+        let mut stmt = c.prepare(
+            "EXPLAIN QUERY PLAN
+             SELECT project_id, rel_path FROM files
+             WHERE path_hash GLOB ?1
+             ORDER BY project_id, rel_path
+             LIMIT 1",
+        )?;
+        let mut rows = stmt.query(params![short_link::hash_prefix_pattern(code)])?;
+        let mut plan = String::new();
+        while let Some(r) = rows.next()? {
+            plan.push_str(&r.get::<_, String>(3)?);
+            plan.push('\n');
+        }
+        Ok(plan)
+    }
+
     pub fn file_count(&self, project_id: &str) -> Result<usize> {
         let c = self.conn.lock().unwrap();
         let n: i64 = c.query_row(
@@ -204,6 +257,18 @@ impl SqliteStore {
             |r| r.get(0),
         )?;
         Ok(n as usize)
+    }
+
+    /// `(schema version, files still missing a short-link code)` — what `mdview
+    /// doctor` reports so an operator can see whether an upgrade finished.
+    pub fn schema_report(&self) -> Result<(i64, usize)> {
+        let c = self.conn.lock().unwrap();
+        let version: i64 = c.query_row("PRAGMA user_version", [], |r| r.get(0))?;
+        let unhashed: i64 =
+            c.query_row("SELECT COUNT(*) FROM files WHERE path_hash=''", [], |r| {
+                r.get(0)
+            })?;
+        Ok((version, unhashed as usize))
     }
 
     pub fn total_file_count(&self) -> Result<usize> {
@@ -253,6 +318,104 @@ impl SqliteStore {
     }
 }
 
+/// Ordered, append-only migration steps.
+///
+/// `SCHEMA` above only ever runs `CREATE TABLE IF NOT EXISTS`, so a database
+/// created by an older build keeps its old columns forever — anything new has to
+/// be added here instead. To add a migration, append one entry; never edit or
+/// reorder an existing one, because databases in the field have already run it.
+///
+/// This is SQLite's own `PRAGMA user_version` convention, which is also what
+/// crates like `rusqlite_migration` implement underneath. With a single step,
+/// that crate would only wrap this list, so the dependency is not earned yet;
+/// the shape here is deliberately the one it expects, so adopting it later is a
+/// mechanical swap rather than a redesign.
+const MIGRATIONS: &[(i64, fn(&Connection) -> Result<()>)] = &[(1, migration_1_path_hash)];
+
+/// Schema version this build expects — the last entry in [`MIGRATIONS`].
+pub const SCHEMA_VERSION: i64 = 1;
+
+/// Bring an existing database up to [`SCHEMA_VERSION`].
+///
+/// Every step is additive (no row is dropped or rewritten) and stamps
+/// `user_version` as soon as it finishes, so a run interrupted halfway resumes at
+/// the next unfinished step instead of redoing completed ones, and running this
+/// against an up-to-date database is a no-op.
+fn migrate(conn: &Connection) -> Result<()> {
+    let mut version: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
+    for (target, step) in MIGRATIONS {
+        if version >= *target {
+            continue;
+        }
+        step(conn)?;
+        conn.pragma_update(None, "user_version", target)?;
+        version = *target;
+    }
+    Ok(())
+}
+
+/// v1 — short-link support. `path_hash` lets `/s/<code>` find a file without a
+/// separate shortlink table, so a code's lifetime is its index row's lifetime.
+fn migration_1_path_hash(conn: &Connection) -> Result<()> {
+    // A database created by this build already has the column from SCHEMA; one
+    // created by an older build does not, because `CREATE TABLE IF NOT EXISTS`
+    // leaves an existing table alone. The index has to be created here rather
+    // than in SCHEMA for the same reason: on a legacy database SCHEMA runs
+    // first, while the column still does not exist.
+    if !has_column(conn, "files", "path_hash")? {
+        conn.execute(
+            "ALTER TABLE files ADD COLUMN path_hash TEXT NOT NULL DEFAULT ''",
+            [],
+        )?;
+    }
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_files_hash ON files(path_hash)",
+        [],
+    )?;
+    backfill_path_hash(conn)
+}
+
+fn has_column(conn: &Connection, table: &str, column: &str) -> Result<bool> {
+    let mut stmt = conn.prepare(&format!("PRAGMA table_info({table})"))?;
+    let mut rows = stmt.query([])?;
+    while let Some(r) = rows.next()? {
+        if r.get::<_, String>(1)? == column {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
+/// Fill `path_hash` for every row still carrying the empty default.
+///
+/// Scoped to empty values rather than rewriting the whole table so an
+/// interrupted run costs only what it did not finish, and so a re-run after a
+/// crash is cheap rather than a full rewrite of 15k+ rows.
+fn backfill_path_hash(conn: &Connection) -> Result<()> {
+    let pending: Vec<(String, String)> = {
+        let mut stmt =
+            conn.prepare("SELECT project_id, rel_path FROM files WHERE path_hash = ''")?;
+        let rows = stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))?;
+        rows.filter_map(|r| r.ok()).collect()
+    };
+    if pending.is_empty() {
+        return Ok(());
+    }
+    conn.execute_batch("BEGIN")?;
+    for (project_id, rel_path) in &pending {
+        conn.execute(
+            "UPDATE files SET path_hash=?3 WHERE project_id=?1 AND rel_path=?2",
+            params![
+                project_id,
+                rel_path,
+                short_link::path_hash(project_id, rel_path)
+            ],
+        )?;
+    }
+    conn.execute_batch("COMMIT")?;
+    Ok(())
+}
+
 const SCHEMA: &str = r#"
 CREATE TABLE IF NOT EXISTS projects (
     id TEXT PRIMARY KEY,
@@ -268,6 +431,7 @@ CREATE TABLE IF NOT EXISTS files (
     title TEXT NOT NULL,
     size_bytes INTEGER NOT NULL,
     modified_at TEXT NOT NULL,
+    path_hash TEXT NOT NULL DEFAULT '',
     PRIMARY KEY(project_id, rel_path)
 );
 CREATE INDEX IF NOT EXISTS idx_files_project ON files(project_id);
@@ -342,6 +506,148 @@ mod tests {
             size_bytes: 10,
             modified_at: "2026-07-15T00:00:00Z".into(),
         }
+    }
+
+    /// A database as an older build left it: no `path_hash`, no `user_version`.
+    fn legacy_conn() -> Connection {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "CREATE TABLE files (
+                 project_id TEXT NOT NULL,
+                 rel_path TEXT NOT NULL,
+                 abs_path TEXT NOT NULL,
+                 title TEXT NOT NULL,
+                 size_bytes INTEGER NOT NULL,
+                 modified_at TEXT NOT NULL,
+                 PRIMARY KEY(project_id, rel_path)
+             );
+             INSERT INTO files VALUES('mdview','docs/a.md','/x/docs/a.md','A',1,'t');
+             INSERT INTO files VALUES('mdview','README.md','/x/README.md','R',1,'t');",
+        )
+        .unwrap();
+        conn
+    }
+
+    #[test]
+    fn migrate_backfills_a_legacy_database() {
+        let store = SqliteStore::from_conn(legacy_conn()).unwrap();
+        let c = store.conn.lock().unwrap();
+
+        let version: i64 = c
+            .query_row("PRAGMA user_version", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(version, SCHEMA_VERSION);
+
+        let hash: String = c
+            .query_row(
+                "SELECT path_hash FROM files WHERE rel_path='docs/a.md'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(hash, short_link::path_hash("mdview", "docs/a.md"));
+
+        let unfilled: i64 = c
+            .query_row("SELECT COUNT(*) FROM files WHERE path_hash=''", [], |r| {
+                r.get(0)
+            })
+            .unwrap();
+        assert_eq!(unfilled, 0, "every legacy row must be backfilled");
+    }
+
+    #[test]
+    fn migrate_is_idempotent() {
+        let store = SqliteStore::from_conn(legacy_conn()).unwrap();
+        {
+            let c = store.conn.lock().unwrap();
+            // Second pass over an already-migrated database must change nothing
+            // and must not fail on the column already existing.
+            migrate(&c).unwrap();
+            let version: i64 = c
+                .query_row("PRAGMA user_version", [], |r| r.get(0))
+                .unwrap();
+            assert_eq!(version, SCHEMA_VERSION);
+        }
+        assert_eq!(
+            store
+                .find_by_hash_prefix(&short_link::short_code(&short_link::path_hash(
+                    "mdview",
+                    "docs/a.md"
+                )))
+                .unwrap(),
+            Some(("mdview".into(), "docs/a.md".into()))
+        );
+    }
+
+    #[test]
+    fn a_fresh_database_needs_no_alter_table() {
+        // SCHEMA already carries path_hash, so migrate must recognise that and
+        // still stamp the version rather than trying to add the column again.
+        let store = SqliteStore::open_in_memory().unwrap();
+        let c = store.conn.lock().unwrap();
+        let version: i64 = c
+            .query_row("PRAGMA user_version", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(version, SCHEMA_VERSION);
+    }
+
+    #[test]
+    fn upsert_file_records_the_path_hash() {
+        let s = SqliteStore::open_in_memory().unwrap();
+        s.upsert_project(&sample_project()).unwrap();
+        s.upsert_file(&file("docs/a.md", "Alpha"), "alpha").unwrap();
+
+        let code = short_link::short_code(&short_link::path_hash("p1", "docs/a.md"));
+        assert_eq!(
+            s.find_by_hash_prefix(&code).unwrap(),
+            Some(("p1".into(), "docs/a.md".into()))
+        );
+    }
+
+    #[test]
+    fn re_indexing_keeps_the_same_hash() {
+        let s = SqliteStore::open_in_memory().unwrap();
+        s.upsert_project(&sample_project()).unwrap();
+        s.upsert_file(&file("docs/a.md", "Alpha"), "first").unwrap();
+        let code = short_link::short_code(&short_link::path_hash("p1", "docs/a.md"));
+
+        // Same path, new content/title — the link handed out earlier must survive.
+        let mut changed = file("docs/a.md", "Alpha v2");
+        changed.size_bytes = 999;
+        s.upsert_file(&changed, "second").unwrap();
+
+        assert_eq!(
+            s.find_by_hash_prefix(&code).unwrap(),
+            Some(("p1".into(), "docs/a.md".into()))
+        );
+    }
+
+    #[test]
+    fn unknown_code_resolves_to_nothing() {
+        let s = SqliteStore::open_in_memory().unwrap();
+        s.upsert_project(&sample_project()).unwrap();
+        s.upsert_file(&file("docs/a.md", "Alpha"), "alpha").unwrap();
+
+        assert_eq!(s.find_by_hash_prefix("ffffffffffff").unwrap(), None);
+        assert_eq!(s.find_by_hash_prefix("").unwrap(), None);
+    }
+
+    /// Regression guard with teeth: a functional test passes whether or not the
+    /// query uses the index, because both forms return the same rows. Only the
+    /// query plan distinguishes the fast path from a silent full scan.
+    #[test]
+    fn prefix_lookup_uses_the_hash_index() {
+        let s = SqliteStore::open_in_memory().unwrap();
+        s.upsert_project(&sample_project()).unwrap();
+        for i in 0..200 {
+            s.upsert_file(&file(&format!("docs/f{i}.md"), "T"), "body")
+                .unwrap();
+        }
+        let plan = s.hash_prefix_query_plan("a3f9c1d20b74").unwrap();
+        assert!(
+            plan.contains("idx_files_hash"),
+            "prefix lookup must hit idx_files_hash, got plan: {plan}"
+        );
     }
 
     #[test]

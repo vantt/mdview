@@ -52,6 +52,7 @@ pub async fn serve() -> Result<()> {
         host: cfg.host.clone(),
         port: addr.port(),
         started_at: now_rfc3339(),
+        version: Some(env!("CARGO_PKG_VERSION").to_string()),
     })?;
     tracing::info!("mdview serving on http://{addr}");
     // A wildcard bind (`0.0.0.0`) makes `http://0.0.0.0:PORT` a dead link, so
@@ -103,6 +104,7 @@ fn router(state: AppState) -> Router {
         .route("/static/mermaid.min.js", get(mermaid_asset))
         .route("/highlight.css", get(highlight_asset))
         .route("/ws", get(ws_handler))
+        .route("/s/:code", get(short_link_redirect))
         .route("/p/:id/", get(project_home))
         .route("/p/:id/_search", get(search_page))
         .route("/p/:id/_jump", get(jump_search))
@@ -293,6 +295,24 @@ async fn mermaid_asset() -> impl IntoResponse {
         ],
         views::MERMAID_JS,
     )
+}
+
+/// `/s/<code>` → the file's real page.
+///
+/// A redirect rather than a second way to render the page: everything about
+/// rendering, including how relative links inside a document resolve, stays in
+/// `project_path` with no duplicate. The long URL keeps working unchanged; this
+/// is an extra door, not a replacement. A code whose file has left the index is a
+/// plain 404 — there is nothing correct left to show, and guessing would open the
+/// wrong file.
+async fn short_link_redirect(State(st): State<AppState>, Path(code): Path<String>) -> Response {
+    match st.engine.store.find_by_hash_prefix(&code) {
+        Ok(Some((project_id, rel_path))) => {
+            Redirect::to(&format!("/p/{project_id}/{rel_path}")).into_response()
+        }
+        Ok(None) => not_found("no file for that short link"),
+        Err(e) => internal_error(&e.to_string()),
+    }
 }
 
 async fn project_home(State(st): State<AppState>, Path(id): Path<String>) -> Response {

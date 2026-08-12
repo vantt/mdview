@@ -15,6 +15,7 @@ pub mod link_resolver;
 pub mod process;
 pub mod render;
 pub mod repository;
+pub mod short_link;
 
 pub use config::Config;
 pub use engine::Engine;
