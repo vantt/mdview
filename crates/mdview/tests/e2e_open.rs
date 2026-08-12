@@ -401,6 +401,28 @@ fn code_section_lists_dirs_highlights_files_and_denies_sensitive_paths() {
         body.contains("section-switch"),
         "Docs page missing the section switch: {body}"
     );
+    // The topbar no longer repeats the path — that's the sticky breadcrumb's
+    // job now (and the sidebar's own crumbs).
+    assert!(
+        !body.contains("class=\"crumb\""),
+        "topbar should no longer show a redundant path crumb: {body}"
+    );
+    // The sticky breadcrumb is capped to the reading column's width (Docs
+    // only), and carries the copy-as-markdown button in its right half —
+    // moved out of the topbar.
+    assert!(
+        body.contains("breadcrumb breadcrumb--reading"),
+        "Docs breadcrumb must be width-capped to match the article below it: {body}"
+    );
+    let breadcrumb_at = body.find("breadcrumb--reading").unwrap();
+    let breadcrumb_end = body[breadcrumb_at..]
+        .find("</nav>")
+        .map(|i| breadcrumb_at + i)
+        .expect("breadcrumb nav never closes");
+    assert!(
+        body[breadcrumb_at..breadcrumb_end].contains("id=\"copy-md\""),
+        "copy-as-markdown button must live inside the breadcrumb, not the topbar: {body}"
+    );
 }
 
 /// The Code sidebar carries a `chap-crumbs` path right below the search
@@ -555,6 +577,22 @@ fn code_view_sidebar_splits_folders_files_and_breadcrumb_shows_type_and_size() {
     assert!(
         right_slice.contains("breadcrumb__meta-size"),
         "breadcrumb right half missing file size: {right_slice}"
+    );
+    // The topbar no longer repeats the path, the main pane fills the
+    // viewport height for its own scrollbar (content--code), and the old
+    // line-count line is gone (its info already moved into the breadcrumb
+    // above).
+    assert!(
+        !body.contains("class=\"crumb\""),
+        "topbar should no longer show a redundant path crumb: {body}"
+    );
+    assert!(
+        body.contains("content content--code"),
+        "Code page's main pane must carry content--code for its own scroll area: {body}"
+    );
+    assert!(
+        !body.contains("codeview__head"),
+        "the standalone line-count line should be gone, not just relabelled: {body}"
     );
 }
 
