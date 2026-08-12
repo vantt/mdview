@@ -462,14 +462,31 @@ main.fg-page {
   color: var(--color-link);
 }
 
-/* ── Breadcrumb: path segments above the article ────────────────── */
+/* ── Breadcrumb: sticky bar above the article, full content-column width,
+   split into two equal left|right halves (crumbs on the left; the right
+   half is reserved, currently empty) ─────────────────────────────── */
 .breadcrumb {
-  max-width: var(--reading-col);
-  margin: 0 auto;
+  display: flex;
+  align-items: center;
+  position: sticky;
+  top: 53px; /* below the sticky topbar; matches its rendered height, same
+                offset .sidebar/.rightbar already stick to */
   padding: var(--space-3) var(--space-6);
+  background: var(--color-bg);
+  border-bottom: var(--border-width-hairline) solid var(--color-border);
   font-family: var(--type-body-sm-font);
   font-size: var(--type-body-sm-size);
   color: var(--color-text-muted);
+}
+.breadcrumb__left,
+.breadcrumb__right {
+  flex: 1 1 50%;
+  min-width: 0;
+}
+.breadcrumb__left {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .breadcrumb .sep {
   margin: 0 var(--space-0);
