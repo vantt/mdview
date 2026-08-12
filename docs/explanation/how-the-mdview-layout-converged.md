@@ -153,6 +153,36 @@ subfolder entries zoom the tree in place via JavaScript; Code entries navigate t
 a real URL, which is what the server-rendered model requires and what makes them
 work with middle-click, copy-link, and no JavaScript at all.
 
+## Round 6: exact wording, ancestor crumbs, and deleting the redundant way up
+
+The third pass over the same sidebar, and the pattern from round 5 repeated: the
+remaining differences were only visible by comparing against how Docs actually
+renders, not against a description of it.
+
+**The label was the wrong word.** Code's disclosure said `Folders`; the Docs
+sidebar says `Subfolders`. Matching it byte for byte matters more than it sounds
+— two labels for one concept is exactly the kind of small inconsistency that
+makes an interface feel like two applications stapled together.
+
+**The sidebar had no ancestor path.** Docs renders a crumbs block at the very top
+of its sidebar nav, giving the project root and every ancestor segment as
+individual links, so you can jump up any number of levels in one click. Code had
+nothing there. Adding the same block was a matter of reusing the existing
+`chap-crumbs` markup and CSS, already in place for Docs.
+
+**And then the `..` link was deleted.** Code's sidebar had a lone "up one level"
+link, which was the only way up before the crumbs existed. With every ancestor
+now directly reachable, it became a second mechanism for a job already done, and
+Docs does not have one. Removing it was the point of the round rather than a
+side effect: leaving both would have meant two ways to go up, differing only in
+how far, in a sidebar whose whole purpose in these rounds was to stop differing
+from Docs.
+
+That is the durable lesson from this stretch of work. Each round added the
+missing piece *and* removed whatever the missing piece had been standing in for.
+Convergence that only adds leaves the workarounds behind, and the workarounds are
+what made the two views feel different in the first place.
+
 ## Sources
 
 Synthesised from the retrospective records of the layout rounds. Round 1:
@@ -167,3 +197,5 @@ Synthesised from the retrospective records of the layout rounds. Round 1:
  Round 5: `tsk-1xb`, commit `df57160`
 (`code_tree()` in `crates/mdview/src/views.rs`, new IIFE in
 `crates/mdview/assets/app.js`).
+ Round 6: `tsk-4ph`, commit `e384134`
+(`code_tree()` in `crates/mdview/src/views.rs`).
