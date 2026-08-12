@@ -111,6 +111,19 @@ file exists. That property is [explained in full
 here](./why-the-code-viewer-refuses-some-files.md), and the end-to-end tests
 assert it against a real config file inside the git directory.
 
+## What changed after this
+
+This page describes the Code section as originally built, where the claim was
+literal: no JavaScript at all. That later stopped being exactly true. When the
+Code sidebar adopted the Docs sidebar's collapsible subfolder disclosure, a small
+separate script was added to make that widget interactive and to remember its
+state.
+
+The reasoning above still holds — the markup is still server-rendered, listings
+are still plain links, and the section still works without scripts — but the
+"zero JavaScript" claim now has one deliberate exception. See [how the mdview
+layout converged](./how-the-mdview-layout-converged.md), round 5.
+
 ## Sources
 
 Synthesised from the record of `tsk-1hb-3`: its task specification (routes,

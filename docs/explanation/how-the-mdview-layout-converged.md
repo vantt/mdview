@@ -114,6 +114,45 @@ process.
 That sequencing is the point worth keeping: reserving the slot and filling it
 were separate rounds, which is why filling it moved nothing else on the page.
 
+## Round 5: "same shape" turned out to mean the real disclosure widget
+
+Round 4 split the Code sidebar into `Folders` and `Files`. That satisfied the
+literal request and still did not match the Docs sidebar, because the Docs
+subfolder block is not a labelled list at all — it is a disclosure widget: a
+clickable bar with a rotating chevron, a count of the folders inside it, and a
+folder icon on each entry.
+
+This round adopted that actual structure, along with Docs' rule for when it
+starts open: expanded when the current folder has no files of its own, on the
+reasoning that a folder containing only folders is a place you are passing
+through rather than arriving at.
+
+The lesson generalises past this widget. "Match the other view" had been
+interpreted twice — as a label, then as a shape — and only reading how the Docs
+sidebar is actually *built* settled it. Two rounds were spent because the target
+was described rather than inspected.
+
+**This is where the Code section stopped being JavaScript-free.** The original
+Code viewer was deliberately server-rendered with no scripts at all, and that is
+still how its markup is produced. But a disclosure that remembers whether it is
+open is interactive by definition, so a small script was unavoidable here.
+
+Two choices kept it contained. It is a **new, separate IIFE** rather than an edit
+to Docs' existing sidebar script — the Docs version builds its markup client-side,
+so extending it to also adopt markup it did not build would have risked breaking
+the working case. And the two never collide, because the element this script
+looks for only exists in the server-rendered Code markup; on a Docs page it is
+not in the DOM at load time, since Docs' own render creates it later.
+
+The open/closed state is remembered in the same `sessionStorage` key the Docs
+sidebar already uses, so the two sections agree about whether your folders are
+expanded rather than each keeping a private answer.
+
+One deliberate difference from Docs: entries are links rather than buttons. Docs'
+subfolder entries zoom the tree in place via JavaScript; Code entries navigate to
+a real URL, which is what the server-rendered model requires and what makes them
+work with middle-click, copy-link, and no JavaScript at all.
+
 ## Sources
 
 Synthesised from the retrospective records of the layout rounds. Round 1:
@@ -125,3 +164,6 @@ Synthesised from the retrospective records of the layout rounds. Round 1:
  Round 4: `tsk-5yf`, commit `760857a`
 (`code_tree()`/`breadcrumb()`/`code_page` in `crates/mdview/src/views.rs`,
 `.codeview__*` and `.codelist` in `crates/mdview/assets/app.css`).
+ Round 5: `tsk-1xb`, commit `df57160`
+(`code_tree()` in `crates/mdview/src/views.rs`, new IIFE in
+`crates/mdview/assets/app.js`).
