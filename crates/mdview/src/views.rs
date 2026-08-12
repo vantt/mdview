@@ -444,14 +444,15 @@ pub fn code_dir_page(project: &Project, listing: &DirListing) -> String {
 
 /// Sidebar for the Code section: always exactly one directory's contents
 /// (same "one folder, zoomable" model the Docs sidebar uses), server-
-/// rendered — no client JS, unlike Docs' JSON-payload `file_tree`, because
-/// there is no whole-project file list to ship (D1: no index). Folders and
-/// files render as two separate `chap-sec`-labelled groups (Folders/Files),
-/// the same two-part shape Docs' own sidebar uses (its `chap-folders`
-/// disclosure vs. its `chap-sec "Chapters"` file list) — Code's version
-/// skips the disclosure/collapse behavior since each request already
-/// scopes to one directory's immediate children, never a whole-project
-/// tree to fold away.
+/// rendered — no client JS to build the markup, unlike Docs' JSON-payload
+/// `file_tree`, because there is no whole-project file list to ship (D1: no
+/// index). Folders render inside the SAME `chap-folders` disclosure Docs'
+/// own sidebar uses (collapsible, chevron, count, folder-icon via
+/// `chap-subfolder`) — real `<a>` links here instead of Docs' JS-focus
+/// `<button>`s, since Code navigates to a folder rather than zooming into
+/// it client-side. A small separate script in `app.js` wires the bar's
+/// click-to-toggle behavior once at load (this HTML needs no JS to render
+/// correctly, only to become interactive).
 fn code_tree(project: &Project, listing: &DirListing, active_file: Option<&str>) -> String {
     let mut out = String::from(
         "<div class=\"fg-sidebar-search\">\
@@ -468,12 +469,14 @@ fn code_tree(project: &Project, listing: &DirListing, active_file: Option<&str>)
     }
 
     let mut dirs = String::new();
+    let mut dir_count = 0usize;
     let mut files = String::new();
     for entry in &listing.entries {
         let rel = child_rel(&listing.rel_path, &entry.name);
         if entry.is_dir {
+            dir_count += 1;
             dirs.push_str(&format!(
-                "<a class=\"chap-file chap-dir\" href=\"/p/{pid}/_code/{rel}\">{name}/</a>",
+                "<a class=\"chap-subfolder\" href=\"/p/{pid}/_code/{rel}\">{name}</a>",
                 pid = esc(&project.id),
                 rel = esc(&rel),
                 name = esc(&entry.name),
@@ -493,9 +496,25 @@ fn code_tree(project: &Project, listing: &DirListing, active_file: Option<&str>)
             ));
         }
     }
-    if !dirs.is_empty() {
-        out.push_str("<div class=\"chap-sec\">Folders</div>");
-        out.push_str(&dirs);
+    if dir_count > 0 {
+        // Auto-open when this folder has no files of its own (else the
+        // sidebar would show nothing until the user expands it) — same
+        // rule Docs' own `render()` uses (`foldersOpen || here.length === 0`).
+        let open = files.is_empty();
+        out.push_str(&format!(
+            "<div class=\"chap-folders{open_cls}\">\
+             <button class=\"chap-folders__bar\" type=\"button\" aria-expanded=\"{aria}\">\
+             <span class=\"chap-folders__chev\">›</span>\
+             <span class=\"chap-folders__label\">Folders</span>\
+             <span class=\"chap-folders__count\">{count}</span>\
+             </button>\
+             <div class=\"chap-folders__list\"><div class=\"chap-folders__inner\">{dirs}</div></div>\
+             </div>",
+            open_cls = if open { " is-open" } else { "" },
+            aria = open,
+            count = dir_count,
+            dirs = dirs,
+        ));
     }
     if !files.is_empty() {
         out.push_str("<div class=\"chap-sec\">Files</div>");

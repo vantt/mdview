@@ -403,9 +403,10 @@ fn code_section_lists_dirs_highlights_files_and_denies_sensitive_paths() {
     );
 }
 
-/// tsk-5yf: the Code sidebar splits into distinct Folders/Files groups (like
-/// Docs' own chapter sidebar), and a code file's breadcrumb right half
-/// carries its language and size.
+/// The Code sidebar's folders render inside a `chap-folders` disclosure —
+/// same collapsible/counted/icon shape Docs' own chapter sidebar uses —
+/// followed by a separate Files list, and a code file's breadcrumb right
+/// half carries its language and size.
 #[test]
 fn code_view_sidebar_splits_folders_files_and_breadcrumb_shows_type_and_size() {
     let bin = env!("CARGO_BIN_EXE_mdview");
@@ -415,6 +416,7 @@ fn code_view_sidebar_splits_folders_files_and_breadcrumb_shows_type_and_size() {
     write_file(&root.join("README.md"), b"# Hello\n");
     write_file(&root.join("src/lib.rs"), b"pub fn hello() {}\n");
     write_file(&root.join("docs/notes.md"), b"notes\n");
+    write_file(&root.join("only-dirs/child/deep.rs"), b"pub fn deep() {}\n");
 
     let child = Command::new(bin)
         .args(["serve", "--port", "0", "--host", "127.0.0.1"])
@@ -436,8 +438,10 @@ fn code_view_sidebar_splits_folders_files_and_breadcrumb_shows_type_and_size() {
     let cookie = login_and_get_cookie(&info.host, info.port, &home);
     let cookie = Some(cookie.as_str());
 
-    // 1. Root directory listing: sidebar carries separate Folders/Files
-    //    section headers, folders listed before files.
+    // 1. Root directory listing: folders render inside a `chap-folders`
+    //    disclosure (with a count and a `chap-subfolder` icon per entry —
+    //    "docs", "only-dirs" and "src" all at root, so count is 3), followed
+    //    by a separate Files section, folders first.
     let (status, body) = http_get(
         &info.host,
         info.port,
@@ -445,15 +449,44 @@ fn code_view_sidebar_splits_folders_files_and_breadcrumb_shows_type_and_size() {
         cookie,
     );
     assert_eq!(status, 200);
+    assert!(
+        body.contains("chap-folders__count\">3<"),
+        "folder count missing/wrong: {body}"
+    );
+    assert!(
+        body.contains("chap-subfolder"),
+        "folder entries missing their chap-subfolder (icon) class: {body}"
+    );
     let folders_at = body
-        .find("chap-sec\">Folders")
-        .expect("Folders section header missing");
+        .find("chap-folders__bar")
+        .expect("Folders disclosure bar missing");
     let files_at = body
         .find("chap-sec\">Files")
         .expect("Files section header missing");
     assert!(
         folders_at < files_at,
-        "Folders section must render before Files: {body}"
+        "Folders disclosure must render before Files: {body}"
+    );
+    // Root has a file (README.md) alongside the two folders, so the
+    // disclosure must NOT auto-open (only an empty-of-files folder does).
+    assert!(
+        !body.contains("chap-folders is-open"),
+        "Folders disclosure should stay collapsed when the folder has files too: {body}"
+    );
+
+    // 1b. A folder with only subfolders and no files of its own (only-dirs/)
+    //     auto-opens its disclosure — otherwise the sidebar would show
+    //     nothing until the user expands it by hand.
+    let (status, body) = http_get(
+        &info.host,
+        info.port,
+        &format!("/p/{project_id}/_code/only-dirs/"),
+        cookie,
+    );
+    assert_eq!(status, 200);
+    assert!(
+        body.contains("chap-folders is-open"),
+        "Folders disclosure should auto-open when the folder has no files: {body}"
     );
 
     // 2. A source file's breadcrumb right half carries its language and size.
