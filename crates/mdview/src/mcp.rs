@@ -159,6 +159,20 @@ fn viewable_text(urls: &[String], rel_path: &str, project_id: &str) -> String {
     format!("{viewable}\nproject_id: {project_id}")
 }
 
+fn ok(id: Option<Value>, result: Value) -> Value {
+    json!({ "jsonrpc": "2.0", "id": id, "result": result })
+}
+fn err(id: Option<Value>, code: i64, msg: &str) -> Value {
+    json!({ "jsonrpc": "2.0", "id": id, "error": { "code": code, "message": msg } })
+}
+/// Tool-level error: reported inside a successful result with isError=true (MCP convention).
+fn tool_error(id: Option<Value>, msg: &str) -> Value {
+    ok(
+        id,
+        json!({ "content": [{ "type": "text", "text": msg }], "isError": true }),
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -207,18 +221,4 @@ mod tests {
         let url = url_line.split(" → ").nth(1).unwrap();
         assert!(url.len() <= 40, "short url grew to {}: {url}", url.len());
     }
-}
-
-fn ok(id: Option<Value>, result: Value) -> Value {
-    json!({ "jsonrpc": "2.0", "id": id, "result": result })
-}
-fn err(id: Option<Value>, code: i64, msg: &str) -> Value {
-    json!({ "jsonrpc": "2.0", "id": id, "error": { "code": code, "message": msg } })
-}
-/// Tool-level error: reported inside a successful result with isError=true (MCP convention).
-fn tool_error(id: Option<Value>, msg: &str) -> Value {
-    ok(
-        id,
-        json!({ "content": [{ "type": "text", "text": msg }], "isError": true }),
-    )
 }
