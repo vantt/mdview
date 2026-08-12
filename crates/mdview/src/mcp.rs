@@ -103,23 +103,18 @@ fn handle_tool_call(id: Option<Value>, engine: &Engine, req: &Value) -> Value {
             // daemon binds a wildcard host with no host_name override, this is
             // one URL per reachable machine IP so the caller can pick a routable
             // address; otherwise it is a single URL.
-            let urls: Vec<String> = runtime::ensure_daemon_bases()
+            let bases = runtime::ensure_daemon_bases();
+            let urls: Vec<String> = bases
+                .iter()
+                .map(|base| format!("{base}/s/{}", vf.code))
+                .collect();
+            let long_urls: Vec<String> = bases
                 .iter()
                 .map(|base| format!("{base}{}", vf.url))
                 .collect();
             // Primary URL kept for back-compat with clients reading `url`.
             let primary = urls.first().cloned().unwrap_or_default();
-            let viewable = if urls.len() > 1 {
-                let lines = urls
-                    .iter()
-                    .map(|u| format!("  {u}"))
-                    .collect::<Vec<_>>()
-                    .join("\n");
-                format!("Viewable at (pick a reachable IP):\n{lines}")
-            } else {
-                format!("Viewable at: {primary}")
-            };
-            let text = format!("{viewable}\nproject_id: {}", vf.project_id);
+            let text = viewable_text(&urls, &vf.rel_path, &vf.project_id);
             ok(
                 id,
                 json!({
@@ -127,13 +122,90 @@ fn handle_tool_call(id: Option<Value>, engine: &Engine, req: &Value) -> Value {
                     "structuredContent": {
                         "url": primary,
                         "urls": urls,
+                        "long_url": long_urls.first().cloned().unwrap_or_default(),
+                        "long_urls": long_urls,
                         "path": vf.url,
+                        "code": vf.code,
                         "project_id": vf.project_id
                     }
                 }),
             )
         }
         Err(e) => tool_error(id, &format!("view_file failed: {e}")),
+    }
+}
+
+/// The human-readable half of the tool result.
+///
+/// Pure on purpose: the caller resolves the daemon's base URLs (which starts a
+/// daemon), so keeping the formatting separate is what makes this behaviour
+/// testable at all.
+///
+/// The file's path rides along as ordinary text next to the short link, because
+/// the link itself is opaque — without it, a transcript full of `/s/…` codes
+/// tells a reader nothing about which document each one was.
+fn viewable_text(urls: &[String], rel_path: &str, project_id: &str) -> String {
+    let viewable = if urls.len() > 1 {
+        let lines = urls
+            .iter()
+            .map(|u| format!("  {rel_path} → {u}"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        format!("Viewable at (pick a reachable IP):\n{lines}")
+    } else {
+        let primary = urls.first().map(String::as_str).unwrap_or_default();
+        format!("Viewable at: {rel_path} → {primary}")
+    };
+    format!("{viewable}\nproject_id: {project_id}")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn one_base_renders_a_single_line() {
+        let text = viewable_text(
+            &["http://design-lap:7700/s/a3f9c1d20b74".into()],
+            "docs/history/short-link/DISCUSSION.md",
+            "mdview",
+        );
+        assert_eq!(
+            text,
+            "Viewable at: docs/history/short-link/DISCUSSION.md → \
+             http://design-lap:7700/s/a3f9c1d20b74\nproject_id: mdview"
+        );
+        assert_eq!(text.lines().count(), 2);
+    }
+
+    #[test]
+    fn several_bases_render_one_line_each() {
+        let text = viewable_text(
+            &[
+                "http://192.168.1.10:7700/s/a3f9c1d20b74".into(),
+                "http://10.0.0.5:7700/s/a3f9c1d20b74".into(),
+            ],
+            "docs/a.md",
+            "mdview",
+        );
+        assert!(text.contains("pick a reachable IP"));
+        assert!(text.contains("  docs/a.md → http://192.168.1.10:7700/s/a3f9c1d20b74"));
+        assert!(text.contains("  docs/a.md → http://10.0.0.5:7700/s/a3f9c1d20b74"));
+    }
+
+    /// The whole point of the feature: the emitted line has to stay inside a
+    /// terminal width, which the full path did not.
+    #[test]
+    fn the_short_line_fits_in_a_terminal() {
+        let deep = "docs/history/short-link-for-file-urls/DISCUSSION.md";
+        let text = viewable_text(
+            &["http://design-lap:7700/s/a3f9c1d20b74".into()],
+            deep,
+            "mdview",
+        );
+        let url_line = text.lines().next().unwrap();
+        let url = url_line.split(" → ").nth(1).unwrap();
+        assert!(url.len() <= 40, "short url grew to {}: {url}", url.len());
     }
 }
 

@@ -16,6 +16,13 @@ pub struct DaemonInfo {
     pub host: String,
     pub port: u16,
     pub started_at: String,
+    /// Version of the binary that started this daemon.
+    ///
+    /// Optional because lock files written by builds before this field existed
+    /// have to keep parsing — a daemon that predates it reads as `None`, which is
+    /// itself the signal that it is older than the current binary.
+    #[serde(default)]
+    pub version: Option<String>,
 }
 
 impl DaemonInfo {
@@ -62,12 +69,38 @@ fn is_wildcard(host: &str) -> bool {
     matches!(host, "0.0.0.0" | "::" | "[::]")
 }
 
+/// The version the *running* daemon reports on `/health`, not the version in the
+/// lock file.
+///
+/// Upgrading the binary does not restart a daemon that is already serving, so the
+/// live process can be older than the CLI that just wrote to the database. That
+/// mismatch is invisible until a short link 404s, because the old process has no
+/// `/s/` route. `None` means the daemon did not answer, or answered without a
+/// version — both of which mean "older than this build" for a caller's purposes.
+pub fn daemon_version(host: &str, port: u16) -> Option<String> {
+    let body = health_body(host, port)?;
+    let key = "\"version\"";
+    let start = body.find(key)? + key.len();
+    let rest = &body[start..];
+    let open = rest.find('"')? + 1;
+    let close = rest[open..].find('"')? + open;
+    Some(rest[open..close].to_string())
+}
+
 /// Minimal blocking HTTP GET /health; true if it looks like mdview.
 pub fn health_check(host: &str, port: u16) -> bool {
+    match health_body(host, port) {
+        Some(buf) => buf.contains("\"mdview\"") || buf.contains("200 OK"),
+        None => false,
+    }
+}
+
+/// Raw `GET /health` response text, or `None` if the daemon did not answer.
+fn health_body(host: &str, port: u16) -> Option<String> {
     // A wildcard-bound daemon can't be dialed back on its own bind address on
     // every platform (e.g. WSAEADDRNOTAVAIL on macOS/Windows), so connect to
-    // loopback instead. Only the connect target changes -- the `Host:`
-    // header below keeps using the original, unsubstituted `host`.
+    // loopback instead. Only the connect target changes -- the `Host:` header
+    // below keeps using the original, unsubstituted `host`.
     let connect_host = if is_wildcard(host) {
         if host == "0.0.0.0" {
             "127.0.0.1"
@@ -77,9 +110,7 @@ pub fn health_check(host: &str, port: u16) -> bool {
     } else {
         host
     };
-    let Ok(mut stream) = TcpStream::connect(format!("{connect_host}:{port}")) else {
-        return false;
-    };
+    let mut stream = TcpStream::connect(format!("{connect_host}:{port}")).ok()?;
     stream
         .set_read_timeout(Some(Duration::from_millis(500)))
         .ok();
@@ -87,12 +118,10 @@ pub fn health_check(host: &str, port: u16) -> bool {
         .set_write_timeout(Some(Duration::from_millis(500)))
         .ok();
     let req = format!("GET /health HTTP/1.1\r\nHost: {host}\r\nConnection: close\r\n\r\n");
-    if stream.write_all(req.as_bytes()).is_err() {
-        return false;
-    }
+    stream.write_all(req.as_bytes()).ok()?;
     let mut buf = String::new();
     let _ = stream.take(4096).read_to_string(&mut buf);
-    buf.contains("\"mdview\"") || buf.contains("200 OK")
+    Some(buf)
 }
 
 #[cfg(test)]
@@ -106,11 +135,30 @@ mod tests {
             host: "127.0.0.1".into(),
             port: 7700,
             started_at: "2026-07-15T00:00:00Z".into(),
+            version: Some("0.5.2".into()),
         };
         let s = serde_json::to_string(&info).unwrap();
         let back: DaemonInfo = serde_json::from_str(&s).unwrap();
         assert_eq!(back.pid, 42);
         assert_eq!(back.base_url(), "http://127.0.0.1:7700");
+        assert_eq!(back.version.as_deref(), Some("0.5.2"));
+    }
+
+    /// A lock file written before `version` existed must still parse — a daemon
+    /// from an older build is exactly the case this field exists to detect, so
+    /// failing to read its lock would defeat the purpose.
+    #[test]
+    fn a_lock_file_without_version_still_parses() {
+        let legacy =
+            r#"{"pid":42,"host":"127.0.0.1","port":7700,"started_at":"2026-07-15T00:00:00Z"}"#;
+        let info: DaemonInfo = serde_json::from_str(legacy).unwrap();
+        assert_eq!(info.pid, 42);
+        assert_eq!(info.version, None);
+    }
+
+    #[test]
+    fn daemon_version_is_none_when_nothing_answers() {
+        assert_eq!(daemon_version("127.0.0.1", 59_998), None);
     }
 
     #[test]

@@ -104,6 +104,24 @@ Ba pha tuần tự trong một nhánh, mỗi pha để lại repo ở trạng th
   kiện để proof point tồn tại, không phải dọn dẹp tuỳ hứng.
 - `crates/mdview/src/cli.rs` — nhánh `open` in cùng định dạng.
 
+**Pha 4 — nâng cấp hệ thống đang chạy** (honors D11, thêm giữa chừng theo
+yêu cầu người dùng)
+
+Migration tự chạy khi `SqliteStore::open` mở DB, nên bản thân việc nâng
+cấp là tự động và thuần bổ sung. Cái **không** tự lo được là một daemon
+bản cũ vẫn đang sống: nâng binary xong, CLI mới migrate DB và phát link
+`/s/...`, trong khi daemon cũ trong bộ nhớ không có route đó — người dùng
+bấm vào và nhận 404, không hiểu vì sao.
+
+- `crates/mdview-core/src/daemon.rs` — `DaemonInfo` mang thêm
+  `version: Option<String>` (Option để lock file cũ vẫn đọc được, không
+  phá tương thích); thêm `daemon_version(host, port)` đọc `/health` bằng
+  đúng client HTTP thô `health_check` đã dùng, không thêm dependency.
+- `crates/mdview/src/doctor.rs` — check `daemon` so version của daemon
+  đang chạy với `env!("CARGO_PKG_VERSION")`, lệch thì `Warn` kèm hướng dẫn
+  `mdview restart`; thêm check mới `index schema` báo `user_version` và
+  liệu `path_hash` đã backfill xong chưa.
+
 ### Các hướng đã loại (và vì sao)
 
 | Hướng | Vì sao loại |
@@ -123,6 +141,7 @@ Ba pha tuần tự trong một nhánh, mỗi pha để lại repo ở trạng th
 | Truy vấn prefix có dùng index không | Trung bình | **Đã chứng minh** trong Pha 2 ở trên: chỉ dạng bind-một-tham-số mới dùng index; `GLOB ? \|\| '*'` thành `SCAN files`. Test phải khẳng định `EXPLAIN QUERY PLAN` chứa `USING INDEX idx_files_hash` — một test chỉ kiểm kết quả trả về sẽ xanh ở cả hai dạng và không bảo vệ được gì |
 | Tính ổn định của hash | Trung bình | Test vector cố định: `path_hash("mdview", "docs/a.md")` phải bằng đúng một hằng số hex viết thẳng trong test — bắt được mọi thay đổi thuật toán sau này |
 | Đổi định dạng output MCP | Trung bình | `mcp.rs` hiện **0 test** và phần dựng text dính với `ensure_daemon_bases()` (spawn daemon). Phải tách `viewable_text(...)` thuần trước (xem Pha 3), rồi test trên hàm đó: 1 dòng khi có `hostname`, nhiều dòng khi bind wildcard không hostname, mỗi dòng chứa mã đúng 12 ký tự hex |
+| **Daemon cũ còn sống sau khi nâng binary** | **Cao** | Không phải rủi ro dữ liệu mà là rủi ro UX: link ngắn 404 im lặng. Chứng minh bằng test cho `daemon_version` (lock file cũ không có trường `version` vẫn parse được, trả `None`) và cho nhánh so version của `doctor` |
 | Route mới đụng route cũ | Thấp | `/s/` không giao với bất kỳ pattern nào trong `router()` (`server.rs:92-111`) — đã xác nhận khi scout |
 
 Ba mục Cao/Trung bình ở trên là điểm chứng minh mang sang
@@ -173,6 +192,23 @@ cargo test --workspace
 
 Thật và chạy được (`cargo 1.96.1` có trên máy này). Mọi test nêu trong
 bản đồ rủi ro và danh sách trường hợp ở trên đều nằm dưới lệnh này.
+
+## Ghi chú lúc dựng
+
+- **Redirect là 303, không phải 302.** `axum::response::Redirect::to` phát
+  303 See Other, và đó cũng đúng thứ `project_home` (`server.rs`) đang
+  dùng sẵn. Ý của D3 — redirect thay vì serve nội dung trực tiếp — giữ
+  nguyên; chỉ con số ghi trong D3 và §6 là sai. Bám theo hành vi có sẵn
+  của repo thay vì ép 302 cho khớp chữ.
+- **Index `idx_files_hash` thuộc về migration, không thuộc `SCHEMA`.**
+  Test đường legacy bắt được: `SCHEMA` chạy trước `migrate`, mà
+  `CREATE TABLE IF NOT EXISTS files` là no-op trên DB cũ — nên tạo index
+  trên `path_hash` trong `SCHEMA` sẽ nổ vì cột chưa tồn tại.
+- **`MIGRATIONS` là danh sách append-only, đóng dấu `user_version` sau
+  từng bước.** Đây là pattern `PRAGMA user_version` chuẩn của SQLite, cũng
+  là thứ `rusqlite_migration` cài đặt bên dưới. Với đúng một bước,
+  dependency đó chỉ bọc lại danh sách này nên chưa đáng thêm; hình dạng để
+  sẵn đúng như nó mong đợi, nên đổi sang dùng nó về sau là thay cơ học.
 
 ## Outstanding questions
 
