@@ -64,7 +64,26 @@ Ba pha tuần tự trong một nhánh, mỗi pha để lại repo ở trạng th
 
 - `crates/mdview-core/src/repository.rs` — hàm truy vấn
   `find_by_hash_prefix(code) -> Option<(project_id, rel_path)>`, dùng
-  `WHERE path_hash GLOB :code || '*'` với `ORDER BY` ổn định và `LIMIT 1`.
+  `WHERE path_hash GLOB ?1` với `ORDER BY` ổn định và `LIMIT 1`, trong đó
+  `?1` được bind bằng **một chuỗi `format!("{code}*")` dựng sẵn trong
+  Rust**.
+
+  **Không được ghép chuỗi trong SQL.** Dạng `GLOB ?1 || '*'` biến vế phải
+  thành một biểu thức thay vì literal/tham số, và tối ưu hoá LIKE/GLOB
+  của SQLite từ chối áp dụng — câu truy vấn vẫn trả **đúng** kết quả nên
+  không test chức năng nào bắt được, nhưng âm thầm thành full scan, đúng
+  thứ D7 chọn A3 để tránh. Đo thật trên 20.000 hàng có `ANALYZE`
+  (SQLite 3.37.2):
+
+  | Dạng | Query plan |
+  |---|---|
+  | `GLOB 'a3f9c1d20b74*'` (literal) | `SEARCH files USING INDEX idx_files_hash` |
+  | `GLOB ?` (tham số đã ghép sẵn) | `SEARCH files USING INDEX idx_files_hash` |
+  | `GLOB ? \|\| '*'` | **`SCAN files`** |
+  | `>= ? AND < ?` | `SEARCH files USING INDEX idx_files_hash` |
+
+  Điều này **sửa lại** dạng SQL viết trong `DISCUSSION.md` §6, vốn ghi
+  `GLOB :code || '*'`. Bản trong plan này là bản đúng để dựng theo.
 - `crates/mdview/src/server.rs` — route `/s/:code` trong `router()`,
   handler trả `Redirect::to("/p/{id}/{rel}")` (302) hoặc `not_found`.
 
@@ -93,7 +112,7 @@ Ba pha tuần tự trong một nhánh, mỗi pha để lại repo ở trạng th
 | Thành phần | Mức | Điều gì chứng minh được |
 |---|---|---|
 | **Migration trên DB đang có dữ liệu** | **Cao** | Test mở một DB dựng theo schema **cũ** (không có cột), chạy `from_conn`, khẳng định mọi hàng có `path_hash` đúng 16 hex; chạy `from_conn` lần hai khẳng định không đổi gì (idempotent) và `user_version` không tăng tiếp |
-| Truy vấn prefix có dùng index không | Trung bình | Test khẳng định `EXPLAIN QUERY PLAN` cho câu `GLOB` có dùng `idx_files_hash` (SQLite chỉ tối ưu GLOB prefix khi collation là BINARY — nếu không, câu này im lặng thành full scan) |
+| Truy vấn prefix có dùng index không | Trung bình | **Đã chứng minh** trong Pha 2 ở trên: chỉ dạng bind-một-tham-số mới dùng index; `GLOB ? \|\| '*'` thành `SCAN files`. Test phải khẳng định `EXPLAIN QUERY PLAN` chứa `USING INDEX idx_files_hash` — một test chỉ kiểm kết quả trả về sẽ xanh ở cả hai dạng và không bảo vệ được gì |
 | Tính ổn định của hash | Trung bình | Test vector cố định: `path_hash("mdview", "docs/a.md")` phải bằng đúng một hằng số hex viết thẳng trong test — bắt được mọi thay đổi thuật toán sau này |
 | Đổi định dạng output MCP | Trung bình | Test khẳng định 1 dòng khi có `hostname`, nhiều dòng khi bind wildcard không hostname; mỗi dòng chứa mã đúng 12 ký tự hex |
 | Route mới đụng route cũ | Thấp | `/s/` không giao với bất kỳ pattern nào trong `router()` (`server.rs:92-111`) — đã xác nhận khi scout |
@@ -114,6 +133,10 @@ item đứng một mình trong đồ thị.
   không chạy `ALTER TABLE` lần nữa.
 - **Chạy `from_conn` hai lần** — idempotent, `user_version` không tăng
   tiếp.
+- **Câu truy vấn prefix dùng index** — `EXPLAIN QUERY PLAN` phải chứa
+  `USING INDEX idx_files_hash`. Test hồi quy bắt buộc: nếu ai đó sau này
+  đổi sang ghép chuỗi trong SQL, mọi test chức năng vẫn xanh còn hiệu năng
+  âm thầm sập.
 - **Mã không tồn tại** — 404, không panic.
 - **Mã ngắn hơn 12 ký tự** — vẫn là prefix hợp lệ về mặt SQL; hành vi phải
   xác định (khớp hàng đầu theo `ORDER BY` ổn định), không phải ngẫu nhiên.
