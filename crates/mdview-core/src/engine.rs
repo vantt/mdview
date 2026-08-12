@@ -140,10 +140,15 @@ impl Engine {
     }
 
     /// Index a single file and (re)compute its outgoing links. Used by view_file
-    /// and the filesystem watcher.
-    pub fn index_file_incremental(&self, project: &Project, abs: &Path) -> Result<()> {
-        IndexService::index_file(&self.store, project, abs, self.max_bytes())?;
-        self.compute_file_links(project, abs)
+    /// and the filesystem watcher. Returns whether the file's *content* actually
+    /// changed (see `IndexService::index_file`) — the watcher uses this to skip
+    /// a live-reload broadcast for a touch that left bytes identical.
+    pub fn index_file_incremental(&self, project: &Project, abs: &Path) -> Result<bool> {
+        let changed = IndexService::index_file(&self.store, project, abs, self.max_bytes())?
+            .map(|(_, changed)| changed)
+            .unwrap_or(false);
+        self.compute_file_links(project, abs)?;
+        Ok(changed)
     }
 
     /// Drop a file from the index (and its outgoing links).

@@ -33,13 +33,17 @@ impl IndexService {
         Ok(n)
     }
 
-    /// Index (or refresh) a single file. Returns None if skipped (too big / unreadable).
+    /// Index (or refresh) a single file. `None` if skipped (too big / unreadable).
+    /// The `bool` alongside the indexed file is whether its *content* actually
+    /// changed from what was stored before — a touch that leaves bytes identical
+    /// (git checkout, an editor's no-op autosave) reports `false`, which is what
+    /// lets a caller skip a needless live-reload broadcast.
     pub fn index_file(
         store: &SqliteStore,
         project: &Project,
         abs: &Path,
         max_bytes: u64,
-    ) -> Result<Option<IndexedFile>> {
+    ) -> Result<Option<(IndexedFile, bool)>> {
         let meta = match std::fs::metadata(abs) {
             Ok(m) => m,
             Err(_) => return Ok(None),
@@ -69,8 +73,8 @@ impl IndexService {
             size_bytes: meta.len(),
             modified_at,
         };
-        store.upsert_file(&f, &content)?;
-        Ok(Some(f))
+        let changed = store.upsert_file(&f, &content)?;
+        Ok(Some((f, changed)))
     }
 
     /// Remove a file from the index by absolute path.
@@ -134,6 +138,14 @@ fn filename(p: &Path) -> String {
         .and_then(|s| s.to_str())
         .unwrap_or("untitled")
         .to_string()
+}
+
+/// Hash of a file's content, used to tell a real edit apart from a touch that
+/// left the bytes unchanged (git checkout, an editor's no-op autosave). Stored
+/// on the `files` row and compared against on every reindex — see
+/// `SqliteStore::upsert_file`.
+pub fn content_hash(content: &str) -> String {
+    crate::hash::fnv1a64_hex(content.as_bytes())
 }
 
 /// First `# H1` in the document, if any.

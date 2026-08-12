@@ -4,7 +4,7 @@
 use crate::domain::{IndexedFile, Project, SearchResult};
 use crate::error::Result;
 use crate::short_link;
-use rusqlite::{params, Connection};
+use rusqlite::{params, Connection, OptionalExtension};
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
@@ -93,13 +93,26 @@ impl SqliteStore {
 
     // ---- files ----
 
-    pub fn upsert_file(&self, f: &IndexedFile, content: &str) -> Result<()> {
+    /// Upsert a file's index row. Returns whether its *content* actually
+    /// changed from what was stored before (a brand-new row counts as
+    /// changed) — the filesystem watcher uses this to skip a live-reload
+    /// broadcast for a touch that left bytes identical (see D2,
+    /// `docs/history/scoped-live-reload/CONTEXT.md`).
+    pub fn upsert_file(&self, f: &IndexedFile, content: &str) -> Result<bool> {
         let c = self.conn.lock().unwrap();
+        let new_content_hash = crate::indexer::content_hash(content);
+        let old_content_hash: Option<String> = c
+            .query_row(
+                "SELECT content_hash FROM files WHERE project_id=?1 AND rel_path=?2",
+                params![f.project_id, f.rel_path],
+                |r| r.get(0),
+            )
+            .optional()?;
         c.execute(
-            "INSERT INTO files(project_id,rel_path,abs_path,title,size_bytes,modified_at,path_hash)
-             VALUES(?1,?2,?3,?4,?5,?6,?7)
+            "INSERT INTO files(project_id,rel_path,abs_path,title,size_bytes,modified_at,path_hash,content_hash)
+             VALUES(?1,?2,?3,?4,?5,?6,?7,?8)
              ON CONFLICT(project_id,rel_path) DO UPDATE SET
-               abs_path=?3, title=?4, size_bytes=?5, modified_at=?6, path_hash=?7",
+               abs_path=?3, title=?4, size_bytes=?5, modified_at=?6, path_hash=?7, content_hash=?8",
             params![
                 f.project_id,
                 f.rel_path,
@@ -107,7 +120,8 @@ impl SqliteStore {
                 f.title,
                 f.size_bytes as i64,
                 f.modified_at,
-                short_link::path_hash(&f.project_id, &f.rel_path)
+                short_link::path_hash(&f.project_id, &f.rel_path),
+                new_content_hash,
             ],
         )?;
         c.execute(
@@ -118,7 +132,7 @@ impl SqliteStore {
             "INSERT INTO files_fts(project_id,rel_path,title,content) VALUES(?1,?2,?3,?4)",
             params![f.project_id, f.rel_path, f.title, content],
         )?;
-        Ok(())
+        Ok(old_content_hash.as_deref() != Some(new_content_hash.as_str()))
     }
 
     pub fn delete_file(&self, project_id: &str, rel_path: &str) -> Result<()> {
@@ -330,10 +344,11 @@ impl SqliteStore {
 /// that crate would only wrap this list, so the dependency is not earned yet;
 /// the shape here is deliberately the one it expects, so adopting it later is a
 /// mechanical swap rather than a redesign.
-const MIGRATIONS: &[(i64, fn(&Connection) -> Result<()>)] = &[(1, migration_1_path_hash)];
+const MIGRATIONS: &[(i64, fn(&Connection) -> Result<()>)] =
+    &[(1, migration_1_path_hash), (2, migration_2_content_hash)];
 
 /// Schema version this build expects — the last entry in [`MIGRATIONS`].
-pub const SCHEMA_VERSION: i64 = 1;
+pub const SCHEMA_VERSION: i64 = 2;
 
 /// Bring an existing database up to [`SCHEMA_VERSION`].
 ///
@@ -373,6 +388,54 @@ fn migration_1_path_hash(conn: &Connection) -> Result<()> {
         [],
     )?;
     backfill_path_hash(conn)
+}
+
+/// v2 — scoped live-reload support. `content_hash` lets the watcher tell a real
+/// edit apart from a touch that left bytes identical, so it can skip a needless
+/// reload broadcast (see D2, `docs/history/scoped-live-reload/CONTEXT.md`).
+fn migration_2_content_hash(conn: &Connection) -> Result<()> {
+    if !has_column(conn, "files", "content_hash")? {
+        conn.execute(
+            "ALTER TABLE files ADD COLUMN content_hash TEXT NOT NULL DEFAULT ''",
+            [],
+        )?;
+    }
+    backfill_content_hash(conn)
+}
+
+/// Fill `content_hash` for every row still carrying the empty default, reading
+/// each file's already-indexed content straight from `files_fts` rather than
+/// touching disk — the same content that would otherwise need re-reading is
+/// already sitting in that table from the last successful index.
+fn backfill_content_hash(conn: &Connection) -> Result<()> {
+    let pending: Vec<(String, String, String)> = {
+        let mut stmt = conn.prepare(
+            "SELECT f.project_id, f.rel_path, COALESCE(t.content, '')
+             FROM files f
+             LEFT JOIN files_fts t ON t.project_id = f.project_id AND t.rel_path = f.rel_path
+             WHERE f.content_hash = ''",
+        )?;
+        let rows = stmt.query_map([], |r| {
+            Ok((
+                r.get::<_, String>(0)?,
+                r.get::<_, String>(1)?,
+                r.get::<_, String>(2)?,
+            ))
+        })?;
+        rows.filter_map(|r| r.ok()).collect()
+    };
+    if pending.is_empty() {
+        return Ok(());
+    }
+    conn.execute_batch("BEGIN")?;
+    for (project_id, rel_path, content) in &pending {
+        conn.execute(
+            "UPDATE files SET content_hash=?3 WHERE project_id=?1 AND rel_path=?2",
+            params![project_id, rel_path, crate::indexer::content_hash(content)],
+        )?;
+    }
+    conn.execute_batch("COMMIT")?;
+    Ok(())
 }
 
 fn has_column(conn: &Connection, table: &str, column: &str) -> Result<bool> {
@@ -432,6 +495,7 @@ CREATE TABLE IF NOT EXISTS files (
     size_bytes INTEGER NOT NULL,
     modified_at TEXT NOT NULL,
     path_hash TEXT NOT NULL DEFAULT '',
+    content_hash TEXT NOT NULL DEFAULT '',
     PRIMARY KEY(project_id, rel_path)
 );
 CREATE INDEX IF NOT EXISTS idx_files_project ON files(project_id);

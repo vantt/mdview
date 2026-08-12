@@ -96,13 +96,9 @@ xếp lại (component đơn, không có nhánh song song thật).
   `projectId` lẫn `relPath` của trang hiện tại → `location.reload()`.
   Không quan tâm `kind` — cả `changed` lẫn `removed` đều reload khi khớp
   danh tính (D4).
-- **Không cần loại trừ `/p/:id/_search` bằng tay.** `is_markdown()`
-  (`indexer.rs`) chỉ index file `.md`/`.markdown`; chuỗi `"_search"`
-  không có phần mở rộng đó nên không bao giờ là `rel_path` thật của một
-  sự kiện server phát ra. Route `/p/:id/_search` (`server.rs:107`) là
-  static route, axum khớp nó trước wildcard `/p/:id/*path` nên
-  `search_page` không bao giờ nhận nhầm là file — bất biến này được giữ
-  bởi bản chất của `is_markdown`, không phải bởi code mới viết ở đây.
+- **`_search` bị loại trừ tường minh trong `currentFileIdentity()`**,
+  không dựa vào bất biến phía server. *(Sửa lại lúc dựng — xem "Ghi chú
+  lúc dựng" bên dưới: lý luận ban đầu ở đây là sai.)*
 
 ### Các hướng đã loại (và vì sao)
 
@@ -161,6 +157,65 @@ xếp lại (component đơn, không có nhánh song song thật).
 ```
 cargo test --workspace
 ```
+
+## Ghi chú lúc dựng
+
+- **Lý luận ban đầu về `_search` là sai — bắt được bằng proof thật, không
+  phải đọc lại.** Kế hoạch lúc đầu cho rằng không cần loại trừ `_search`
+  ở client vì server không bao giờ phát `rel_path == "_search"` (do
+  `is_markdown()` chỉ index `.md`/`.markdown`). Lý luận đó đúng cho phía
+  **server phát cái gì**, nhưng nhầm sang cả phía **client parse thế
+  nào** — hai việc khác nhau. `currentFileIdentity()` chỉ dựa vào
+  `location.pathname`, không biết gì về `is_markdown()`; nếu có sự kiện
+  `rel_path == "_search"` (dù hiện server không tạo ra), trang search vẫn
+  parse nhầm thành đang xem file tên `_search` và reload sai — đúng loại
+  lỗi D3 muốn xoá bỏ. Bắt được bằng cách chạy proof thật trên chính file
+  `app.js` đã commit (Node `vm`, trích đúng khối `ws.onmessage` mới —
+  không viết lại logic để test), không phải suy luận. Đã sửa:
+  `currentFileIdentity()` loại trừ `_search` tường minh, không dựa vào
+  bất biến ở nơi khác.
+- **Vì sao proof chạy trên `vm` thay vì thêm test harness:** repo không
+  có `package.json`/runner JS nào (đã xác nhận lúc lập plan). Script proof
+  nằm ngoài repo (`/tmp` scratchpad), đọc trực tiếp file `app.js` thật
+  bằng `readFileSync`, trích đúng khối `ws.onmessage` (khối này tự đứng
+  được — chỉ dùng `location`/`WebSocket`/`JSON`/`setTimeout`, không đọc
+  gì từ phần đầu file), rồi chạy trong `vm.createContext` với
+  `location`/`WebSocket` giả lập tối thiểu. Đây là proof thật trên đúng
+  byte đã commit, không phải bản viết lại — nhưng vẫn không phải test tự
+  động trong CI, đúng như gap đã ghi nhận ở phần Bản đồ rủi ro.
+- **10 kịch bản đã chứng minh bằng proof này:** khớp đúng file → reload;
+  khác `rel_path` cùng project → không; cùng `rel_path` khác project →
+  không; trang chủ/`/settings`/`/p/:id/_search` → không bao giờ; xoá file
+  khớp đúng danh tính → vẫn reload (D4); message JSON hỏng → không crash,
+  không reload; `rel_path` Unicode qua percent-encoding → decode và khớp
+  đúng; nhiều event trong một batch → chỉ đúng event khớp mới kích reload.
+
+- **Không lấy được proof OS-level filesystem-event đầy đủ trong sandbox
+  này — đã xác minh đây là giới hạn môi trường, không phải lỗi code.**
+  Thử chạy daemon thật, sửa file thật, đọc `/ws` bằng WebSocket client thô
+  (Python, chỉ dùng stdlib) — không nhận được broadcast nào dù đợi 10
+  giây. Trước khi kết luận đây là bug, cô lập biến số bằng cách gọi thẳng
+  `inotify_add_watch` qua `ctypes` (bỏ qua hoàn toàn mdview): nhận
+  **errno 28 (ENOSPC — "No space left on device")**, đúng nghĩa "đã chạm
+  giới hạn số lượng inotify watch của hệ thống" (`man inotify`). Thử lại
+  sau khi dừng daemon test của chính mình (để loại trừ khả năng do chính
+  nó giữ tài nguyên) — vẫn ENOSPC, xác nhận nguyên nhân là các tiến trình
+  khác trong sandbox dùng chung, ngoài tầm kiểm soát của item này.
+  `spawn_watchers` (code cũ, không phải viết ở đây) đang nuốt lỗi
+  `.watch(...)` bằng `.ok()` — đúng chỗ khiến silent failure này khó thấy;
+  sửa cách xử lý lỗi đó là việc ngoài phạm vi D1–D4 đã khoá, không làm ở
+  item này.
+- **Proof thay thế cho phần không chạy được:** tách `broadcast_payload()`
+  làm hàm thuần (không I/O) khỏi closure của debouncer, test trực tiếp
+  hình dạng gói tin `{"events":[...]}` mà `app.js` parse, và xác nhận
+  batch rỗng trả `None` (không gửi gì — đúng cơ chế sửa root cause 1).
+  Cộng với test `reindex_paths` (gọi thẳng, không qua OS notify — không bị
+  ảnh hưởng bởi giới hạn inotify) đã chứng minh đúng logic "đổi/không
+  đổi/xoá". Phần duy nhất chưa chứng minh được trong sandbox này là chuỗi
+  tích hợp thật `notify` → `notify_debouncer_full` → closure — bản thân
+  các thư viện đó không đổi trong item này, chỉ closure gọi chúng đổi
+  (rút gọn 8 dòng logic gửi thành gọi `broadcast_payload`), nên rủi ro
+  còn lại là thấp.
 
 ## Outstanding questions
 

@@ -10,6 +10,7 @@ pub mod domain;
 pub mod engine;
 pub mod error;
 pub mod fuzzy;
+mod hash;
 pub mod indexer;
 pub mod link_resolver;
 pub mod process;
