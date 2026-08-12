@@ -7,3 +7,7 @@
 # Rust
 /target
 crates/mdview-desktop/target/
+
+# fgOS work-item state — local tooling, not part of this project
+/.fgos/
+/.claude/worktrees/
