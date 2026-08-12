@@ -133,6 +133,71 @@ The Code section lives under the `_code` prefix (`/p/:id/_code/*path`), followin
 the existing underscore-prefix convention already used by `_search` and `_jump`,
 so it does not collide with the namespace of real file paths.
 
+## Why the gate moved from extensions to identity
+
+mdview already had a file-serving path before the Code viewer existed:
+`asset_path`, which serves images and PDFs referenced from markdown. That one
+*does* use an extension allowlist (`ALLOWED_ASSET_EXTENSIONS`), and it is
+correct there — the set of things a markdown document may legitimately embed is
+small and closed.
+
+The Code viewer deliberately widens exposure to "most text files". Once the set
+of servable things is open-ended, an extension allowlist stops being a gate at
+all, which is precisely why the check had to move from *extension* to
+*identity*. The two mechanisms coexist in the codebase for that reason, and the
+difference between them is the difference in what each one is allowed to serve.
+
+The Code viewer did inherit one thing from `asset_path` unchanged: the sequence
+of normalise → canonicalise → verify the path still starts with the project root
+→ reject by component name. The comment there already explained why the check
+must run on the *canonical* path rather than the URL segments — an
+innocent-looking symlink can point anywhere — and the denylist applies that same
+reasoning.
+
+## Dotfiles are browsable on purpose
+
+The gate does not filter hidden files as a class. That is a deliberate choice,
+not an oversight: `.github/workflows/` is an ordinary thing to want to read, and
+so are most dotfile configs at the root of a project. Filtering every dotfile
+would break that for no security gain.
+
+The safety property does not come from hiding dotfiles. It comes from the
+denylist, which names the dangerous ones directly — and which keeps working when
+a project has no `.gitignore` at all, where a hidden-file filter and the
+gitignore gate would both be silent.
+
+## Every refusal returns the same error internally
+
+Refusals do not carry a reason through the stack. Every denied case — traversal,
+symlink escape, denylist hit, gitignore hit — reuses one error, which lets the
+HTTP layer map all of them to a plain 404 without deciding anything.
+
+This is the implementation half of the "refused looks like missing" property
+described above. If the reason travelled outward, some layer would eventually be
+tempted to render it, and a message reading "blocked because sensitive" would
+confirm the file exists. Collapsing the reasons at the source means there is
+nothing to leak later.
+
+## When the project is not a git repository
+
+The gitignore machinery normally anchors itself to a git repository. A registered
+project need not be one, so the behaviour there was pinned deliberately rather
+than left to whatever the library happened to do: with no repository and no
+`.gitignore`, no gitignore filtering applies — and the denylist still does. A
+test asserts exactly that, because it is the case where the two gates stop being
+redundant and the denylist is carrying the whole weight alone.
+
+A related edge is a broken symlink, where canonicalisation fails outright. The
+resolver falls back to the joined path, matching what `asset_path` already did,
+but the requirement is that such a path then fails at the *read* step rather than
+slipping past the gate.
+
+## Listing order
+
+Directory listings are sorted directories first, then files, each group
+alphabetically and case-insensitively. This is cosmetic rather than a safety
+property, but it is asserted by a test so that the ordering does not drift.
+
 ## Sources
 
 Synthesised from the record of `tsk-1hb` (and its children `tsk-1hb-1`,
@@ -141,3 +206,8 @@ Synthesised from the record of `tsk-1hb` (and its children `tsk-1hb-1`,
 `plans/260812-1458-code-viewer-section/`, and the shipped gate in
 `crates/mdview-core/src/code_source.rs` with its tests. Commits `ca2bac0`,
 `eef419e`, `057e138`.
+
+Also synthesised from the record of `tsk-1hb-1` (the `code_source` module
+itself), which contributed the threat model's contrast with `asset_path`'s
+extension allowlist, the deliberate decision to keep dotfiles browsable, the
+single-error refusal policy, the no-git-repository case, and the listing order.
