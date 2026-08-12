@@ -407,28 +407,42 @@ fn migration_2_content_hash(conn: &Connection) -> Result<()> {
 /// each file's already-indexed content straight from `files_fts` rather than
 /// touching disk — the same content that would otherwise need re-reading is
 /// already sitting in that table from the last successful index.
+///
+/// The two tables are joined in Rust with a `HashMap`, one full scan of each
+/// (O(n+m)), rather than a SQL `LEFT JOIN` on `files_fts`'s `project_id`/
+/// `rel_path` — those columns are `UNINDEXED`, so SQLite has no index to join
+/// through and falls back to a nested-loop scan (O(n×m)). Measured on 16,000
+/// rows: the SQL join never finished in over three minutes against the real
+/// production database; this version completes in under 50ms against an
+/// equivalent synthetic table (tsk-155).
 fn backfill_content_hash(conn: &Connection) -> Result<()> {
-    let pending: Vec<(String, String, String)> = {
-        let mut stmt = conn.prepare(
-            "SELECT f.project_id, f.rel_path, COALESCE(t.content, '')
-             FROM files f
-             LEFT JOIN files_fts t ON t.project_id = f.project_id AND t.rel_path = f.rel_path
-             WHERE f.content_hash = ''",
-        )?;
-        let rows = stmt.query_map([], |r| {
-            Ok((
-                r.get::<_, String>(0)?,
-                r.get::<_, String>(1)?,
-                r.get::<_, String>(2)?,
-            ))
-        })?;
+    let pending: Vec<(String, String)> = {
+        let mut stmt =
+            conn.prepare("SELECT project_id, rel_path FROM files WHERE content_hash = ''")?;
+        let rows = stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))?;
         rows.filter_map(|r| r.ok()).collect()
     };
     if pending.is_empty() {
         return Ok(());
     }
+
+    let content_by_key: std::collections::HashMap<(String, String), String> = {
+        let mut stmt = conn.prepare("SELECT project_id, rel_path, content FROM files_fts")?;
+        let rows = stmt.query_map([], |r| {
+            Ok((
+                (r.get::<_, String>(0)?, r.get::<_, String>(1)?),
+                r.get::<_, String>(2)?,
+            ))
+        })?;
+        rows.filter_map(|r| r.ok()).collect()
+    };
+
     conn.execute_batch("BEGIN")?;
-    for (project_id, rel_path, content) in &pending {
+    for (project_id, rel_path) in &pending {
+        let content = content_by_key
+            .get(&(project_id.clone(), rel_path.clone()))
+            .map(String::as_str)
+            .unwrap_or("");
         conn.execute(
             "UPDATE files SET content_hash=?3 WHERE project_id=?1 AND rel_path=?2",
             params![project_id, rel_path, crate::indexer::content_hash(content)],
@@ -641,6 +655,66 @@ mod tests {
                 .unwrap(),
             Some(("mdview".into(), "docs/a.md".into()))
         );
+    }
+
+    /// Regression guard with teeth (tsk-155): the backfill's original SQL
+    /// `LEFT JOIN` on `files_fts`'s `UNINDEXED` columns degraded into an
+    /// O(n×m) nested-loop scan — 2.58s at 3,000 rows in an isolated repro,
+    /// and it never finished at all within three minutes against the real
+    /// 15,480-row production database. A functional test alone (like
+    /// `migrate_backfills_a_legacy_database` above) would never catch a
+    /// regression back to that shape, since both versions produce identical
+    /// output — only wall-clock time distinguishes them. 4,000 rows here is
+    /// enough to make the O(n×m) shape unmistakably slow while staying fast
+    /// under the *correct* O(n+m) one.
+    #[test]
+    fn backfilling_thousands_of_rows_stays_fast() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "CREATE TABLE files (project_id TEXT NOT NULL, rel_path TEXT NOT NULL,
+                 abs_path TEXT NOT NULL, title TEXT NOT NULL, size_bytes INTEGER NOT NULL,
+                 modified_at TEXT NOT NULL, path_hash TEXT NOT NULL DEFAULT '',
+                 content_hash TEXT NOT NULL DEFAULT '', PRIMARY KEY(project_id, rel_path));
+             CREATE VIRTUAL TABLE files_fts USING fts5(
+                 project_id UNINDEXED, rel_path UNINDEXED, title, content);",
+        )
+        .unwrap();
+        const N: usize = 4000;
+        conn.execute_batch("BEGIN").unwrap();
+        for i in 0..N {
+            let rel = format!("f{i}.md");
+            conn.execute(
+                "INSERT INTO files VALUES('p1',?1,?1,'T',1,'t','','')",
+                params![rel],
+            )
+            .unwrap();
+            conn.execute(
+                "INSERT INTO files_fts(project_id,rel_path,title,content) VALUES('p1',?1,'T',?2)",
+                params![
+                    rel,
+                    format!("body {i} filler text to keep rows non-trivial")
+                ],
+            )
+            .unwrap();
+        }
+        conn.execute_batch("COMMIT").unwrap();
+
+        let start = std::time::Instant::now();
+        backfill_content_hash(&conn).unwrap();
+        let elapsed = start.elapsed();
+        assert!(
+            elapsed.as_secs() < 2,
+            "backfill of {N} rows took {elapsed:?} -- likely regressed back to an O(n*m) join"
+        );
+
+        let unfilled: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM files WHERE content_hash=''",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(unfilled, 0);
     }
 
     #[test]
