@@ -8,6 +8,12 @@
 /target
 crates/mdview-desktop/target/
 
-# fgOS work-item state — local tooling, not part of this project
-/.fgos/
+# fgOS work-item state — local tooling, not part of this project.
+# events.jsonl is the exception: it is the append-only decision/outcome log,
+# the durable record. Everything else here (state.json and the other logs) is
+# derived from it or machine-local, so it stays out.
+# Must exclude the contents rather than the directory itself: git cannot
+# re-include a file inside an excluded directory.
+/.fgos/*
+!/.fgos/events.jsonl
 /.claude/worktrees/
