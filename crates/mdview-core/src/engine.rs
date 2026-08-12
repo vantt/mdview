@@ -2,12 +2,13 @@
 //! config, and renderer, and implements the high-level use cases (view_file,
 //! render, search, registry) — including implicit project auto-create (FR-04).
 
+use crate::code_source::{self, DirListing, SourceContent};
 use crate::config::Config;
 use crate::domain::{IndexedFile, Project, RenderedPage, SearchResult};
 use crate::error::{Error, Result};
 use crate::fuzzy::{self, FuzzyHit};
 use crate::indexer::{self, IndexService};
-use crate::render::{self, RenderService};
+use crate::render::{self, HighlightedSource, RenderService};
 use crate::repository::SqliteStore;
 use std::path::{Path, PathBuf};
 
@@ -279,6 +280,50 @@ impl Engine {
         }
         Ok(canonical)
     }
+
+    /// Resolve a Code-section request: a directory listing, a highlighted
+    /// text file, or a binary notice. Every filesystem access goes through
+    /// `code_source` (never `asset_path`'s extension allowlist — the Code
+    /// section serves arbitrary text, so identity of the file is what's
+    /// gated, not its extension). The caller (HTTP layer) never touches
+    /// `code_source` or the renderer directly; both are private to `Engine`.
+    pub fn code_path(&self, project_id: &str, rel_path: &str) -> Result<CodeView> {
+        let project = self
+            .store
+            .get_project(project_id)?
+            .ok_or_else(|| Error::ProjectNotFound(project_id.to_string()))?;
+        let exclude = &self.config.indexing.exclude_patterns;
+        let abs = code_source::resolve_source_path(&project.root_path, rel_path, exclude)?;
+        if abs.is_dir() {
+            let listing = code_source::list_dir(&project.root_path, rel_path, exclude)?;
+            return Ok(CodeView::Dir(listing));
+        }
+        match code_source::read_source(&abs)? {
+            SourceContent::Binary { size } => Ok(CodeView::Binary { size }),
+            SourceContent::Text { text, truncated } => {
+                let size = text.len() as u64;
+                let highlighted = self.render.highlight_source(&abs, &text);
+                Ok(CodeView::File {
+                    highlighted,
+                    truncated,
+                    size,
+                })
+            }
+        }
+    }
+}
+
+/// Result of resolving a Code-section path — see `Engine::code_path`.
+pub enum CodeView {
+    Dir(DirListing),
+    File {
+        highlighted: HighlightedSource,
+        truncated: bool,
+        size: u64,
+    },
+    Binary {
+        size: u64,
+    },
 }
 
 /// Extensions asset_path serves. Mirrors the 9 tokens

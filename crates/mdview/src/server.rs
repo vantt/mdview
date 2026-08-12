@@ -108,6 +108,8 @@ fn router(state: AppState) -> Router {
         .route("/p/:id/", get(project_home))
         .route("/p/:id/_search", get(search_page))
         .route("/p/:id/_jump", get(jump_search))
+        .route("/p/:id/_code/", get(code_root))
+        .route("/p/:id/_code/*path", get(code_dir_or_file))
         .route("/p/:id/*path", get(project_path))
         .with_state(state)
 }
@@ -450,6 +452,83 @@ async fn jump_search(
         .fuzzy_files(&id, &query.q, query.limit)
         .unwrap_or_default();
     Json(hits).into_response()
+}
+
+async fn code_root(State(st): State<AppState>, Path(id): Path<String>) -> Response {
+    code_response(&st, &id, "").await
+}
+
+async fn code_dir_or_file(
+    State(st): State<AppState>,
+    Path((id, path)): Path<(String, String)>,
+) -> Response {
+    code_response(&st, &id, &path).await
+}
+
+/// Shared body for both Code-section routes. Every filesystem access goes
+/// through `Engine::code_path`, the only thing allowed to touch a file for
+/// this section — this function never computes a path itself. A denied path
+/// and a missing path return the identical 404 body: a distinguishing
+/// message would itself disclose that a denied file exists.
+async fn code_response(st: &AppState, id: &str, path: &str) -> Response {
+    let Ok(Some(project)) = st.engine.get_project(id) else {
+        return not_found("file not found");
+    };
+    match st.engine.code_path(id, path) {
+        Ok(mdview_core::engine::CodeView::Dir(listing)) => {
+            Html(views::code_dir_page(&project, &listing)).into_response()
+        }
+        Ok(mdview_core::engine::CodeView::File {
+            highlighted,
+            truncated,
+            size,
+        }) => {
+            let sidebar = code_sidebar_listing(st, id, path);
+            Html(views::code_page(
+                &project,
+                path,
+                views::CodeBody::Text {
+                    highlighted: &highlighted,
+                    truncated,
+                    size,
+                },
+                &sidebar,
+            ))
+            .into_response()
+        }
+        Ok(mdview_core::engine::CodeView::Binary { size }) => {
+            let sidebar = code_sidebar_listing(st, id, path);
+            Html(views::code_page(
+                &project,
+                path,
+                views::CodeBody::Binary { size },
+                &sidebar,
+            ))
+            .into_response()
+        }
+        Err(_) => not_found("file not found"),
+    }
+}
+
+/// The directory listing for a file's sidebar (its containing folder). Falls
+/// back to an empty listing on lookup failure — the sidebar is navigation
+/// chrome, not the reason the request itself would fail.
+fn code_sidebar_listing(
+    st: &AppState,
+    id: &str,
+    file_path: &str,
+) -> mdview_core::code_source::DirListing {
+    let parent = match file_path.rfind('/') {
+        Some(i) => &file_path[..i],
+        None => "",
+    };
+    match st.engine.code_path(id, parent) {
+        Ok(mdview_core::engine::CodeView::Dir(listing)) => listing,
+        _ => mdview_core::code_source::DirListing {
+            rel_path: parent.to_string(),
+            entries: Vec::new(),
+        },
+    }
 }
 
 async fn ws_handler(ws: WebSocketUpgrade, State(st): State<AppState>) -> Response {

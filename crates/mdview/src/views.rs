@@ -2,8 +2,10 @@
 //! Theme is CSS-variable driven (no-flash head script); code colors come from
 //! `/highlight.css` (syntect class-based), so themes switch without re-render.
 
+use mdview_core::code_source::DirListing;
 use mdview_core::config::Config;
 use mdview_core::domain::{IndexedFile, Project, RenderedPage, SearchResult};
+use mdview_core::render::HighlightedSource;
 
 pub fn layout(title: &str, head_extra: &str, body: &str) -> String {
     format!(
@@ -80,7 +82,7 @@ pub fn file_page(
 ) -> String {
     let tree = file_tree(project, files, &file.rel_path);
     let right = right_panel(project, page, backlinks);
-    let breadcrumb = breadcrumb(project, &file.rel_path);
+    let breadcrumb = breadcrumb(project, "", &file.rel_path);
     // Raw markdown source for copy-as-markdown: the client maps a DOM selection
     // (via data-sourcepos line ranges) back to these source lines. Escape `<`
     // so a source containing "</script>" can't break out of the tag.
@@ -144,7 +146,8 @@ pub fn file_page(
         topbar = topbar_full(
             sidebar_toggle(),
             &format!(
-                "<span class=\"crumb\">{pname} / {rel}</span>",
+                "{switch}<span class=\"crumb\">{pname} / {rel}</span>",
+                switch = section_switch(project, Section::Docs),
                 pname = esc(&project.name),
                 rel = esc(&file.rel_path),
             ),
@@ -213,16 +216,278 @@ fn right_panel(project: &Project, page: &RenderedPage, backlinks: &[(String, Str
 }
 
 /// Breadcrumb of path segments (orientation only; folders are not pages).
-fn breadcrumb(project: &Project, rel_path: &str) -> String {
+/// `base` is the section's root prefix under `/p/:id/` — `""` for Docs,
+/// `"_code/"` for the Code section — so both sections share this one
+/// function instead of a near-duplicate each.
+fn breadcrumb(project: &Project, base: &str, rel_path: &str) -> String {
     let mut crumbs = format!(
-        "<a href=\"/p/{pid}/\">{name}</a>",
+        "<a href=\"/p/{pid}/{base}\">{name}</a>",
         pid = esc(&project.id),
+        base = base,
         name = esc(&project.name)
     );
-    for seg in rel_path.split('/') {
+    for seg in rel_path.split('/').filter(|s| !s.is_empty()) {
         crumbs.push_str(&format!(" <span class=\"sep\">/</span> {}", esc(seg)));
     }
     format!("<nav class=\"breadcrumb\">{crumbs}</nav>")
+}
+
+/// Which section's page is currently active, for `section_switch`.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Section {
+    Docs,
+    Code,
+}
+
+/// Docs|Code toggle for the top bar. The only change `file_page` makes to
+/// the existing Docs pages — Code pages carry it via the same function.
+fn section_switch(project: &Project, active: Section) -> String {
+    let pid = esc(&project.id);
+    let docs_current = if active == Section::Docs {
+        " aria-current=\"page\""
+    } else {
+        ""
+    };
+    let code_current = if active == Section::Code {
+        " aria-current=\"page\""
+    } else {
+        ""
+    };
+    format!(
+        "<nav class=\"section-switch\"><a href=\"/p/{pid}/\"{docs_current}>Docs</a><a href=\"/p/{pid}/_code/\"{code_current}>Code</a></nav>"
+    )
+}
+
+/// What the main pane of a Code-section file page shows: highlighted source,
+/// or a binary notice (never a garbled render of raw bytes).
+pub enum CodeBody<'a> {
+    Text {
+        highlighted: &'a HighlightedSource,
+        truncated: bool,
+        size: u64,
+    },
+    Binary {
+        size: u64,
+    },
+}
+
+/// A single source file in the Code section: line-numbered highlighted
+/// source (or a binary notice) plus a sidebar showing its containing
+/// directory. Deliberately does not reuse `file_page` — that function is
+/// bound to `IndexedFile`/`RenderedPage` and carries a TOC, backlinks, and
+/// the copy-as-markdown source blob, none of which exist here.
+pub fn code_page(
+    project: &Project,
+    rel_path: &str,
+    body: CodeBody,
+    sidebar: &DirListing,
+) -> String {
+    let active = base_name(rel_path);
+    let tree = code_tree(project, sidebar, Some(active));
+    let breadcrumb = breadcrumb(project, "_code/", rel_path);
+
+    let main = match body {
+        CodeBody::Binary { size } => format!(
+            "<div class=\"codeview__binary\">Binary file &middot; {size} — cannot be displayed.</div>",
+            size = format_size(size)
+        ),
+        CodeBody::Text {
+            highlighted,
+            truncated,
+            size,
+        } => {
+            let banner = if truncated {
+                "<div class=\"codeview__banner\">File truncated — showing the first part only.</div>"
+                    .to_string()
+            } else {
+                String::new()
+            };
+            let mut rows = String::with_capacity(highlighted.lines.len() * 64);
+            for (i, line) in highlighted.lines.iter().enumerate() {
+                let n = i + 1;
+                rows.push_str(&format!(
+                    "<tr id=\"L{n}\"><td class=\"codeview__num\"><a href=\"#L{n}\">{n}</a></td><td class=\"codeview__line\"><code>{line}</code></td></tr>"
+                ));
+            }
+            format!(
+                "{banner}<div class=\"codeview__head\"><span class=\"codeview__lang\">{lang}</span> \
+                 <span class=\"codeview__meta\">{lines} lines &middot; {size}</span></div>\
+                 <table class=\"codeview__table\">{rows}</table>",
+                banner = banner,
+                lang = esc(&highlighted.syntax_name),
+                lines = highlighted.lines.len(),
+                size = format_size(size),
+                rows = rows,
+            )
+        }
+    };
+
+    let body_html = format!(
+        r#"{topbar}
+<div class="layout">
+  <aside id="sidebar" class="sidebar">{tree}</aside>
+  <div class="sidebar-backdrop"></div>
+  <main class="content">
+    {breadcrumb}
+    <div class="codeview">{main}</div>
+  </main>
+</div>"#,
+        topbar = topbar_full(
+            sidebar_toggle(),
+            &format!(
+                "{switch}<span class=\"crumb\">{pname} / {rel}</span>",
+                switch = section_switch(project, Section::Code),
+                pname = esc(&project.name),
+                rel = esc(rel_path),
+            ),
+            "",
+        ),
+        tree = tree,
+        breadcrumb = breadcrumb,
+        main = main,
+    );
+    layout(active, "", &body_html)
+}
+
+/// A directory in the Code section: the same listing rendered both in the
+/// sidebar (compact nav) and the main pane (with sizes) — the two panes
+/// serve different roles, same as a file-explorer's tree-plus-detail split.
+pub fn code_dir_page(project: &Project, listing: &DirListing) -> String {
+    let tree = code_tree(project, listing, None);
+    let breadcrumb = breadcrumb(project, "_code/", &listing.rel_path);
+
+    let mut rows = String::new();
+    if !listing.rel_path.is_empty() {
+        let parent = parent_dir(&listing.rel_path);
+        rows.push_str(&format!(
+            "<a class=\"codelist__row codelist__row--dir\" href=\"/p/{pid}/_code/{parent}\">.. </a>",
+            pid = esc(&project.id),
+            parent = esc(parent),
+        ));
+    }
+    for entry in &listing.entries {
+        let rel = child_rel(&listing.rel_path, &entry.name);
+        let cls = if entry.is_dir {
+            "codelist__row codelist__row--dir"
+        } else {
+            "codelist__row"
+        };
+        let label = if entry.is_dir {
+            format!("{}/", entry.name)
+        } else {
+            entry.name.clone()
+        };
+        let size = if entry.is_dir {
+            String::new()
+        } else {
+            format_size(entry.size)
+        };
+        rows.push_str(&format!(
+            "<a class=\"{cls}\" href=\"/p/{pid}/_code/{rel}\"><span class=\"codelist__name\">{label}</span><span class=\"codelist__size\">{size}</span></a>",
+            cls = cls,
+            pid = esc(&project.id),
+            rel = esc(&rel),
+            label = esc(&label),
+            size = size,
+        ));
+    }
+
+    let title = if listing.rel_path.is_empty() {
+        project.name.clone()
+    } else {
+        listing.rel_path.clone()
+    };
+    let body_html = format!(
+        r#"{topbar}
+<div class="layout">
+  <aside id="sidebar" class="sidebar">{tree}</aside>
+  <div class="sidebar-backdrop"></div>
+  <main class="content">
+    {breadcrumb}
+    <div class="codelist">{rows}</div>
+  </main>
+</div>"#,
+        topbar = topbar_full(
+            sidebar_toggle(),
+            &format!(
+                "{switch}<span class=\"crumb\">{pname} / {rel}</span>",
+                switch = section_switch(project, Section::Code),
+                pname = esc(&project.name),
+                rel = esc(&listing.rel_path),
+            ),
+            "",
+        ),
+        tree = tree,
+        breadcrumb = breadcrumb,
+        rows = rows,
+    );
+    layout(&title, "", &body_html)
+}
+
+/// Sidebar for the Code section: always exactly one directory's contents
+/// (same "one folder, zoomable" model the Docs sidebar uses), server-
+/// rendered — no client JS, unlike Docs' JSON-payload `file_tree`, because
+/// there is no whole-project file list to ship (D1: no index).
+fn code_tree(project: &Project, listing: &DirListing, active_file: Option<&str>) -> String {
+    let mut out = String::from("<nav class=\"chapter\">");
+    if !listing.rel_path.is_empty() {
+        let parent = parent_dir(&listing.rel_path);
+        out.push_str(&format!(
+            "<a class=\"chap-file chap-dir\" href=\"/p/{pid}/_code/{parent}\">.. </a>",
+            pid = esc(&project.id),
+            parent = esc(parent),
+        ));
+    }
+    for entry in &listing.entries {
+        let rel = child_rel(&listing.rel_path, &entry.name);
+        let is_active = !entry.is_dir && active_file == Some(entry.name.as_str());
+        let cls = match (entry.is_dir, is_active) {
+            (true, _) => "chap-file chap-dir",
+            (false, true) => "chap-file active",
+            (false, false) => "chap-file",
+        };
+        let label = if entry.is_dir {
+            format!("{}/", entry.name)
+        } else {
+            entry.name.clone()
+        };
+        out.push_str(&format!(
+            "<a class=\"{cls}\" href=\"/p/{pid}/_code/{rel}\">{label}</a>",
+            cls = cls,
+            pid = esc(&project.id),
+            rel = esc(&rel),
+            label = esc(&label),
+        ));
+    }
+    out.push_str("</nav>");
+    out
+}
+
+/// Join a directory's `rel_path` with one child name into that child's own
+/// `rel_path` (root-level children have no leading slash).
+fn child_rel(dir_rel_path: &str, name: &str) -> String {
+    if dir_rel_path.is_empty() {
+        name.to_string()
+    } else {
+        format!("{dir_rel_path}/{name}")
+    }
+}
+
+/// Human-readable byte size (binary units — 1 KB = 1024 B), one decimal
+/// place past bytes.
+fn format_size(bytes: u64) -> String {
+    const UNITS: &[&str] = &["B", "KB", "MB", "GB"];
+    let mut size = bytes as f64;
+    let mut unit = 0;
+    while size >= 1024.0 && unit < UNITS.len() - 1 {
+        size /= 1024.0;
+        unit += 1;
+    }
+    if unit == 0 {
+        format!("{bytes} B")
+    } else {
+        format!("{size:.1} {}", UNITS[unit])
+    }
 }
 
 /// The parent folder of a relative path (`""` for a root-level file).
