@@ -403,10 +403,11 @@ fn code_section_lists_dirs_highlights_files_and_denies_sensitive_paths() {
     );
 }
 
-/// The Code sidebar's folders render inside a `chap-folders` disclosure —
-/// same collapsible/counted/icon shape Docs' own chapter sidebar uses —
-/// followed by a separate Files list, and a code file's breadcrumb right
-/// half carries its language and size.
+/// The Code sidebar carries a `chap-crumbs` path right below the search
+/// box, folders inside a `chap-folders` disclosure (collapsible/counted/
+/// icon, same shape Docs' own chapter sidebar uses) followed by a separate
+/// Files list, and a code file's breadcrumb right half carries its
+/// language and size.
 #[test]
 fn code_view_sidebar_splits_folders_files_and_breadcrumb_shows_type_and_size() {
     let bin = env!("CARGO_BIN_EXE_mdview");
@@ -449,6 +450,28 @@ fn code_view_sidebar_splits_folders_files_and_breadcrumb_shows_type_and_size() {
         cookie,
     );
     assert_eq!(status, 200);
+    // Sidebar breadcrumb sits right below the search box, before anything
+    // else — just the project root at the top level (no ancestor segments).
+    let search_at = body
+        .find("fg-sidebar-search")
+        .expect("sidebar search box missing");
+    let crumbs_at = body.find("chap-crumbs").expect("sidebar crumbs missing");
+    assert!(
+        search_at < crumbs_at,
+        "sidebar crumbs must render right after the search box: {body}"
+    );
+    let crumbs_end = body[crumbs_at..]
+        .find("</div>")
+        .map(|i| crumbs_at + i)
+        .expect("crumbs div never closes");
+    assert!(
+        !body[crumbs_at..crumbs_end].contains("chap-sep"),
+        "root-level crumbs must not show an ancestor separator: {body}"
+    );
+    assert!(
+        body.contains("chap-folders__label\">Subfolders<"),
+        "folder disclosure must be labelled Subfolders (matching Docs): {body}"
+    );
     assert!(
         body.contains("chap-folders__count\">3<"),
         "folder count missing/wrong: {body}"
@@ -487,6 +510,30 @@ fn code_view_sidebar_splits_folders_files_and_breadcrumb_shows_type_and_size() {
     assert!(
         body.contains("chap-folders is-open"),
         "Folders disclosure should auto-open when the folder has no files: {body}"
+    );
+
+    // 1c. Two levels deep (only-dirs/child/), the sidebar crumbs show both
+    //     ancestor segments in order, each a real link to that folder.
+    let (status, body) = http_get(
+        &info.host,
+        info.port,
+        &format!("/p/{project_id}/_code/only-dirs/child/"),
+        cookie,
+    );
+    assert_eq!(status, 200);
+    let only_dirs_seg = body
+        .find(&format!(
+            "href=\"/p/{project_id}/_code/only-dirs\">only-dirs<"
+        ))
+        .expect("crumbs missing the only-dirs ancestor segment");
+    let child_seg = body
+        .find(&format!(
+            "href=\"/p/{project_id}/_code/only-dirs/child\">child<"
+        ))
+        .expect("crumbs missing the child ancestor segment");
+    assert!(
+        only_dirs_seg < child_seg,
+        "crumb segments must render in path order (only-dirs before child): {body}"
     );
 
     // 2. A source file's breadcrumb right half carries its language and size.
