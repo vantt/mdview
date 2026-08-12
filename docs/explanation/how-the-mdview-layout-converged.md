@@ -59,9 +59,39 @@ item's verify command still held the placeholder text that submission fills in
 mechanically, so the first attempt to return the item tried to execute the
 placeholder and failed. The fix was to the item's own metadata; no code changed.
 
+## Round 3: the breadcrumb becomes a sticky bar spanning the content column
+
+The breadcrumb was a centred block constrained to the reading-column width. Two
+things followed from that, both wrong for what a breadcrumb is:
+
+It scrolled away. A breadcrumb answers "where am I", which is a question you ask
+part-way down a long file, exactly when it had already disappeared off the top.
+
+And it was narrower than the column it belonged to. Constraining it to the
+reading measure is right for prose — long lines of body text are hard to read —
+but a breadcrumb is navigation chrome, not prose. Centring it inside the content
+column left it visually detached from the column's own edges.
+
+So it became sticky, spanning the full width of the `.content` column, and split
+into two equal halves. The path sits on the left; the right half is deliberately
+reserved and currently empty.
+
+An empty reserved half is worth defending, because it looks like an oversight.
+The alternative is letting the left half expand to the full width now and
+shrinking it later when something lands on the right — which moves the
+breadcrumb, the one element whose job is to stay put. Reserving the space fixes
+the geometry once.
+
+The same `breadcrumb()` output is shared by the Docs file page and both Code
+pages, so all three converged in a single change. The topbar was explicitly left
+alone here; it was being reworked in its own round at the same time, and touching
+both at once would have made either result impossible to attribute.
+
 ## Sources
 
 Synthesised from the retrospective records of the layout rounds. Round 1:
 `tsk-2k4`, commit `27b24a4` (`crates/mdview/assets/app.css`,
 `crates/mdview/src/views.rs`). Round 2: `tsk-5eq`, commits `1f97d0e` and
-`cb7d6c6` (`code_tree()` in `crates/mdview/src/views.rs`).
+`cb7d6c6` (`code_tree()` in `crates/mdview/src/views.rs`). Round 3: `tsk-612`
+(`breadcrumb()` in `crates/mdview/src/views.rs`, `.breadcrumb` rules in
+`crates/mdview/assets/app.css`).
