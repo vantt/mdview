@@ -33,8 +33,35 @@ bar to a layout that is not on screen. So the grid is scoped to the same
 condition that governs the columns themselves, and the bar falls back to grouped
 flex elsewhere.
 
+## Round 2: the Code sidebar gets the Docs sidebar's structure
+
+The Docs sidebar has a search form at the top and a section label above its list
+of chapters. The Code sidebar had neither — it opened straight into a bare list
+of directories and files.
+
+The difference was not cosmetic in the way it sounds. Two sidebars that occupy
+the same position with different vertical structure make the list start at a
+different height depending on which section you are in, so switching between Docs
+and Code visibly jolts the content.
+
+So the Code sidebar gained a search box and a `Files` section label above its
+listing, matching the Docs structure.
+
+The search box is deliberately **inert**. Wiring real search for code was out of
+scope — code files are not indexed at all — but leaving the box out would have
+left the structural mismatch in place. An inert control that reserves the correct
+space is the honest way to match a layout you are not yet ready to match in
+function, and it is preferable to shifting every element up by the height of a
+control that will later come back.
+
+One process note from this round, recorded because it cost a cycle: the work
+item's verify command still held the placeholder text that submission fills in
+mechanically, so the first attempt to return the item tried to execute the
+placeholder and failed. The fix was to the item's own metadata; no code changed.
+
 ## Sources
 
 Synthesised from the retrospective records of the layout rounds. Round 1:
 `tsk-2k4`, commit `27b24a4` (`crates/mdview/assets/app.css`,
-`crates/mdview/src/views.rs`).
+`crates/mdview/src/views.rs`). Round 2: `tsk-5eq`, commits `1f97d0e` and
+`cb7d6c6` (`code_tree()` in `crates/mdview/src/views.rs`).
