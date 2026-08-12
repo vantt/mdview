@@ -219,7 +219,9 @@ fn right_panel(project: &Project, page: &RenderedPage, backlinks: &[(String, Str
 /// Breadcrumb of path segments (orientation only; folders are not pages).
 /// `base` is the section's root prefix under `/p/:id/` — `""` for Docs,
 /// `"_code/"` for the Code section — so both sections share this one
-/// function instead of a near-duplicate each.
+/// function instead of a near-duplicate each. Renders as a sticky bar split
+/// left|right (crumbs on the left; the right half is reserved, currently
+/// empty) so both sections get the same two-pane header shape.
 fn breadcrumb(project: &Project, base: &str, rel_path: &str) -> String {
     let mut crumbs = format!(
         "<a href=\"/p/{pid}/{base}\">{name}</a>",
@@ -230,7 +232,9 @@ fn breadcrumb(project: &Project, base: &str, rel_path: &str) -> String {
     for seg in rel_path.split('/').filter(|s| !s.is_empty()) {
         crumbs.push_str(&format!(" <span class=\"sep\">/</span> {}", esc(seg)));
     }
-    format!("<nav class=\"breadcrumb\">{crumbs}</nav>")
+    format!(
+        "<nav class=\"breadcrumb\"><div class=\"breadcrumb__left\">{crumbs}</div><div class=\"breadcrumb__right\"></div></nav>"
+    )
 }
 
 /// Which section's page is currently active, for `section_switch`.
