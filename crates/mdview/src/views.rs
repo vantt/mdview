@@ -446,27 +446,43 @@ pub fn code_dir_page(project: &Project, listing: &DirListing) -> String {
 /// (same "one folder, zoomable" model the Docs sidebar uses), server-
 /// rendered — no client JS to build the markup, unlike Docs' JSON-payload
 /// `file_tree`, because there is no whole-project file list to ship (D1: no
-/// index). Folders render inside the SAME `chap-folders` disclosure Docs'
-/// own sidebar uses (collapsible, chevron, count, folder-icon via
-/// `chap-subfolder`) — real `<a>` links here instead of Docs' JS-focus
-/// `<button>`s, since Code navigates to a folder rather than zooming into
-/// it client-side. A small separate script in `app.js` wires the bar's
-/// click-to-toggle behavior once at load (this HTML needs no JS to render
-/// correctly, only to become interactive).
+/// index). Structure matches Docs' own sidebar exactly: a `chap-crumbs`
+/// path (project root + each ancestor segment) right below the search box,
+/// then folders inside the same `chap-folders` disclosure Docs uses
+/// (collapsible, chevron, count, folder-icon via `chap-subfolder`), then
+/// files. Crumbs/folders render as real `<a>` links here instead of Docs'
+/// JS-focus `<button>`s, since Code navigates to a folder/ancestor rather
+/// than zooming into it client-side — the crumbs already cover every
+/// "go up" case, so there is no separate `..` entry. A small separate
+/// script in `app.js` wires the folder bar's click-to-toggle behavior once
+/// at load (this HTML needs no JS to render correctly, only to become
+/// interactive).
 fn code_tree(project: &Project, listing: &DirListing, active_file: Option<&str>) -> String {
     let mut out = String::from(
         "<div class=\"fg-sidebar-search\">\
          <input class=\"fg-input\" placeholder=\"Search…\" autocomplete=\"off\" disabled></div>\
          <nav class=\"chapter\">",
     );
-    if !listing.rel_path.is_empty() {
-        let parent = parent_dir(&listing.rel_path);
-        out.push_str(&format!(
-            "<a class=\"chap-file chap-dir\" href=\"/p/{pid}/_code/{parent}\">.. </a>",
+
+    let mut crumbs = format!(
+        "<a class=\"chap-seg\" href=\"/p/{pid}/_code/\">{name}</a>",
+        pid = esc(&project.id),
+        name = esc(&project.name),
+    );
+    let mut acc = String::new();
+    for seg in listing.rel_path.split('/').filter(|s| !s.is_empty()) {
+        if !acc.is_empty() {
+            acc.push('/');
+        }
+        acc.push_str(seg);
+        crumbs.push_str(&format!(
+            "<span class=\"chap-sep\">›</span><a class=\"chap-seg\" href=\"/p/{pid}/_code/{acc}\">{seg}</a>",
             pid = esc(&project.id),
-            parent = esc(parent),
+            acc = esc(&acc),
+            seg = esc(seg),
         ));
     }
+    out.push_str(&format!("<div class=\"chap-crumbs\">{crumbs}</div>"));
 
     let mut dirs = String::new();
     let mut dir_count = 0usize;
@@ -505,7 +521,7 @@ fn code_tree(project: &Project, listing: &DirListing, active_file: Option<&str>)
             "<div class=\"chap-folders{open_cls}\">\
              <button class=\"chap-folders__bar\" type=\"button\" aria-expanded=\"{aria}\">\
              <span class=\"chap-folders__chev\">›</span>\
-             <span class=\"chap-folders__label\">Folders</span>\
+             <span class=\"chap-folders__label\">Subfolders</span>\
              <span class=\"chap-folders__count\">{count}</span>\
              </button>\
              <div class=\"chap-folders__list\"><div class=\"chap-folders__inner\">{dirs}</div></div>\
