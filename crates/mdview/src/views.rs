@@ -83,7 +83,7 @@ pub fn file_page(
 ) -> String {
     let tree = file_tree(project, files, &file.rel_path);
     let right = right_panel(project, page, backlinks);
-    let breadcrumb = breadcrumb(project, "", &file.rel_path);
+    let breadcrumb = breadcrumb(project, "", &file.rel_path, "");
     // Raw markdown source for copy-as-markdown: the client maps a DOM selection
     // (via data-sourcepos line ranges) back to these source lines. Escape `<`
     // so a source containing "</script>" can't break out of the tag.
@@ -222,7 +222,9 @@ fn right_panel(project: &Project, page: &RenderedPage, backlinks: &[(String, Str
 /// function instead of a near-duplicate each. Renders as a sticky bar split
 /// left|right (crumbs on the left; the right half is reserved, currently
 /// empty) so both sections get the same two-pane header shape.
-fn breadcrumb(project: &Project, base: &str, rel_path: &str) -> String {
+/// `right` is pre-rendered HTML for the breadcrumb's right half (e.g. a
+/// code file's type/size) — `""` for pages with nothing to put there.
+fn breadcrumb(project: &Project, base: &str, rel_path: &str, right: &str) -> String {
     let mut crumbs = format!(
         "<a href=\"/p/{pid}/{base}\">{name}</a>",
         pid = esc(&project.id),
@@ -233,7 +235,7 @@ fn breadcrumb(project: &Project, base: &str, rel_path: &str) -> String {
         crumbs.push_str(&format!(" <span class=\"sep\">/</span> {}", esc(seg)));
     }
     format!(
-        "<nav class=\"breadcrumb\"><div class=\"breadcrumb__left\">{crumbs}</div><div class=\"breadcrumb__right\"></div></nav>"
+        "<nav class=\"breadcrumb\"><div class=\"breadcrumb__left\">{crumbs}</div><div class=\"breadcrumb__right\">{right}</div></nav>"
     )
 }
 
@@ -289,12 +291,18 @@ pub fn code_page(
 ) -> String {
     let active = base_name(rel_path);
     let tree = code_tree(project, sidebar, Some(active));
-    let breadcrumb = breadcrumb(project, "_code/", rel_path);
 
-    let main = match body {
-        CodeBody::Binary { size } => format!(
-            "<div class=\"codeview__binary\">Binary file &middot; {size} — cannot be displayed.</div>",
-            size = format_size(size)
+    let (main, meta) = match body {
+        CodeBody::Binary { size } => (
+            format!(
+                "<div class=\"codeview__binary\">Binary file &middot; {size} — cannot be displayed.</div>",
+                size = format_size(size)
+            ),
+            format!(
+                "<span class=\"breadcrumb__meta-lang\">Binary</span> \
+                 <span class=\"breadcrumb__meta-size\">{size}</span>",
+                size = format_size(size)
+            ),
         ),
         CodeBody::Text {
             highlighted,
@@ -314,18 +322,23 @@ pub fn code_page(
                     "<tr id=\"L{n}\"><td class=\"codeview__num\"><a href=\"#L{n}\">{n}</a></td><td class=\"codeview__line\"><code>{line}</code></td></tr>"
                 ));
             }
-            format!(
-                "{banner}<div class=\"codeview__head\"><span class=\"codeview__lang\">{lang}</span> \
-                 <span class=\"codeview__meta\">{lines} lines &middot; {size}</span></div>\
+            let main = format!(
+                "{banner}<div class=\"codeview__head\">{lines} lines</div>\
                  <table class=\"codeview__table\">{rows}</table>",
                 banner = banner,
-                lang = esc(&highlighted.syntax_name),
                 lines = highlighted.lines.len(),
-                size = format_size(size),
                 rows = rows,
-            )
+            );
+            let meta = format!(
+                "<span class=\"breadcrumb__meta-lang\">{lang}</span> \
+                 <span class=\"breadcrumb__meta-size\">{size}</span>",
+                lang = esc(&highlighted.syntax_name),
+                size = format_size(size),
+            );
+            (main, meta)
         }
     };
+    let breadcrumb = breadcrumb(project, "_code/", rel_path, &meta);
 
     let body_html = format!(
         r#"{topbar}
@@ -359,7 +372,7 @@ pub fn code_page(
 /// serve different roles, same as a file-explorer's tree-plus-detail split.
 pub fn code_dir_page(project: &Project, listing: &DirListing) -> String {
     let tree = code_tree(project, listing, None);
-    let breadcrumb = breadcrumb(project, "_code/", &listing.rel_path);
+    let breadcrumb = breadcrumb(project, "_code/", &listing.rel_path, "");
 
     let mut rows = String::new();
     if !listing.rel_path.is_empty() {
@@ -432,12 +445,18 @@ pub fn code_dir_page(project: &Project, listing: &DirListing) -> String {
 /// Sidebar for the Code section: always exactly one directory's contents
 /// (same "one folder, zoomable" model the Docs sidebar uses), server-
 /// rendered — no client JS, unlike Docs' JSON-payload `file_tree`, because
-/// there is no whole-project file list to ship (D1: no index).
+/// there is no whole-project file list to ship (D1: no index). Folders and
+/// files render as two separate `chap-sec`-labelled groups (Folders/Files),
+/// the same two-part shape Docs' own sidebar uses (its `chap-folders`
+/// disclosure vs. its `chap-sec "Chapters"` file list) — Code's version
+/// skips the disclosure/collapse behavior since each request already
+/// scopes to one directory's immediate children, never a whole-project
+/// tree to fold away.
 fn code_tree(project: &Project, listing: &DirListing, active_file: Option<&str>) -> String {
     let mut out = String::from(
         "<div class=\"fg-sidebar-search\">\
          <input class=\"fg-input\" placeholder=\"Search…\" autocomplete=\"off\" disabled></div>\
-         <nav class=\"chapter\"><div class=\"chap-sec\">Files</div>",
+         <nav class=\"chapter\">",
     );
     if !listing.rel_path.is_empty() {
         let parent = parent_dir(&listing.rel_path);
@@ -447,26 +466,40 @@ fn code_tree(project: &Project, listing: &DirListing, active_file: Option<&str>)
             parent = esc(parent),
         ));
     }
+
+    let mut dirs = String::new();
+    let mut files = String::new();
     for entry in &listing.entries {
         let rel = child_rel(&listing.rel_path, &entry.name);
-        let is_active = !entry.is_dir && active_file == Some(entry.name.as_str());
-        let cls = match (entry.is_dir, is_active) {
-            (true, _) => "chap-file chap-dir",
-            (false, true) => "chap-file active",
-            (false, false) => "chap-file",
-        };
-        let label = if entry.is_dir {
-            format!("{}/", entry.name)
+        if entry.is_dir {
+            dirs.push_str(&format!(
+                "<a class=\"chap-file chap-dir\" href=\"/p/{pid}/_code/{rel}\">{name}/</a>",
+                pid = esc(&project.id),
+                rel = esc(&rel),
+                name = esc(&entry.name),
+            ));
         } else {
-            entry.name.clone()
-        };
-        out.push_str(&format!(
-            "<a class=\"{cls}\" href=\"/p/{pid}/_code/{rel}\">{label}</a>",
-            cls = cls,
-            pid = esc(&project.id),
-            rel = esc(&rel),
-            label = esc(&label),
-        ));
+            let cls = if active_file == Some(entry.name.as_str()) {
+                "chap-file active"
+            } else {
+                "chap-file"
+            };
+            files.push_str(&format!(
+                "<a class=\"{cls}\" href=\"/p/{pid}/_code/{rel}\">{name}</a>",
+                cls = cls,
+                pid = esc(&project.id),
+                rel = esc(&rel),
+                name = esc(&entry.name),
+            ));
+        }
+    }
+    if !dirs.is_empty() {
+        out.push_str("<div class=\"chap-sec\">Folders</div>");
+        out.push_str(&dirs);
+    }
+    if !files.is_empty() {
+        out.push_str("<div class=\"chap-sec\">Files</div>");
+        out.push_str(&files);
     }
     out.push_str("</nav>");
     out

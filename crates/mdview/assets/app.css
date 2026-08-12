@@ -464,7 +464,7 @@ main.fg-page {
 
 /* ── Breadcrumb: sticky bar above the article, full content-column width,
    split into two equal left|right halves (crumbs on the left; the right
-   half is reserved, currently empty) ─────────────────────────────── */
+   half carries a code file's type/size, when the page has one) ───── */
 .breadcrumb {
   display: flex;
   align-items: center;
@@ -487,6 +487,15 @@ main.fg-page {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.breadcrumb__right {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-2);
+}
+.breadcrumb__meta-lang {
+  font-weight: var(--weight-semibold);
+  color: var(--color-text);
 }
 .breadcrumb .sep {
   margin: 0 var(--space-0);
@@ -840,7 +849,6 @@ pre.mermaid.zoomable:focus-within .mermaid-controls {
    that one dark theme regardless of page scheme), so the syntect token
    colors stay correct on this panel in both light and dark page modes. */
 .codeview__banner {
-  max-width: var(--reading-col);
   margin: 0 auto var(--space-3);
   padding: var(--space-2) var(--space-4);
   border-radius: var(--radius-md);
@@ -861,7 +869,6 @@ pre.mermaid.zoomable:focus-within .mermaid-controls {
   font-size: var(--type-body-sm-size);
 }
 .codeview__head {
-  max-width: var(--reading-col);
   margin: var(--space-5) auto var(--space-2);
   display: flex;
   gap: var(--space-3);
@@ -870,13 +877,8 @@ pre.mermaid.zoomable:focus-within .mermaid-controls {
   font-size: var(--type-body-sm-size);
   color: var(--color-text-muted);
 }
-.codeview__lang {
-  font-weight: var(--weight-semibold);
-  color: var(--color-text);
-}
 .codeview__table {
   width: 100%;
-  max-width: var(--reading-col);
   margin: 0 auto var(--space-6);
   border-collapse: collapse;
   background: var(--signature-dark-bg);
@@ -921,7 +923,6 @@ pre.mermaid.zoomable:focus-within .mermaid-controls {
 /* Directory listing main pane (the sidebar shows the same directory in
    compact form via `.chapter`/`.chap-file`). */
 .codelist {
-  max-width: var(--reading-col);
   margin: var(--space-3) auto var(--space-6);
   display: flex;
   flex-direction: column;
