@@ -94,6 +94,14 @@ Ba pha tuần tự trong một nhánh, mỗi pha để lại repo ở trạng th
 - `crates/mdview/src/mcp.rs` — đổi phần dựng text: mỗi dòng thành
   `<rel_path> → <base>/s/<code>`; giữ `structuredContent.url`/`urls` trỏ
   link **ngắn**, thêm `long_url` cho ai còn cần đường dẫn đầy đủ.
+
+  **Tách một hàm thuần trước khi sửa.** `mcp.rs` hiện có **0 test**, và
+  phần dựng text nằm inline trong `handle_tool_call`, chung một hàm với
+  lời gọi `runtime::ensure_daemon_bases()` — thứ spawn daemon thật. Nên
+  điểm chứng minh của pha này không chạy được nếu giữ nguyên hình dạng đó.
+  Tách `fn viewable_text(bases: &[String], rel_path: &str, code: &str) ->
+  String` thuần, không I/O, rồi `handle_tool_call` chỉ gọi nó. Đây là điều
+  kiện để proof point tồn tại, không phải dọn dẹp tuỳ hứng.
 - `crates/mdview/src/cli.rs` — nhánh `open` in cùng định dạng.
 
 ### Các hướng đã loại (và vì sao)
@@ -114,7 +122,7 @@ Ba pha tuần tự trong một nhánh, mỗi pha để lại repo ở trạng th
 | **Migration trên DB đang có dữ liệu** | **Cao** | Test mở một DB dựng theo schema **cũ** (không có cột), chạy `from_conn`, khẳng định mọi hàng có `path_hash` đúng 16 hex; chạy `from_conn` lần hai khẳng định không đổi gì (idempotent) và `user_version` không tăng tiếp |
 | Truy vấn prefix có dùng index không | Trung bình | **Đã chứng minh** trong Pha 2 ở trên: chỉ dạng bind-một-tham-số mới dùng index; `GLOB ? \|\| '*'` thành `SCAN files`. Test phải khẳng định `EXPLAIN QUERY PLAN` chứa `USING INDEX idx_files_hash` — một test chỉ kiểm kết quả trả về sẽ xanh ở cả hai dạng và không bảo vệ được gì |
 | Tính ổn định của hash | Trung bình | Test vector cố định: `path_hash("mdview", "docs/a.md")` phải bằng đúng một hằng số hex viết thẳng trong test — bắt được mọi thay đổi thuật toán sau này |
-| Đổi định dạng output MCP | Trung bình | Test khẳng định 1 dòng khi có `hostname`, nhiều dòng khi bind wildcard không hostname; mỗi dòng chứa mã đúng 12 ký tự hex |
+| Đổi định dạng output MCP | Trung bình | `mcp.rs` hiện **0 test** và phần dựng text dính với `ensure_daemon_bases()` (spawn daemon). Phải tách `viewable_text(...)` thuần trước (xem Pha 3), rồi test trên hàm đó: 1 dòng khi có `hostname`, nhiều dòng khi bind wildcard không hostname, mỗi dòng chứa mã đúng 12 ký tự hex |
 | Route mới đụng route cũ | Thấp | `/s/` không giao với bất kỳ pattern nào trong `router()` (`server.rs:92-111`) — đã xác nhận khi scout |
 
 Ba mục Cao/Trung bình ở trên là điểm chứng minh mang sang
