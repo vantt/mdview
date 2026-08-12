@@ -83,7 +83,7 @@ pub fn file_page(
 ) -> String {
     let tree = file_tree(project, files, &file.rel_path);
     let right = right_panel(project, page, backlinks);
-    let breadcrumb = breadcrumb(project, "", &file.rel_path, "");
+    let breadcrumb = breadcrumb(project, "", &file.rel_path, true, copy_md_button());
     // Raw markdown source for copy-as-markdown: the client maps a DOM selection
     // (via data-sourcepos line ranges) back to these source lines. Escape `<`
     // so a source containing "</script>" can't break out of the tag.
@@ -146,13 +146,8 @@ pub fn file_page(
 </div>"#,
         topbar = topbar_full(
             sidebar_toggle(),
-            &format!(
-                "{switch}<span class=\"crumb\">{pname} / {rel}</span>",
-                switch = section_switch(project, Section::Docs),
-                pname = esc(&project.name),
-                rel = esc(&file.rel_path),
-            ),
-            copy_md_button(),
+            &section_switch(project, Section::Docs),
+            "",
         ),
         tree = tree,
         breadcrumb = breadcrumb,
@@ -220,11 +215,12 @@ fn right_panel(project: &Project, page: &RenderedPage, backlinks: &[(String, Str
 /// `base` is the section's root prefix under `/p/:id/` — `""` for Docs,
 /// `"_code/"` for the Code section — so both sections share this one
 /// function instead of a near-duplicate each. Renders as a sticky bar split
-/// left|right (crumbs on the left; the right half is reserved, currently
-/// empty) so both sections get the same two-pane header shape.
-/// `right` is pre-rendered HTML for the breadcrumb's right half (e.g. a
-/// code file's type/size) — `""` for pages with nothing to put there.
-fn breadcrumb(project: &Project, base: &str, rel_path: &str, right: &str) -> String {
+/// left|right. `right` is pre-rendered HTML for the right half (e.g. Docs'
+/// copy-as-markdown button, or a code file's type/size) — `""` for pages
+/// with nothing to put there. `narrow`, true for Docs only, caps the bar's
+/// width to match `.fg-reading` (the markdown column below it); Code's bar
+/// stays full-width, matching its own full-width main pane.
+fn breadcrumb(project: &Project, base: &str, rel_path: &str, narrow: bool, right: &str) -> String {
     let mut crumbs = format!(
         "<a href=\"/p/{pid}/{base}\">{name}</a>",
         pid = esc(&project.id),
@@ -234,8 +230,13 @@ fn breadcrumb(project: &Project, base: &str, rel_path: &str, right: &str) -> Str
     for seg in rel_path.split('/').filter(|s| !s.is_empty()) {
         crumbs.push_str(&format!(" <span class=\"sep\">/</span> {}", esc(seg)));
     }
+    let cls = if narrow {
+        "breadcrumb breadcrumb--reading"
+    } else {
+        "breadcrumb"
+    };
     format!(
-        "<nav class=\"breadcrumb\"><div class=\"breadcrumb__left\">{crumbs}</div><div class=\"breadcrumb__right\">{right}</div></nav>"
+        "<nav class=\"{cls}\"><div class=\"breadcrumb__left\">{crumbs}</div><div class=\"breadcrumb__right\">{right}</div></nav>"
     )
 }
 
@@ -323,10 +324,8 @@ pub fn code_page(
                 ));
             }
             let main = format!(
-                "{banner}<div class=\"codeview__head\">{lines} lines</div>\
-                 <table class=\"codeview__table\">{rows}</table>",
+                "{banner}<table class=\"codeview__table\">{rows}</table>",
                 banner = banner,
-                lines = highlighted.lines.len(),
                 rows = rows,
             );
             let meta = format!(
@@ -338,27 +337,22 @@ pub fn code_page(
             (main, meta)
         }
     };
-    let breadcrumb = breadcrumb(project, "_code/", rel_path, &meta);
+    let breadcrumb = breadcrumb(project, "_code/", rel_path, false, &meta);
 
     let body_html = format!(
         r#"{topbar}
 <div class="layout">
   <aside id="sidebar" class="sidebar">{tree}</aside>
   <div class="sidebar-backdrop"></div>
-  <main class="content">
+  <main class="content content--code">
     {breadcrumb}
     <div class="codeview">{main}</div>
   </main>
 </div>"#,
         topbar = topbar_full(
             sidebar_toggle(),
-            &format!(
-                "{switch}<span class=\"crumb\">{pname} / {rel}</span>",
-                switch = section_switch(project, Section::Code),
-                pname = esc(&project.name),
-                rel = esc(rel_path),
-            ),
-            "",
+            &section_switch(project, Section::Code),
+            ""
         ),
         tree = tree,
         breadcrumb = breadcrumb,
@@ -372,7 +366,7 @@ pub fn code_page(
 /// serve different roles, same as a file-explorer's tree-plus-detail split.
 pub fn code_dir_page(project: &Project, listing: &DirListing) -> String {
     let tree = code_tree(project, listing, None);
-    let breadcrumb = breadcrumb(project, "_code/", &listing.rel_path, "");
+    let breadcrumb = breadcrumb(project, "_code/", &listing.rel_path, false, "");
 
     let mut rows = String::new();
     if !listing.rel_path.is_empty() {
@@ -420,20 +414,15 @@ pub fn code_dir_page(project: &Project, listing: &DirListing) -> String {
 <div class="layout">
   <aside id="sidebar" class="sidebar">{tree}</aside>
   <div class="sidebar-backdrop"></div>
-  <main class="content">
+  <main class="content content--code">
     {breadcrumb}
     <div class="codelist">{rows}</div>
   </main>
 </div>"#,
         topbar = topbar_full(
             sidebar_toggle(),
-            &format!(
-                "{switch}<span class=\"crumb\">{pname} / {rel}</span>",
-                switch = section_switch(project, Section::Code),
-                pname = esc(&project.name),
-                rel = esc(&listing.rel_path),
-            ),
-            "",
+            &section_switch(project, Section::Code),
+            ""
         ),
         tree = tree,
         breadcrumb = breadcrumb,

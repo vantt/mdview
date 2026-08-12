@@ -211,6 +211,27 @@ main.fg-page {
   border-left: var(--border-width-hairline) solid var(--color-border);
 }
 
+/* ── Code view's main pane: fills the viewport (same height:calc(100vh -
+   53px) the sidebar/rightbar above already use) instead of growing the
+   whole page — the breadcrumb keeps its natural size, and `.codeview`/
+   `.codelist` alone scroll, both horizontally and vertically, like a code
+   editor pane rather than a document. ───────────────────────────────── */
+.content--code {
+  display: flex;
+  flex-direction: column;
+  height: calc(100vh - 53px);
+}
+.content--code > .breadcrumb {
+  flex: none;
+  position: static;
+}
+.content--code > .codeview,
+.content--code > .codelist {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+
 /* ── Desktop: sync the topbar's 3 areas with the sidebar/content/rightbar
    column widths above (280px / 240px, mirrored from .sidebar/.rightbar),
    so the bar's own left/right edges land exactly above the columns below
@@ -496,6 +517,14 @@ main.fg-page {
 .breadcrumb__meta-lang {
   font-weight: var(--weight-semibold);
   color: var(--color-text);
+}
+/* Docs only (`narrow` in breadcrumb()): match `.fg-reading`'s own width so
+   the bar lines up with the markdown column below it, instead of spanning
+   the full `.content` width Code's bar still uses. */
+.breadcrumb--reading {
+  max-width: var(--reading-col);
+  margin-left: auto;
+  margin-right: auto;
 }
 .breadcrumb .sep {
   margin: 0 var(--space-0);
@@ -867,15 +896,6 @@ pre.mermaid.zoomable:focus-within .mermaid-controls {
   color: var(--color-text-muted);
   font-family: var(--type-body-sm-font);
   font-size: var(--type-body-sm-size);
-}
-.codeview__head {
-  margin: var(--space-5) auto var(--space-2);
-  display: flex;
-  gap: var(--space-3);
-  align-items: baseline;
-  font-family: var(--type-body-sm-font);
-  font-size: var(--type-body-sm-size);
-  color: var(--color-text-muted);
 }
 .codeview__table {
   width: 100%;
