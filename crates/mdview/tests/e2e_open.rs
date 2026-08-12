@@ -151,28 +151,88 @@ fn cmd_open_json_url_port_matches_real_daemon_bound_port() {
     );
 }
 
-/// Raw `GET {path}` against a real daemon, reading the full response until
-/// the connection closes (the daemon is asked to `Connection: close`).
-/// Returns (status code, body). No HTTP client dependency needed for one
-/// route per test file — mirrors `mdview_core::daemon`'s own raw-socket
-/// health check.
-fn http_get(host: &str, port: u16, path: &str) -> (u16, String) {
+/// One raw HTTP/1.1 request/response over a fresh connection (the daemon is
+/// asked to `Connection: close`). No HTTP client dependency needed for a
+/// handful of routes per test file — mirrors `mdview_core::daemon`'s own
+/// raw-socket health check.
+struct RawResponse {
+    status: u16,
+    set_cookie: Option<String>,
+    body: String,
+}
+
+fn raw_request(host: &str, port: u16, req: &str) -> RawResponse {
     let mut stream =
         TcpStream::connect((host, port)).unwrap_or_else(|e| panic!("connect {host}:{port}: {e}"));
     stream
         .set_read_timeout(Some(Duration::from_secs(5)))
         .unwrap();
-    let req = format!("GET {path} HTTP/1.1\r\nHost: {host}\r\nConnection: close\r\n\r\n");
     stream.write_all(req.as_bytes()).unwrap();
-    let mut buf = String::new();
-    stream.read_to_string(&mut buf).unwrap();
-    let status = buf
+    let mut raw = String::new();
+    stream.read_to_string(&mut raw).unwrap();
+
+    let status = raw
         .split_whitespace()
         .nth(1)
         .and_then(|s| s.parse().ok())
-        .unwrap_or_else(|| panic!("could not parse status line from response: {buf:?}"));
-    let body = buf.split("\r\n\r\n").nth(1).unwrap_or("").to_string();
-    (status, body)
+        .unwrap_or_else(|| panic!("could not parse status line from response: {raw:?}"));
+    let headers = raw.split("\r\n\r\n").next().unwrap_or("");
+    let set_cookie = headers.lines().find_map(|l| {
+        l.to_lowercase()
+            .strip_prefix("set-cookie: ")
+            .map(|v| v.to_string())
+    });
+    let body = raw.split("\r\n\r\n").nth(1).unwrap_or("").to_string();
+    RawResponse {
+        status,
+        set_cookie,
+        body,
+    }
+}
+
+/// `GET {path}`, optionally with a `Cookie` header. Returns (status, body).
+fn http_get(host: &str, port: u16, path: &str, cookie: Option<&str>) -> (u16, String) {
+    let cookie_header = cookie
+        .map(|c| format!("Cookie: {c}\r\n"))
+        .unwrap_or_default();
+    let req =
+        format!("GET {path} HTTP/1.1\r\nHost: {host}\r\n{cookie_header}Connection: close\r\n\r\n");
+    let res = raw_request(host, port, &req);
+    (res.status, res.body)
+}
+
+/// `POST {path}` with a urlencoded form body. Returns (status, `Set-Cookie`
+/// name=value pair if any).
+fn http_post_form(host: &str, port: u16, path: &str, form: &str) -> (u16, Option<String>) {
+    let req = format!(
+        "POST {path} HTTP/1.1\r\nHost: {host}\r\nContent-Type: application/x-www-form-urlencoded\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{form}",
+        form.len()
+    );
+    let res = raw_request(host, port, &req);
+    let cookie = res
+        .set_cookie
+        .map(|c| c.split(';').next().unwrap_or(&c).to_string());
+    (res.status, cookie)
+}
+
+/// Read the daemon's auto-generated login token from `config.toml` under
+/// `home` (D3: `serve()` generates and persists one on first start when
+/// none is configured) and exchange it for a session cookie.
+fn login_and_get_cookie(host: &str, port: u16, home: &Path) -> String {
+    let cfg_text = std::fs::read_to_string(home.join(".mdview/config.toml"))
+        .expect("config.toml must exist after first daemon start (D3 auto-generates web_secret)");
+    let token = cfg_text
+        .lines()
+        .find_map(|l| l.strip_prefix("web_secret = "))
+        .map(|v| v.trim_matches('"').to_string())
+        .expect("config.toml must contain an auto-generated web_secret");
+
+    let (status, cookie) = http_post_form(host, port, "/api/login", &format!("token={token}"));
+    assert_eq!(
+        status, 303,
+        "login with the auto-generated token must succeed"
+    );
+    cookie.expect("login must set a session cookie")
 }
 
 fn write_file(path: &Path, body: &[u8]) {
@@ -233,8 +293,29 @@ fn code_section_lists_dirs_highlights_files_and_denies_sensitive_paths() {
 
     let project_id = open_project(bin, &home, &root.join("README.md"));
 
+    // 0a. Unauthenticated: the Code section is gated exactly like Docs.
+    let (anon_status, _) = http_get(
+        &info.host,
+        info.port,
+        &format!("/p/{project_id}/_code/"),
+        None,
+    );
+    assert_eq!(anon_status, 404, "Code section must require login too");
+
+    // 0b. Sign in with the token `serve()` auto-generated on first start
+    // (D3) and use the resulting cookie for every request below — without
+    // it, every one of these would 404 on auth alone, proving nothing about
+    // code_source's own guards.
+    let cookie = login_and_get_cookie(&info.host, info.port, &home);
+    let cookie = Some(cookie.as_str());
+
     // 1. Root directory listing: the "src" folder is present.
-    let (status, body) = http_get(&info.host, info.port, &format!("/p/{project_id}/_code/"));
+    let (status, body) = http_get(
+        &info.host,
+        info.port,
+        &format!("/p/{project_id}/_code/"),
+        cookie,
+    );
     assert_eq!(status, 200);
     assert!(body.contains("src"), "dir listing missing src/: {body}");
 
@@ -243,6 +324,7 @@ fn code_section_lists_dirs_highlights_files_and_denies_sensitive_paths() {
         &info.host,
         info.port,
         &format!("/p/{project_id}/_code/src/lib.rs"),
+        cookie,
     );
     assert_eq!(status, 200);
     assert!(body.contains("id=\"L1\""), "missing line anchor: {body}");
@@ -253,6 +335,7 @@ fn code_section_lists_dirs_highlights_files_and_denies_sensitive_paths() {
         &info.host,
         info.port,
         &format!("/p/{project_id}/_code/.git/config"),
+        cookie,
     );
     assert_eq!(git_status, 404);
 
@@ -261,6 +344,7 @@ fn code_section_lists_dirs_highlights_files_and_denies_sensitive_paths() {
         &info.host,
         info.port,
         &format!("/p/{project_id}/_code/../../../../../../etc/passwd"),
+        cookie,
     );
     assert_eq!(trav_status, 404);
 
@@ -271,6 +355,7 @@ fn code_section_lists_dirs_highlights_files_and_denies_sensitive_paths() {
         &info.host,
         info.port,
         &format!("/p/{project_id}/_code/does-not-exist.txt"),
+        cookie,
     );
     assert_eq!(missing_status, 404);
     assert_eq!(
@@ -283,6 +368,7 @@ fn code_section_lists_dirs_highlights_files_and_denies_sensitive_paths() {
         &info.host,
         info.port,
         &format!("/p/{project_id}/_code/secret.pem"),
+        cookie,
     );
     assert_eq!(pem_status, 404);
 
@@ -293,6 +379,7 @@ fn code_section_lists_dirs_highlights_files_and_denies_sensitive_paths() {
         &info.host,
         info.port,
         &format!("/p/{project_id}/_code/README.md"),
+        cookie,
     );
     assert_eq!(status, 200);
     assert!(body.contains("id=\"L1\""), "not rendered as source: {body}");
@@ -303,10 +390,69 @@ fn code_section_lists_dirs_highlights_files_and_denies_sensitive_paths() {
 
     // 8. The Docs page still renders normally and now carries the Docs|Code
     //    section switch — the only change this item makes to that page.
-    let (status, body) = http_get(&info.host, info.port, &format!("/p/{project_id}/README.md"));
+    let (status, body) = http_get(
+        &info.host,
+        info.port,
+        &format!("/p/{project_id}/README.md"),
+        cookie,
+    );
     assert_eq!(status, 200);
     assert!(
         body.contains("section-switch"),
         "Docs page missing the section switch: {body}"
+    );
+}
+
+/// D3: a first start with no configured `web_secret` generates one, persists
+/// it to `config.toml`, and prints it to stdout exactly once — the operator's
+/// only way to learn it without opening the file.
+#[test]
+fn first_start_generates_and_prints_a_login_token_exactly_once() {
+    use std::io::{BufRead, BufReader};
+
+    let bin = env!("CARGO_BIN_EXE_mdview");
+    let home = scratch_home("first-run-token");
+
+    let mut child = Command::new(bin)
+        .args(["serve", "--port", "0", "--host", "127.0.0.1"])
+        .env("HOME", &home)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .expect("spawn mdview serve");
+    let stdout = child.stdout.take().expect("piped stdout");
+    let _guard = DaemonGuard(child);
+
+    let info = wait_for_lock(&home, Duration::from_secs(10));
+    assert!(
+        wait_for_health(&info.host, info.port, Duration::from_secs(10)),
+        "daemon never answered /health"
+    );
+
+    let cfg_text = std::fs::read_to_string(home.join(".mdview/config.toml")).unwrap();
+    let token = cfg_text
+        .lines()
+        .find_map(|l| l.strip_prefix("web_secret = "))
+        .map(|v| v.trim_matches('"').to_string())
+        .expect("config.toml must contain an auto-generated web_secret");
+    assert!(!token.is_empty());
+
+    // serve() prints exactly 4 lines to stdout before it starts accepting
+    // connections (the 3-line token notice, then the single-URL "serving
+    // on" line — `host=127.0.0.1` guarantees exactly one display URL) and
+    // nothing after; by the time the health check above succeeded, all 4
+    // are already sitting in the pipe. Reading exactly 4 avoids blocking on
+    // a 5th line the long-running daemon will never print.
+    let reader = BufReader::new(stdout);
+    let mut occurrences = 0;
+    for line in reader.lines().map_while(Result::ok).take(4) {
+        if line.contains(&token) {
+            occurrences += 1;
+        }
+    }
+    assert_eq!(
+        occurrences, 1,
+        "the generated token must be printed to stdout exactly once"
     );
 }

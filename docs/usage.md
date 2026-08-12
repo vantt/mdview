@@ -54,11 +54,39 @@ ssh -L 7700:localhost:7700 user@ubuntu-host
 # then open http://localhost:7700 in your laptop's browser
 ```
 
-Alternatively, expose it on the LAN (less secure — no auth):
+Alternatively, expose it on the LAN:
 ```bash
 mdview serve --host 0.0.0.0
 # then browse http://<server-ip>:7700 from another machine on the network
 ```
+
+Either way, signing in is required — see [Authentication](#authentication)
+below.
+
+### Authentication
+
+The daemon requires a login before it shows anything except the login page
+and `/health`. On first start with no token configured, it generates one,
+saves it to `~/.mdview/config.toml` (`web_secret`), and prints it once:
+
+```
+No login token configured — generated one (saved to ~/.mdview/config.toml):
+  <token>
+Sign in at /login with it, or change it later in Settings.
+```
+
+Open `/login`, enter the token, and the browser stays signed in via a
+session cookie (in-memory on the daemon side — restarting the daemon signs
+everyone out). To change the token, edit `web_secret` in `config.toml` and
+restart.
+
+**Cloudflare Access** (optional): if you tunnel mdview through Cloudflare,
+set the *Team domain* and *Application Audience tag* in Settings (or
+`cf_access_team_domain`/`cf_access_aud` in `config.toml`) and a verified
+`Cf-Access-Jwt-Assertion` from the edge is accepted as an alternate to the
+login token — useful for a browser that Cloudflare already authenticated,
+with no separate mdview login. Leaving either field unset keeps this fully
+off.
 
 ---
 

@@ -13,31 +13,52 @@ use axum::{
     routing::{get, post},
     Json, Router,
 };
+use mdview_core::config::ServerConfig;
 use mdview_core::indexer::now_rfc3339;
 use mdview_core::render::theme_css;
 use mdview_core::Engine;
 use serde_json::json;
+use std::collections::HashSet;
 use std::net::SocketAddr;
 use std::sync::Arc;
-use tokio::sync::broadcast;
+use tokio::sync::{broadcast, Mutex};
 
 #[derive(Clone)]
 pub struct AppState {
     pub engine: Arc<Engine>,
     pub reload_tx: broadcast::Sender<String>,
     pub highlight_css: Arc<String>,
+    /// The token `POST /api/login` compares against. `None`/empty means
+    /// login is unusably misconfigured and fails closed — `serve()`
+    /// auto-generates one on first start (D3) rather than leaving this
+    /// unset.
+    pub web_secret: Arc<Option<String>>,
+    /// Session ids issued by a successful login. In-memory by design (D7):
+    /// a daemon restart invalidates every session, which is acceptable for
+    /// a single-operator local tool.
+    pub sessions: Arc<Mutex<HashSet<String>>>,
+    /// Optional Cloudflare Access verifier. `None` unless the operator set
+    /// both `cf_access_team_domain` and `cf_access_aud` (D5); when present,
+    /// `auth::AuthSession` also accepts a verified `Cf-Access-Jwt-Assertion`
+    /// header as an alternate credential.
+    pub cf_access: Arc<Option<crate::cf_access::CfAccessVerifier>>,
 }
 
 /// Start the daemon: watcher + HTTP server. Blocks until shutdown.
 pub async fn serve() -> Result<()> {
+    ensure_web_secret()?;
     let engine = Arc::new(runtime::build_engine()?);
     let (reload_tx, _) = broadcast::channel::<String>(32);
     let highlight_css = Arc::new(build_highlight_css(&engine));
+    let cf_access = build_cf_access(&engine.config.server);
 
     let state = AppState {
         engine: engine.clone(),
         reload_tx: reload_tx.clone(),
         highlight_css,
+        web_secret: Arc::new(engine.config.server.web_secret.clone()),
+        sessions: Arc::new(Mutex::new(HashSet::new())),
+        cf_access: Arc::new(cf_access),
     };
 
     // Filesystem watcher (kept alive for the process lifetime).
@@ -69,9 +90,9 @@ pub async fn serve() -> Result<()> {
     }
     if !is_loopback_host(&cfg.host) {
         eprintln!(
-            "warning: mdview is bound to a non-loopback address ({}) and has NO \
-             authentication — anyone who can reach this port can read every \
-             indexed file and each project's filesystem path. Bind 127.0.0.1 \
+            "warning: mdview is bound to a non-loopback address ({}) — reachable from \
+             the LAN. A login token is required (see above/Settings), but review who \
+             else can reach this port before relying on that alone. Bind 127.0.0.1 \
              unless you intend LAN exposure.",
             cfg.host
         );
@@ -90,10 +111,46 @@ async fn shutdown_signal() {
     let _ = tokio::signal::ctrl_c().await;
 }
 
+/// First-run provisioning (D3): if no login token is configured, generate
+/// one, persist it to `config.toml`, and print it once so the operator can
+/// sign in. Idempotent — a config that already has a secret is untouched.
+fn ensure_web_secret() -> Result<()> {
+    let mut cfg = mdview_core::Config::load();
+    if cfg.server.web_secret.as_deref().unwrap_or("").is_empty() {
+        let secret = crate::auth::generate_web_secret();
+        cfg.server.web_secret = Some(secret.clone());
+        cfg.save()?;
+        println!("No login token configured — generated one (saved to ~/.mdview/config.toml):");
+        println!("  {secret}");
+        println!("Sign in at /login with it, or change it later in Settings.");
+    }
+    Ok(())
+}
+
+/// Build the CF Access verifier iff BOTH `cf_access_team_domain` and
+/// `cf_access_aud` are configured (D5) — one without the other leaves CF
+/// Access fully off, never a partial/half-configured check.
+fn build_cf_access(cfg: &ServerConfig) -> Option<crate::cf_access::CfAccessVerifier> {
+    let team_domain = cfg
+        .cf_access_team_domain
+        .as_deref()
+        .filter(|s| !s.is_empty())?;
+    let aud = cfg.cf_access_aud.as_deref().filter(|s| !s.is_empty())?;
+    let client = reqwest::Client::new();
+    Some(crate::cf_access::CfAccessVerifier::new(
+        client,
+        team_domain.to_string(),
+        aud.to_string(),
+    ))
+}
+
 fn router(state: AppState) -> Router {
     Router::new()
         .route("/", get(index_page))
         .route("/health", get(health))
+        .route("/login", get(login_page))
+        .route("/api/login", post(crate::auth::login))
+        .route("/api/logout", post(crate::auth::logout))
         .route("/api/status", get(status))
         .route("/api/projects", get(api_projects))
         .route("/settings", get(settings_page_handler))
@@ -114,7 +171,14 @@ fn router(state: AppState) -> Router {
         .with_state(state)
 }
 
-async fn index_page(State(st): State<AppState>) -> Response {
+/// `GET /login` — the only genuinely-open, discoverable route besides
+/// `/health`. Deliberately unauthenticated: it has to be, or there would be
+/// no way in.
+async fn login_page() -> Response {
+    Html(views::login_page()).into_response()
+}
+
+async fn index_page(_auth: crate::auth::AuthSession, State(st): State<AppState>) -> Response {
     match st.engine.list_projects() {
         Ok(projects) => {
             let with_counts: Vec<_> = projects
@@ -134,7 +198,7 @@ async fn health() -> impl IntoResponse {
     Json(json!({ "status": "ok", "app": "mdview", "version": env!("CARGO_PKG_VERSION") }))
 }
 
-async fn status(State(st): State<AppState>) -> impl IntoResponse {
+async fn status(_auth: crate::auth::AuthSession, State(st): State<AppState>) -> impl IntoResponse {
     let projects = st.engine.list_projects().unwrap_or_default();
     let files: usize = st.engine.store.total_file_count().unwrap_or(0);
     Json(json!({
@@ -146,7 +210,10 @@ async fn status(State(st): State<AppState>) -> impl IntoResponse {
     }))
 }
 
-async fn api_projects(State(st): State<AppState>) -> impl IntoResponse {
+async fn api_projects(
+    _auth: crate::auth::AuthSession,
+    State(st): State<AppState>,
+) -> impl IntoResponse {
     let projects = st.engine.list_projects().unwrap_or_default();
     let arr: Vec<_> = projects
         .into_iter()
@@ -159,9 +226,9 @@ async fn api_projects(State(st): State<AppState>) -> impl IntoResponse {
 }
 
 /// One project's public API summary. Deliberately omits the absolute
-/// `root_path`: the server has no authentication, so exposing each project's
-/// filesystem layout over `/api/projects` leaks it to anyone who can reach the
-/// port (see the non-loopback bind warning in `serve`).
+/// `root_path`: `/api/projects` requires login, but a valid session still
+/// has no reason to see local filesystem layout — defense in depth beyond
+/// the login gate, not a substitute for it.
 fn project_summary_json(id: &str, name: &str, file_count: usize) -> serde_json::Value {
     json!({
         "id": id,
@@ -171,7 +238,10 @@ fn project_summary_json(id: &str, name: &str, file_count: usize) -> serde_json::
     })
 }
 
-async fn api_config(State(st): State<AppState>) -> impl IntoResponse {
+async fn api_config(
+    _auth: crate::auth::AuthSession,
+    State(st): State<AppState>,
+) -> impl IntoResponse {
     Json(json!(st.engine.config))
 }
 
@@ -180,7 +250,10 @@ struct SavedFlag {
     saved: Option<String>,
 }
 
-async fn settings_page_handler(Query(flag): Query<SavedFlag>) -> Response {
+async fn settings_page_handler(
+    _auth: crate::auth::AuthSession,
+    Query(flag): Query<SavedFlag>,
+) -> Response {
     // Read fresh from disk so the form reflects the last save (the running daemon
     // still uses its startup config until restarted — noted in the UI).
     let cfg = mdview_core::Config::load();
@@ -200,9 +273,14 @@ struct SettingsForm {
     exclude_patterns: Option<String>,
     mcp_enabled: Option<String>,
     mcp_transport: Option<String>,
+    cf_access_team_domain: Option<String>,
+    cf_access_aud: Option<String>,
 }
 
-async fn update_config(Form(form): Form<SettingsForm>) -> Response {
+async fn update_config(
+    _auth: crate::auth::AuthSession,
+    Form(form): Form<SettingsForm>,
+) -> Response {
     let mut cfg = mdview_core::Config::load();
     if let Some(p) = form.port {
         if p >= 1 {
@@ -249,15 +327,26 @@ async fn update_config(Form(form): Form<SettingsForm>) -> Response {
             cfg.mcp.transport = tr;
         }
     }
+    cfg.server.cf_access_team_domain = form
+        .cf_access_team_domain
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty());
+    cfg.server.cf_access_aud = form
+        .cf_access_aud
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty());
     let _ = cfg.save();
     Redirect::to("/settings?saved=1").into_response()
 }
 
 /// Remove a project from the registry, then return to the project list. This
 /// only deletes the registry entry and index — the project's files on disk are
-/// untouched, and re-registering re-scans them. NOTE: like every route here it
-/// is unauthenticated, so it is reachable by anyone who can reach the server.
-async fn unregister_project(State(st): State<AppState>, Path(id): Path<String>) -> Response {
+/// untouched, and re-registering re-scans them.
+async fn unregister_project(
+    _auth: crate::auth::AuthSession,
+    State(st): State<AppState>,
+    Path(id): Path<String>,
+) -> Response {
     let _ = st.engine.unregister(&id);
     Redirect::to("/").into_response()
 }
@@ -307,7 +396,11 @@ async fn mermaid_asset() -> impl IntoResponse {
 /// is an extra door, not a replacement. A code whose file has left the index is a
 /// plain 404 — there is nothing correct left to show, and guessing would open the
 /// wrong file.
-async fn short_link_redirect(State(st): State<AppState>, Path(code): Path<String>) -> Response {
+async fn short_link_redirect(
+    _auth: crate::auth::AuthSession,
+    State(st): State<AppState>,
+    Path(code): Path<String>,
+) -> Response {
     match st.engine.store.find_by_hash_prefix(&code) {
         Ok(Some((project_id, rel_path))) => {
             Redirect::to(&format!("/p/{project_id}/{rel_path}")).into_response()
@@ -317,7 +410,11 @@ async fn short_link_redirect(State(st): State<AppState>, Path(code): Path<String
     }
 }
 
-async fn project_home(State(st): State<AppState>, Path(id): Path<String>) -> Response {
+async fn project_home(
+    _auth: crate::auth::AuthSession,
+    State(st): State<AppState>,
+    Path(id): Path<String>,
+) -> Response {
     match st.engine.list_files(&id) {
         Ok(files) if !files.is_empty() => {
             let entry = pick_entry_file(&files).unwrap_or(&files[0]);
@@ -366,6 +463,7 @@ fn pick_entry_file(
 }
 
 async fn project_path(
+    _auth: crate::auth::AuthSession,
     State(st): State<AppState>,
     Path((id, path)): Path<(String, String)>,
 ) -> Response {
@@ -407,6 +505,7 @@ struct SearchQuery {
 }
 
 async fn search_page(
+    _auth: crate::auth::AuthSession,
     State(st): State<AppState>,
     Path(id): Path<String>,
     Query(query): Query<SearchQuery>,
@@ -440,6 +539,7 @@ fn default_jump_limit() -> usize {
 /// against their relative paths (complements the `_search` content search) and
 /// returns the hits as JSON for the client jump palette.
 async fn jump_search(
+    _auth: crate::auth::AuthSession,
     State(st): State<AppState>,
     Path(id): Path<String>,
     Query(query): Query<JumpQuery>,
@@ -454,11 +554,16 @@ async fn jump_search(
     Json(hits).into_response()
 }
 
-async fn code_root(State(st): State<AppState>, Path(id): Path<String>) -> Response {
+async fn code_root(
+    _auth: crate::auth::AuthSession,
+    State(st): State<AppState>,
+    Path(id): Path<String>,
+) -> Response {
     code_response(&st, &id, "").await
 }
 
 async fn code_dir_or_file(
+    _auth: crate::auth::AuthSession,
     State(st): State<AppState>,
     Path((id, path)): Path<(String, String)>,
 ) -> Response {
@@ -531,7 +636,11 @@ fn code_sidebar_listing(
     }
 }
 
-async fn ws_handler(ws: WebSocketUpgrade, State(st): State<AppState>) -> Response {
+async fn ws_handler(
+    _auth: crate::auth::AuthSession,
+    ws: WebSocketUpgrade,
+    State(st): State<AppState>,
+) -> Response {
     ws.on_upgrade(move |socket| handle_ws(socket, st.reload_tx.subscribe()))
 }
 
@@ -800,5 +909,243 @@ mod asset_response_tests {
         assert!(!is_loopback_host("0.0.0.0"));
         assert!(!is_loopback_host("192.168.1.10"));
         assert!(!is_loopback_host("::"));
+    }
+}
+
+/// Route-level auth wiring, exercised through the real router (not the
+/// individual handlers) so a protected route accidentally left off the list
+/// would show up here as a false "200" — the same shape of test herdr-gateway
+/// itself uses to prove its own wiring
+/// (`docs/history/daemon-auth-token-cf-access/CONTEXT.md`).
+#[cfg(test)]
+mod auth_wiring_tests {
+    use super::*;
+    use axum::body::Body;
+    use axum::http::Request;
+    use tower::ServiceExt;
+
+    const TOKEN: &str = "s3cret-token";
+
+    fn test_state() -> AppState {
+        let engine = Arc::new(mdview_core::Engine::new(
+            mdview_core::SqliteStore::open_in_memory().unwrap(),
+            mdview_core::Config::default(),
+        ));
+        let (reload_tx, _) = broadcast::channel::<String>(32);
+        AppState {
+            engine,
+            reload_tx,
+            highlight_css: Arc::new(String::new()),
+            web_secret: Arc::new(Some(TOKEN.to_string())),
+            sessions: Arc::new(Mutex::new(HashSet::new())),
+            cf_access: Arc::new(None),
+        }
+    }
+
+    async fn get(app: Router, uri: &str) -> StatusCode {
+        app.oneshot(Request::builder().uri(uri).body(Body::empty()).unwrap())
+            .await
+            .unwrap()
+            .status()
+    }
+
+    async fn login(app: Router, token: &str) -> Response {
+        app.oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/login")
+                .header("content-type", "application/x-www-form-urlencoded")
+                .body(Body::from(format!("token={token}")))
+                .unwrap(),
+        )
+        .await
+        .unwrap()
+    }
+
+    fn cookie_from(res: &Response) -> String {
+        res.headers()
+            .get(header::SET_COOKIE)
+            .unwrap()
+            .to_str()
+            .unwrap()
+            .split(';')
+            .next()
+            .unwrap()
+            .to_string()
+    }
+
+    #[tokio::test]
+    async fn unauth_request_to_protected_route_is_opaque_404() {
+        assert_eq!(get(router(test_state()), "/").await, StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn health_login_page_and_static_assets_stay_open() {
+        let state = test_state();
+        assert_eq!(get(router(state.clone()), "/health").await, StatusCode::OK);
+        assert_eq!(get(router(state.clone()), "/login").await, StatusCode::OK);
+        assert_eq!(
+            get(router(state.clone()), "/static/app.css").await,
+            StatusCode::OK
+        );
+        assert_eq!(get(router(state), "/highlight.css").await, StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn wrong_token_login_is_opaque_404() {
+        let res = login(router(test_state()), "wrong").await;
+        assert_eq!(res.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn missing_web_secret_fails_closed_even_with_right_looking_token() {
+        let mut state = test_state();
+        state.web_secret = Arc::new(None);
+        let res = login(router(state), TOKEN).await;
+        assert_eq!(res.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn correct_token_sets_cookie_and_grants_access() {
+        let state = test_state();
+        let res = login(router(state.clone()), TOKEN).await;
+        assert_eq!(res.status(), StatusCode::SEE_OTHER);
+        let cookie = res
+            .headers()
+            .get(header::SET_COOKIE)
+            .unwrap()
+            .to_str()
+            .unwrap();
+        assert!(cookie.contains("HttpOnly"));
+        assert!(cookie.contains("SameSite=Strict"));
+
+        let sid = cookie.split(';').next().unwrap().to_string();
+        let res2 = router(state)
+            .oneshot(
+                Request::builder()
+                    .uri("/")
+                    .header(header::COOKIE, sid)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(res2.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn logout_invalidates_the_session() {
+        let state = test_state();
+        let login_res = login(router(state.clone()), TOKEN).await;
+        let sid = cookie_from(&login_res);
+
+        let logout_res = router(state.clone())
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/logout")
+                    .header(header::COOKIE, sid.clone())
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(logout_res.status(), StatusCode::SEE_OTHER);
+
+        let after = router(state)
+            .oneshot(
+                Request::builder()
+                    .uri("/")
+                    .header(header::COOKIE, sid)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(after.status(), StatusCode::NOT_FOUND);
+    }
+
+    /// Regression guard: with CF Access unconfigured (the default
+    /// `test_state`), an unauthenticated request to a guarded route is
+    /// byte-identical to today — an opaque 404 — even if it carries a CF
+    /// Access header, which must be completely ignored when no verifier is
+    /// configured.
+    #[tokio::test]
+    async fn cf_access_unconfigured_ignores_header_and_stays_opaque_404() {
+        let res = router(test_state())
+            .oneshot(
+                Request::builder()
+                    .uri("/")
+                    .header("Cf-Access-Jwt-Assertion", "anything.at.all")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::NOT_FOUND);
+    }
+
+    /// With CF Access configured and a validly-signed assertion for the
+    /// expected team/aud, a guarded route succeeds with NO session cookie
+    /// present.
+    #[tokio::test]
+    async fn cf_access_configured_valid_header_authenticates_without_cookie() {
+        let (verifier, token) = crate::cf_access::test_verifier_with_valid_token();
+        let mut state = test_state();
+        state.cf_access = Arc::new(Some(verifier));
+        let res = router(state)
+            .oneshot(
+                Request::builder()
+                    .uri("/")
+                    .header("Cf-Access-Jwt-Assertion", token)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+    }
+
+    /// With CF Access configured but the assertion unverifiable (not a real
+    /// signed token), the request gets exactly the same opaque 404 as any
+    /// unauthenticated one — the raw header is never trusted.
+    #[tokio::test]
+    async fn cf_access_configured_bogus_header_is_opaque_404() {
+        let (verifier, _valid) = crate::cf_access::test_verifier_with_valid_token();
+        let mut state = test_state();
+        state.cf_access = Arc::new(Some(verifier));
+        let res = router(state)
+            .oneshot(
+                Request::builder()
+                    .uri("/")
+                    .header("Cf-Access-Jwt-Assertion", "not.a.jwt")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::NOT_FOUND);
+    }
+
+    /// With CF Access configured, a valid session cookie still authenticates
+    /// — the cookie path is preserved unchanged alongside the new branch.
+    #[tokio::test]
+    async fn cf_access_configured_cookie_still_authenticates() {
+        let (verifier, _token) = crate::cf_access::test_verifier_with_valid_token();
+        let mut state = test_state();
+        state.cf_access = Arc::new(Some(verifier));
+        let login_res = login(router(state.clone()), TOKEN).await;
+        let sid = cookie_from(&login_res);
+        let res = router(state)
+            .oneshot(
+                Request::builder()
+                    .uri("/")
+                    .header(header::COOKIE, sid)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
     }
 }
