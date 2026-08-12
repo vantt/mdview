@@ -1,0 +1,186 @@
+//! Authentication — token + session cookie, fail-closed and silent.
+//!
+//! Single operator (`docs/history/daemon-auth-token-cf-access/CONTEXT.md`
+//! D7/D8): a login presents the configured secret (compared in constant
+//! time); on success the server issues a random session id as an httpOnly,
+//! SameSite=Strict cookie. Every protected route requires a valid session
+//! cookie; an unauthenticated request gets an **opaque 404** (D2) — no
+//! descriptive 401, nothing that confirms the route exists.
+
+use axum::extract::{FromRequestParts, State};
+use axum::http::request::Parts;
+use axum::http::{header, HeaderMap, StatusCode};
+use axum::response::{IntoResponse, Redirect, Response};
+use axum::Form;
+use serde::Deserialize;
+
+use crate::server::AppState;
+
+const COOKIE_NAME: &str = "mdv_session";
+
+/// Header Cloudflare Access sets on requests it has already authenticated at
+/// the edge. Read case-insensitively (axum lowercases header names).
+const CF_ACCESS_HEADER: &str = "cf-access-jwt-assertion";
+
+#[derive(Deserialize)]
+pub struct LoginForm {
+    token: String,
+}
+
+/// `POST /api/login` — validate the token, issue a session cookie, redirect
+/// to `/`. A wrong or missing token gets the same opaque 404 as any other
+/// auth failure (D2), so the endpoint leaks nothing about whether it exists
+/// or what it wants — including no distinguishing error on the login page
+/// itself.
+pub async fn login(State(state): State<AppState>, Form(form): Form<LoginForm>) -> Response {
+    let configured = match state.web_secret.as_ref() {
+        Some(s) if !s.is_empty() => s,
+        // Misconfigured (no secret) → fail closed, leak nothing.
+        _ => return StatusCode::NOT_FOUND.into_response(),
+    };
+    if !constant_time_eq(form.token.as_bytes(), configured.as_bytes()) {
+        return StatusCode::NOT_FOUND.into_response();
+    }
+    let session_id = new_session_id();
+    state.sessions.lock().await.insert(session_id.clone());
+
+    let cookie =
+        format!("{COOKIE_NAME}={session_id}; HttpOnly; SameSite=Strict; Path=/; Max-Age=604800");
+    let mut headers = HeaderMap::new();
+    headers.insert(header::SET_COOKIE, cookie.parse().unwrap());
+    (headers, Redirect::to("/")).into_response()
+}
+
+/// `POST /api/logout` — invalidate the current session, redirect to
+/// `/login`. Always succeeds (idempotent).
+pub async fn logout(State(state): State<AppState>, headers: HeaderMap) -> Response {
+    if let Some(sid) = session_cookie(&headers) {
+        state.sessions.lock().await.remove(&sid);
+    }
+    let expired = format!("{COOKIE_NAME}=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0");
+    let mut out = HeaderMap::new();
+    out.insert(header::SET_COOKIE, expired.parse().unwrap());
+    (out, Redirect::to("/login")).into_response()
+}
+
+/// Extractor proving a request is authenticated. A valid `mdv_session`
+/// cookie is the primary credential; when the operator has configured
+/// Cloudflare Access, a verified `Cf-Access-Jwt-Assertion` header is
+/// accepted as an equivalent alternate (D1). On failure it short-circuits
+/// with an opaque 404 — the caller never distinguishes "no cookie", "bad CF
+/// token", or "unknown route".
+pub struct AuthSession;
+
+#[async_trait::async_trait]
+impl FromRequestParts<AppState> for AuthSession {
+    type Rejection = Response;
+
+    async fn from_request_parts(
+        parts: &mut Parts,
+        state: &AppState,
+    ) -> Result<Self, Self::Rejection> {
+        // Primary credential: a valid session cookie.
+        if let Some(sid) = session_cookie(&parts.headers) {
+            if state.sessions.lock().await.contains(&sid) {
+                return Ok(AuthSession);
+            }
+        }
+
+        // Additive fallback (D5): only when the operator configured CF
+        // Access does a request without a valid cookie get a second chance
+        // via an edge-verified JWT. The raw header is never trusted —
+        // `verify` runs the full JWKS/signature/iss/aud/exp check; any
+        // failure is treated exactly like no credential at all.
+        if let Some(verifier) = state.cf_access.as_ref() {
+            if let Some(assertion) = parts
+                .headers
+                .get(CF_ACCESS_HEADER)
+                .and_then(|v| v.to_str().ok())
+            {
+                if verifier.verify(assertion).await.is_ok() {
+                    return Ok(AuthSession);
+                }
+            }
+        }
+
+        Err(StatusCode::NOT_FOUND.into_response())
+    }
+}
+
+/// Extract the `mdv_session` value from the Cookie header, if present.
+pub fn session_cookie(headers: &HeaderMap) -> Option<String> {
+    let raw = headers.get(header::COOKIE)?.to_str().ok()?;
+    for pair in raw.split(';') {
+        let pair = pair.trim();
+        if let Some(v) = pair.strip_prefix(&format!("{COOKIE_NAME}=")) {
+            if !v.is_empty() {
+                return Some(v.to_string());
+            }
+        }
+    }
+    None
+}
+
+fn new_session_id() -> String {
+    use rand::RngCore;
+    let mut bytes = [0u8; 24];
+    rand::thread_rng().fill_bytes(&mut bytes);
+    bytes.iter().map(|b| format!("{b:02x}")).collect()
+}
+
+/// Constant-time byte comparison (D8) — no early return on first mismatch,
+/// so timing does not leak how much of the token was correct.
+fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
+    if a.len() != b.len() {
+        return false;
+    }
+    let mut diff = 0u8;
+    for (x, y) in a.iter().zip(b.iter()) {
+        diff |= x ^ y;
+    }
+    diff == 0
+}
+
+/// A random 32-character hex token, generated on first start when the
+/// operator has not configured one (D3): `POST /api/login`'s constant-time
+/// compare only needs matching lengths, so 32 hex chars (128 bits) is ample.
+pub fn generate_web_secret() -> String {
+    use rand::RngCore;
+    let mut bytes = [0u8; 16];
+    rand::thread_rng().fill_bytes(&mut bytes);
+    bytes.iter().map(|b| format!("{b:02x}")).collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn constant_time_eq_matches_semantics() {
+        assert!(constant_time_eq(b"abc", b"abc"));
+        assert!(!constant_time_eq(b"abc", b"abd"));
+        assert!(!constant_time_eq(b"abc", b"abcd"));
+    }
+
+    #[test]
+    fn generated_web_secret_is_32_hex_chars_and_varies() {
+        let a = generate_web_secret();
+        let b = generate_web_secret();
+        assert_eq!(a.len(), 32);
+        assert!(a.chars().all(|c| c.is_ascii_hexdigit()));
+        assert_ne!(a, b);
+    }
+
+    #[test]
+    fn session_cookie_extraction() {
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            header::COOKIE,
+            "other=x; mdv_session=abc123; another=y".parse().unwrap(),
+        );
+        assert_eq!(session_cookie(&headers), Some("abc123".to_string()));
+
+        let empty = HeaderMap::new();
+        assert_eq!(session_cookie(&empty), None);
+    }
+}

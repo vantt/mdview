@@ -43,7 +43,8 @@ pub fn project_list_page(projects: &[(Project, usize)]) -> String {
     } else {
         // Cards (not a table — cards read better on phones/tablets). Each card is
         // a clickable link to the project plus a delete control that unregisters
-        // it. The filesystem path is deliberately omitted (unauthenticated page).
+        // it. The filesystem path is deliberately omitted — defense in depth
+        // beyond the login gate, not a substitute for it.
         let mut cards = String::new();
         for (p, count) in projects {
             cards.push_str(&format!(
@@ -731,6 +732,17 @@ pub fn settings_page(cfg: &Config, saved: bool) -> String {
         <textarea class="fg-input fg-input--area" name="exclude_patterns" rows="5">{excludes}</textarea>
       </div>
     </fieldset>
+    <fieldset><legend>Cloudflare Access <span class="fg-chip fg-chip--neutral">restart</span></legend>
+      <p class="fg-field__hint">Optional alternate login for requests already authenticated at the edge. Off unless both fields below are set. The login token itself is managed separately — see <code>~/.mdview/config.toml</code> (generated automatically on first start) or delete it there to force a fresh one.</p>
+      <div class="fg-field">
+        <label class="fg-field__label">Team domain</label>
+        <input class="fg-input" name="cf_access_team_domain" value="{cf_team}" placeholder="https://your-team.cloudflareaccess.com">
+      </div>
+      <div class="fg-field">
+        <label class="fg-field__label">Application Audience (aud) tag</label>
+        <input class="fg-input" name="cf_access_aud" value="{cf_aud}">
+      </div>
+    </fieldset>
     <button type="submit" class="fg-btn fg-btn--primary">Save</button>
   </form>
 </main>"#,
@@ -751,8 +763,28 @@ pub fn settings_page(cfg: &Config, saved: bool) -> String {
         mcp_on = checked(cfg.mcp.enabled),
         tr_stdio = sel(&cfg.mcp.transport, "stdio"),
         tr_http = sel(&cfg.mcp.transport, "http"),
+        cf_team = esc(cfg.server.cf_access_team_domain.as_deref().unwrap_or("")),
+        cf_aud = esc(cfg.server.cf_access_aud.as_deref().unwrap_or("")),
     );
     layout("Settings", "", &body)
+}
+
+/// `GET /login` — a plain form POSTing to `/api/login`. No client JS: a
+/// wrong token gets the same opaque 404 `POST /api/login` always returns
+/// (D2), so this page carries no error state to render either — there is
+/// nothing to distinguish "just arrived" from "just failed".
+pub fn login_page() -> String {
+    let body = r#"<main class="fg-page">
+  <h2 class="fg-pagehead__title">Sign in</h2>
+  <form class="fg-settings" method="post" action="/api/login">
+    <div class="fg-field">
+      <label class="fg-field__label">Token</label>
+      <input class="fg-input" type="password" name="token" autofocus autocomplete="current-password">
+    </div>
+    <button type="submit" class="fg-btn fg-btn--primary">Sign in</button>
+  </form>
+</main>"#;
+    layout("Sign in", "", body)
 }
 
 pub fn error_page(status: u16, msg: &str) -> String {

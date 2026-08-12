@@ -131,8 +131,8 @@ ssh -L 7700:localhost:7700 user@host   # then open http://localhost:7700
 ```
 
 > mdview can also bind your LAN (`mdview serve --host 0.0.0.0`) to read from a phone or
-> another machine. It has **no authentication**, so only expose it on networks you trust —
-> details in the [usage guide](docs/usage.md).
+> another machine. Sign-in is required (a login token, auto-generated on first start —
+> or Cloudflare Access, if you configure it) — details in the [usage guide](docs/usage.md).
 
 ---
 

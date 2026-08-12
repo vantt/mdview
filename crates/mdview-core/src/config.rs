@@ -26,6 +26,19 @@ pub struct ServerConfig {
     #[serde(alias = "host_name")]
     pub hostname: Option<String>,
     pub open_browser_on_start: bool,
+    /// The token a `POST /api/login` must present to receive a session
+    /// cookie. `None`/empty means auth is unusably misconfigured (login
+    /// fails closed) — `serve()` auto-generates and persists one on first
+    /// start rather than leaving this unset
+    /// (`docs/history/daemon-auth-token-cf-access/CONTEXT.md` D3).
+    pub web_secret: Option<String>,
+    /// Cloudflare Access team domain (e.g. `https://team.cloudflareaccess.com`).
+    /// CF Access only activates when this AND `cf_access_aud` are both set
+    /// (D5) — one without the other leaves it fully off, never a partial
+    /// check.
+    pub cf_access_team_domain: Option<String>,
+    /// Cloudflare Access Application Audience tag. See `cf_access_team_domain`.
+    pub cf_access_aud: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -68,6 +81,9 @@ impl Default for ServerConfig {
             host: "0.0.0.0".into(),
             hostname: None,
             open_browser_on_start: false,
+            web_secret: None,
+            cf_access_team_domain: None,
+            cf_access_aud: None,
         }
     }
 }
@@ -218,6 +234,43 @@ mod tests {
         c.save_to(&p).unwrap();
         let loaded = Config::load_from(&p);
         assert_eq!(loaded.server.hostname.as_deref(), Some("my-machine.local"));
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn auth_fields_default_unset_and_roundtrip_when_set() {
+        assert_eq!(ServerConfig::default().web_secret, None);
+        assert_eq!(ServerConfig::default().cf_access_team_domain, None);
+        assert_eq!(ServerConfig::default().cf_access_aud, None);
+
+        let dir = std::env::temp_dir().join(format!("mdview-cfg-auth-{}", std::process::id()));
+        let p = dir.join("config.toml");
+        let mut c = Config::default();
+        c.server.web_secret = Some("s3cret".into());
+        c.server.cf_access_team_domain = Some("https://team.cloudflareaccess.com".into());
+        c.server.cf_access_aud = Some("aud-tag".into());
+        c.save_to(&p).unwrap();
+        let loaded = Config::load_from(&p);
+        assert_eq!(loaded.server.web_secret.as_deref(), Some("s3cret"));
+        assert_eq!(
+            loaded.server.cf_access_team_domain.as_deref(),
+            Some("https://team.cloudflareaccess.com")
+        );
+        assert_eq!(loaded.server.cf_access_aud.as_deref(), Some("aud-tag"));
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn config_missing_auth_fields_entirely_loads_as_unset() {
+        // A config.toml written before this feature existed has none of
+        // these keys at all — must load cleanly with auth off, not fail.
+        let dir = std::env::temp_dir().join(format!("mdview-cfg-preauth-{}", std::process::id()));
+        let p = dir.join("config.toml");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(&p, "[server]\nport = 7700\nhost = \"0.0.0.0\"\n").unwrap();
+        let loaded = Config::load_from(&p);
+        assert_eq!(loaded.server.web_secret, None);
+        assert_eq!(loaded.server.cf_access_team_domain, None);
         std::fs::remove_dir_all(&dir).ok();
     }
 }

@@ -1,5 +1,7 @@
 //! mdview — multi-project markdown viewer for AI agent workflows.
 
+mod auth;
+mod cf_access;
 mod cli;
 mod doctor;
 mod mcp;
