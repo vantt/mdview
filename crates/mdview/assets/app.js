@@ -140,6 +140,35 @@
     render();
   })();
 
+  // Code section's folder disclosure: code_tree() (views.rs) server-renders
+  // the same `.chap-folders` markup the block above builds client-side for
+  // Docs, so this only needs to wire the click-to-toggle + remembered-open
+  // behavior, not build any DOM. Runs once at load — safe to always attach:
+  // on a Docs page `.chap-folders__bar` does not exist yet at this point
+  // (the block above only creates it later, inside `render()`, and wires
+  // its own handler when it does), so this only ever finds real elements on
+  // a Code page.
+  (function () {
+    var bars = document.querySelectorAll(".chap-folders__bar");
+    if (!bars.length) return;
+    var remembered = false;
+    try { remembered = sessionStorage.getItem("mdview-folders-open") === "1"; } catch (e) {}
+    bars.forEach(function (bar) {
+      var box = bar.closest(".chap-folders");
+      if (!box) return;
+      if (remembered) {
+        box.classList.add("is-open");
+        bar.setAttribute("aria-expanded", "true");
+      }
+      bar.addEventListener("click", function () {
+        var open = !box.classList.contains("is-open");
+        box.classList.toggle("is-open", open);
+        bar.setAttribute("aria-expanded", open ? "true" : "false");
+        try { sessionStorage.setItem("mdview-folders-open", open ? "1" : "0"); } catch (e) {}
+      });
+    });
+  })();
+
   // Fuzzy file-jump palette (Cmd/Ctrl+K): fetch nucleo-ranked files from the
   // server /p/:id/_jump endpoint and navigate. Complements full-text search —
   // this jumps by file name/path, that searches content.
