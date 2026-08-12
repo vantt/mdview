@@ -183,6 +183,46 @@ missing piece *and* removed whatever the missing piece had been standing in for.
 Convergence that only adds leaves the workarounds behind, and the workarounds are
 what made the two views feel different in the first place.
 
+## Round 7: three copies of the path, and where the two views stop matching
+
+By this point the path was on screen three times: in the topbar next to the
+Docs/Code switch, in the sticky breadcrumb below the header, and in the sidebar's
+ancestor crumbs. Each had been added for a good reason, and each addition had
+made the previous one redundant without removing it.
+
+The topbar copy was deleted. The topbar centre keeps only the Docs/Code switch.
+(The page labels on the search and settings pages look similar but are not paths,
+and were left alone.)
+
+The copy-as-markdown button also moved out of the topbar and into the
+breadcrumb's right half, on the Docs side — the same reserved slot from round 3,
+now serving the view it belongs to.
+
+**This is the round where deliberate divergence appears.** Every previous round
+pushed Code toward Docs. Here the two are made to differ on purpose:
+
+- **Docs' breadcrumb is width-capped** to match the article column beneath it,
+  using a modifier class. A breadcrumb sitting over a centred reading column
+  should line up with that column.
+- **Code's breadcrumb stays full width**, because Code's main pane is full width.
+
+Same element, opposite treatment, and both correct — the breadcrumb should match
+whatever is under it, and what is under it genuinely differs. Convergence was
+never the goal in itself; matching the Docs view was a proxy for consistency, and
+where the underlying content differs, the proxy stops applying.
+
+**Code also got its own scroll pane.** The main pane is now a fixed-height flex
+column (`calc(100vh - 53px)`, the same header offset the sidebar and rightbar
+already used), so the code table and directory listing scroll *inside*
+themselves rather than growing the page. This makes the Code section behave like
+a source browser, where the chrome stays put and only the file moves — and it is
+the vertical counterpart to round 4's horizontal change.
+
+One small deletion came along with it: the standalone "N lines" header line was
+removed. Round 4 had moved language and size out of that header into the
+breadcrumb, leaving it with a single field, and a header holding one leftover
+field is worth less than the space it occupies.
+
 ## Sources
 
 Synthesised from the retrospective records of the layout rounds. Round 1:
@@ -199,3 +239,7 @@ Synthesised from the retrospective records of the layout rounds. Round 1:
 `crates/mdview/assets/app.js`).
  Round 6: `tsk-4ph`, commit `e384134`
 (`code_tree()` in `crates/mdview/src/views.rs`).
+ Round 7: `tsk-4ba`, commit `8d08051`
+(`file_page`/`code_page`/`code_dir_page`/`breadcrumb()` in
+`crates/mdview/src/views.rs`, `.breadcrumb--reading` and `.content--code` in
+`crates/mdview/assets/app.css`).
