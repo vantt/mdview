@@ -739,3 +739,153 @@ pre.mermaid.zoomable:focus-within .mermaid-controls {
 .fg-settings > button[type="submit"] {
   align-self: flex-start;
 }
+
+/* ── Code viewer section ─────────────────────────────────────────
+   A second section next to Docs: browse the project's real directory
+   tree and read source files. No index behind it (D1), so the sidebar
+   here is plain server-rendered links, not the JSON-payload client
+   zoom `.chapter`/`.chap-file` uses for Docs — those classes are still
+   reused as-is (this block only adds `.chap-dir` for a folder row) so
+   the mobile drawer JS keeps working unmodified. ────────────────── */
+.section-switch {
+  display: flex;
+  gap: var(--space-1);
+  margin-right: var(--space-3);
+}
+.section-switch a {
+  padding: var(--space-1) var(--space-3);
+  border-radius: var(--radius-pill);
+  font-family: var(--type-body-sm-font);
+  font-size: var(--type-body-sm-size);
+  color: var(--color-text-muted);
+}
+.section-switch a:hover {
+  background: var(--color-surface-hover);
+}
+.section-switch a[aria-current="page"] {
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-weight: var(--weight-semibold);
+}
+.chap-dir {
+  color: var(--color-text-muted);
+}
+
+/* Highlighted source: same fixed dark "signature" panel `.fg-prose pre`
+   renders code blocks on (build_highlight_css scopes /highlight.css to
+   that one dark theme regardless of page scheme), so the syntect token
+   colors stay correct on this panel in both light and dark page modes. */
+.codeview__banner {
+  max-width: var(--reading-col);
+  margin: 0 auto var(--space-3);
+  padding: var(--space-2) var(--space-4);
+  border-radius: var(--radius-md);
+  background: var(--color-warning-tint);
+  color: var(--color-text);
+  font-family: var(--type-body-sm-font);
+  font-size: var(--type-body-sm-size);
+}
+.codeview__binary {
+  max-width: var(--reading-col);
+  margin: var(--space-5) auto;
+  padding: var(--space-4);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  border: var(--border-width-hairline) solid var(--color-border);
+  color: var(--color-text-muted);
+  font-family: var(--type-body-sm-font);
+  font-size: var(--type-body-sm-size);
+}
+.codeview__head {
+  max-width: var(--reading-col);
+  margin: var(--space-5) auto var(--space-2);
+  display: flex;
+  gap: var(--space-3);
+  align-items: baseline;
+  font-family: var(--type-body-sm-font);
+  font-size: var(--type-body-sm-size);
+  color: var(--color-text-muted);
+}
+.codeview__lang {
+  font-weight: var(--weight-semibold);
+  color: var(--color-text);
+}
+.codeview__table {
+  width: 100%;
+  max-width: var(--reading-col);
+  margin: 0 auto var(--space-6);
+  border-collapse: collapse;
+  background: var(--signature-dark-bg);
+  color: var(--signature-dark-text);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  font-family: var(--font-mono);
+  font-size: var(--fs-prose-code);
+  line-height: var(--lh-prose-code);
+}
+.codeview__table tr:target {
+  background: rgba(255, 255, 255, 0.08);
+}
+.codeview__num {
+  box-sizing: border-box;
+  width: 1%;
+  min-width: 3em;
+  padding: 0 var(--space-2);
+  text-align: right;
+  vertical-align: top;
+  user-select: none;
+  border-right: var(--border-width-hairline) solid rgba(255, 255, 255, 0.12);
+}
+.codeview__num a {
+  color: inherit;
+  opacity: 0.5;
+}
+.codeview__line {
+  box-sizing: border-box;
+  padding: 0 var(--space-3);
+  white-space: pre;
+  overflow-x: auto;
+}
+.codeview__line code {
+  font: inherit;
+  background: none;
+  border: 0;
+  padding: 0;
+  color: inherit;
+}
+
+/* Directory listing main pane (the sidebar shows the same directory in
+   compact form via `.chapter`/`.chap-file`). */
+.codelist {
+  max-width: var(--reading-col);
+  margin: var(--space-3) auto var(--space-6);
+  display: flex;
+  flex-direction: column;
+}
+.codelist__row {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-sm);
+  color: var(--color-text);
+}
+.codelist__row:visited {
+  color: var(--color-text);
+}
+.codelist__row:hover {
+  background: var(--color-surface-hover);
+}
+.codelist__row--dir .codelist__name {
+  font-weight: var(--weight-semibold);
+}
+.codelist__name {
+  min-width: 0;
+  overflow-wrap: break-word;
+}
+.codelist__size {
+  flex: none;
+  color: var(--color-text-muted);
+  font-family: var(--type-body-sm-font);
+  font-size: var(--type-body-sm-size);
+}

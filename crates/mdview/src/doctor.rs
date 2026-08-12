@@ -212,7 +212,7 @@ fn check_index_schema() -> Check {
     }
     match mdview_core::SqliteStore::open(&path) {
         Ok(store) => match store.schema_report() {
-            Ok((version, unhashed)) if unhashed == 0 => Check {
+            Ok((version, 0)) => Check {
                 name: "index schema".into(),
                 status: Status::Ok,
                 detail: format!("v{version}, every file has a short-link code"),
