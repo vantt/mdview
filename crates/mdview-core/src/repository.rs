@@ -344,8 +344,8 @@ impl SqliteStore {
 /// that crate would only wrap this list, so the dependency is not earned yet;
 /// the shape here is deliberately the one it expects, so adopting it later is a
 /// mechanical swap rather than a redesign.
-const MIGRATIONS: &[(i64, fn(&Connection) -> Result<()>)] =
-    &[(1, migration_1_path_hash), (2, migration_2_content_hash)];
+type MigrationStep = (i64, fn(&Connection) -> Result<()>);
+const MIGRATIONS: &[MigrationStep] = &[(1, migration_1_path_hash), (2, migration_2_content_hash)];
 
 /// Schema version this build expects — the last entry in [`MIGRATIONS`].
 pub const SCHEMA_VERSION: i64 = 2;

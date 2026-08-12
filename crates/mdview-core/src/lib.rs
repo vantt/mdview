@@ -4,6 +4,7 @@
 //! (SQLite, notify) live here behind ports; the HTTP/MCP/CLI wiring is in the
 //! `mdview` binary crate.
 
+pub mod code_source;
 pub mod config;
 pub mod daemon;
 pub mod domain;
