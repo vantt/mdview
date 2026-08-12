@@ -257,6 +257,37 @@ scroll pane fixes it: the pane is the thing that stays put, so the colour that
 should stay put belongs on it. A background on the content moves with the
 content — which is right for content and wrong for a backdrop.
 
+## Round 9: fixing a vendored class without editing it
+
+The final round is the smallest change in the series and the clearest statement
+of a rule worth keeping.
+
+Once the breadcrumb became a sticky bar, the Docs article sat flush against its
+bottom edge — the only separation was the breadcrumb's own padding, so the prose
+felt cramped the moment you scrolled.
+
+The obvious fix is a top margin on `.fg-reading`, the class the article uses. But
+`.fg-reading` is not mdview's class: it comes from the vendored Atelier
+stylesheet, a shared core class used in more than one place. Editing it there
+would have fixed this page and changed every other use of it, including ones with
+no breadcrumb above them — and the change would sit in a vendored file, waiting to
+be lost or to cause a conflict at the next update.
+
+So the margin was added in mdview's own stylesheet, scoped by adjacency:
+
+```css
+.breadcrumb + .fg-reading { margin-top: var(--space-5); }
+```
+
+The selector applies only where a breadcrumb genuinely precedes an article, which
+is exactly the situation that created the problem. Everywhere else `.fg-reading`
+is untouched, and the vendored file stays pristine.
+
+That is the general principle this series ends on: when borrowed styling needs
+adjusting, express the adjustment as the *condition* that makes it necessary,
+in your own file. It fixes the real case, leaves the borrowed thing intact, and
+tells the next reader why the rule exists just by being written that way.
+
 ## Sources
 
 Synthesised from the retrospective records of the layout rounds. Round 1:
@@ -279,3 +310,5 @@ Synthesised from the retrospective records of the layout rounds. Round 1:
 `crates/mdview/assets/app.css`).
  Round 8: `tsk-35o`, commit `646b282`
 (`.topbar`/`body`/`.codeview` in `crates/mdview/assets/app.css`).
+ Round 9: `tsk-3q9`, commit `1aaca30`
+(`.breadcrumb + .fg-reading` in `crates/mdview/assets/app.css`).
