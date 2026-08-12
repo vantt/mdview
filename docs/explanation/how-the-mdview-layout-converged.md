@@ -223,6 +223,40 @@ removed. Round 4 had moved language and size out of that header into the
 breadcrumb, leaving it with a single field, and a header holding one leftover
 field is worth less than the space it occupies.
 
+## Round 8: the 53px that everything assumed but nothing enforced
+
+Three separate visual defects, each with the same underlying character: a value
+that several places depended on, which nothing actually guaranteed.
+
+**A 4px sliver under the header.** The breadcrumb, sidebar, rightbar, and the
+Code pane all offset themselves by exactly 53px for the sticky header. The header
+itself had `height: auto` — a 32px button plus 16px of padding plus a 1px border
+renders at about 49px. Four pixels of page background showed through between the
+header and the breadcrumb while scrolling.
+
+The interesting part is the fix's direction. The other option was to correct
+every consumer to whatever the header currently measures, which would have left
+the same fragility in place — the number would drift again the moment a button or
+a padding changed. Instead `box-sizing: border-box` and `height: 53px` were set
+on the header, making the assumption true by construction. Four places already
+believed 53px; the cheapest correct move was to make the header believe it too.
+
+**A second, redundant scrollbar.** `<body>` had never had its user-agent default
+8px margin reset. On a normally scrolling page that is invisible. But the Code
+view's layout already sums to exactly the viewport height — a 53px header plus a
+pane of `calc(100vh - 53px)` — so those 8px alone were enough to overflow the
+viewport and produce a page-level scrollbar next to the code pane's own. A
+never-noticed default became a visible bug only once something summed to exactly
+100vh.
+
+**Background that scrolled away.** The code table carried its own dark background
+and rounded corners. The table is shorter than the scroll pane containing it, so
+scrolling exposed the page's light background above and below it, making the
+backdrop look like it was sliding. Moving the background from the table up to the
+scroll pane fixes it: the pane is the thing that stays put, so the colour that
+should stay put belongs on it. A background on the content moves with the
+content — which is right for content and wrong for a backdrop.
+
 ## Sources
 
 Synthesised from the retrospective records of the layout rounds. Round 1:
@@ -243,3 +277,5 @@ Synthesised from the retrospective records of the layout rounds. Round 1:
 (`file_page`/`code_page`/`code_dir_page`/`breadcrumb()` in
 `crates/mdview/src/views.rs`, `.breadcrumb--reading` and `.content--code` in
 `crates/mdview/assets/app.css`).
+ Round 8: `tsk-35o`, commit `646b282`
+(`.topbar`/`body`/`.codeview` in `crates/mdview/assets/app.css`).
