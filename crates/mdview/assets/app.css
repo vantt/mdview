@@ -541,6 +541,13 @@ main.fg-page {
   margin-left: auto;
   margin-right: auto;
 }
+/* `.fg-reading` (atelier/editorial.css, a shared Atelier core class) has no
+   top margin of its own, so the article otherwise starts flush against the
+   breadcrumb's bottom edge — add the breathing room here, scoped to exactly
+   this adjacency, rather than editing the vendored shared class. */
+.breadcrumb + .fg-reading {
+  margin-top: var(--space-5);
+}
 .breadcrumb .sep {
   margin: 0 var(--space-0);
   color: var(--color-text-subtle);
