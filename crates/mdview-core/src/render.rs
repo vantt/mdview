@@ -10,11 +10,20 @@ use crate::link_resolver::{self, IndexLookup};
 use comrak::nodes::{AstNode, NodeHtmlBlock, NodeValue};
 use comrak::{parse_document, Arena, Options};
 use std::path::Path;
-use syntect::html::{css_for_theme_with_class_style, ClassStyle, ClassedHTMLGenerator};
-use syntect::parsing::SyntaxSet;
+use syntect::html::{
+    css_for_theme_with_class_style, line_tokens_to_classed_spans, ClassStyle, ClassedHTMLGenerator,
+};
+use syntect::parsing::{ParseState, Scope, ScopeStack, SyntaxSet};
 use syntect::util::LinesWithEndings;
 
 const CLASS_STYLE: ClassStyle = ClassStyle::Spaced;
+
+/// A whole source file highlighted as one self-contained HTML fragment per
+/// line, for a line-numbered gutter (each line lands in its own table row).
+pub struct HighlightedSource {
+    pub lines: Vec<String>,
+    pub syntax_name: String,
+}
 
 pub struct RenderService {
     syntaxes: SyntaxSet,
@@ -231,6 +240,84 @@ impl RenderService {
         };
         format!("<pre class=\"code\"><code class=\"code{lang_class}\">{inner}</code></pre>")
     }
+
+    /// Highlight a whole source file, one self-contained HTML fragment per
+    /// line. `path` only selects the syntax (by extension, then first line,
+    /// then plain text) — never touched on disk.
+    ///
+    /// `syntect::html::line_tokens_to_classed_spans` is line-scoped: a scope
+    /// opened on one line and closed several lines later (a block comment, a
+    /// raw string) legitimately produces an unclosed `<span>` on the line it
+    /// opens and an orphan `</span>` on the line it closes — correct only
+    /// when every line is concatenated into one `<pre>`. Putting each line in
+    /// its own table cell needs each fragment independently balanced, so
+    /// every line here is wrapped: scopes still open from a previous line are
+    /// re-opened at the start (continuing their class/colour), and every
+    /// scope left open at the line's end is closed at the end. That wrapping
+    /// nets to zero by construction — opens contributed by the carried-over
+    /// prefix plus whatever the line's own ops add, closes contributed by the
+    /// line's own ops plus the carried-over suffix — so a well-formed line is
+    /// exactly `open_before.len() + line_delta - open_after.len() == 0`
+    /// span-open/span-close pairs, always.
+    pub fn highlight_source(&self, path: &Path, text: &str) -> HighlightedSource {
+        let syntax = path
+            .extension()
+            .and_then(|e| e.to_str())
+            .and_then(|ext| self.syntaxes.find_syntax_by_extension(ext))
+            .or_else(|| {
+                text.lines()
+                    .next()
+                    .and_then(|first| self.syntaxes.find_syntax_by_first_line(first))
+            })
+            .unwrap_or_else(|| self.syntaxes.find_syntax_plain_text());
+
+        let mut parse_state = ParseState::new(syntax);
+        let mut stack = ScopeStack::new();
+        let mut lines = Vec::new();
+
+        for line in LinesWithEndings::from(text) {
+            let open_before: Vec<Scope> = stack.as_slice().to_vec();
+            let ops = parse_state
+                .parse_line(line, &self.syntaxes)
+                .unwrap_or_default();
+            let mid = match line_tokens_to_classed_spans(line, &ops, CLASS_STYLE, &mut stack) {
+                Ok((html, _delta)) => html,
+                // A malformed line for this syntax's grammar (rare) falls
+                // back to plain escaped text rather than failing the page;
+                // the stack is unchanged so later lines are unaffected.
+                Err(_) => html_escape(line),
+            };
+            let open_after: Vec<Scope> = stack.as_slice().to_vec();
+
+            let mut out = String::with_capacity(mid.len() + 32);
+            for scope in &open_before {
+                out.push_str("<span class=\"");
+                out.push_str(&scope_classes(*scope));
+                out.push_str("\">");
+            }
+            out.push_str(mid.trim_end_matches(['\n', '\r']));
+            for _ in &open_after {
+                out.push_str("</span>");
+            }
+            lines.push(out);
+        }
+        if lines.is_empty() {
+            lines.push(String::new());
+        }
+
+        HighlightedSource {
+            lines,
+            syntax_name: syntax.name.clone(),
+        }
+    }
+}
+
+/// `Scope::build_string()` returns the dotted TextMate form (e.g.
+/// `"comment.block.rust"`); `ClassStyle::Spaced` wants each dot-segment as
+/// its own space-separated class (`"comment block rust"`) to match the CSS
+/// `theme_css` generates via the same style.
+fn scope_classes(scope: Scope) -> String {
+    scope.build_string().replace('.', " ")
 }
 
 /// Extract the target project-relative paths a file links to (resolved only).
@@ -513,5 +600,76 @@ mod tests {
         assert!(links.contains(&"api/README.md".to_string()));
         assert!(links.contains(&"docs/other.md".to_string()));
         assert_eq!(links.len(), 2); // external excluded
+    }
+
+    fn span_open_close_counts(line: &str) -> (usize, usize) {
+        (
+            line.matches("<span").count(),
+            line.matches("</span>").count(),
+        )
+    }
+
+    #[test]
+    fn every_line_has_balanced_spans_across_a_multiline_comment() {
+        let src = "fn main() {\n    /* start\n    middle\n    end */\n    let x = 1;\n}\n";
+        let out = svc().highlight_source(Path::new("a.rs"), src);
+        for (i, line) in out.lines.iter().enumerate() {
+            let (opens, closes) = span_open_close_counts(line);
+            assert_eq!(
+                opens, closes,
+                "line {i} unbalanced: {opens} opens vs {closes} closes — {line:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn line_count_matches_input_with_and_without_trailing_newline() {
+        let no_trailing = "a\nb\nc";
+        let with_trailing = "a\nb\nc\n";
+        assert_eq!(
+            svc()
+                .highlight_source(Path::new("a.txt"), no_trailing)
+                .lines
+                .len(),
+            3
+        );
+        assert_eq!(
+            svc()
+                .highlight_source(Path::new("a.txt"), with_trailing)
+                .lines
+                .len(),
+            3
+        );
+    }
+
+    #[test]
+    fn unknown_extension_falls_back_to_plain_text_without_panicking() {
+        let out = svc().highlight_source(Path::new("a.xyz"), "whatever\ncontent\n");
+        assert_eq!(out.syntax_name, "Plain Text");
+        assert_eq!(out.lines.len(), 2);
+    }
+
+    #[test]
+    fn shebang_only_file_is_detected_by_first_line() {
+        let out = svc().highlight_source(Path::new("script"), "#!/bin/bash\necho hi\n");
+        assert_eq!(out.syntax_name, "Bourne Again Shell (bash)");
+    }
+
+    #[test]
+    fn emits_the_spaced_class_style_theme_css_targets() {
+        let out = svc().highlight_source(Path::new("a.rs"), "fn main() {}\n");
+        let joined = out.lines.join("\n");
+        // A known Rust token scope, space-separated per ClassStyle::Spaced —
+        // if this ever changes shape, theme_css's generated CSS silently
+        // stops matching, so this must fail loudly.
+        assert!(joined.contains("storage type"), "{joined}");
+    }
+
+    #[test]
+    fn hostile_html_content_is_escaped() {
+        let out = svc().highlight_source(Path::new("a.txt"), "<script>&\"'</script>\n");
+        let joined = out.lines.join("\n");
+        assert!(!joined.contains("<script>"));
+        assert!(joined.contains("&lt;script&gt;"));
     }
 }
