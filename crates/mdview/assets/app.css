@@ -41,6 +41,28 @@ main.fg-page {
   background: var(--color-bg);
   z-index: var(--z-nav);
 }
+/* Three areas (brand/hamburger, crumb, actions/settings/theme) so the bar
+   can be lined up with the sidebar/content/rightbar columns below it on
+   desktop — see the grid override further down. Below desktop this is a
+   plain flex row, the same shape the topbar always had. */
+.topbar__left,
+.topbar__center,
+.topbar__right {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  min-width: 0;
+}
+.topbar__left {
+  flex: none;
+}
+.topbar__center {
+  flex: 1;
+}
+.topbar__right {
+  flex: none;
+  margin-left: auto;
+}
 .topbar .home {
   font-family: var(--type-ui-font);
   font-size: var(--type-ui-size);
@@ -58,7 +80,6 @@ main.fg-page {
   white-space: nowrap;
 }
 .nav-link {
-  margin-left: auto;
   font-family: var(--type-body-sm-font);
   font-size: var(--type-body-sm-size);
   color: var(--color-text-muted);
@@ -188,6 +209,32 @@ main.fg-page {
   flex-shrink: 0;
   padding: var(--space-5) var(--space-4);
   border-left: var(--border-width-hairline) solid var(--color-border);
+}
+
+/* ── Desktop: sync the topbar's 3 areas with the sidebar/content/rightbar
+   column widths above (280px / 240px, mirrored from .sidebar/.rightbar),
+   so the bar's own left/right edges land exactly above the columns below
+   it. Scoped to `.topbar:has(+ .layout)` — only pages that actually render
+   the 3-column `.layout` (file/code pages), never the plain `.fg-page`
+   pages (home/search/settings), which keep the ordinary flex row at every
+   width. Matches the breakpoint above which .rightbar itself is visible
+   (kept in sync with the `max-width: 900px` rule further down). ── */
+@media (min-width: 901px) {
+  .topbar:has(+ .layout) {
+    display: grid;
+    grid-template-columns: 280px 1fr 240px;
+    gap: 0;
+    padding-left: 0;
+    padding-right: 0;
+  }
+  .topbar:has(+ .layout) .topbar__left {
+    padding-left: var(--space-5);
+  }
+  .topbar:has(+ .layout) .topbar__right {
+    margin-left: 0;
+    justify-content: flex-end;
+    padding-right: var(--space-5);
+  }
 }
 
 /* ── Sidebar file tree (D2: distinct concept from editorial's

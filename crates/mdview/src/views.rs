@@ -591,15 +591,25 @@ fn topbar(center: &str) -> String {
 /// Full top bar: an optional `lead` slot (before the brand) and an optional
 /// `actions` slot (page-specific buttons before the theme toggle, e.g. the
 /// copy-page-as-Markdown button on file pages).
+///
+/// Three areas — left/center/right — so the bar's width can line up with
+/// the sidebar/content/rightbar columns below it on desktop (`.topbar__*`
+/// in app.css); on narrower viewports they stay a plain flex row.
 fn topbar_full(lead: &str, center: &str, actions: &str) -> String {
     format!(
         r#"<header class="topbar">
-  {lead}
-  <a href="/" class="home">mdview</a>
-  {center}
-  {actions}
-  <a class="nav-link" href="/settings">Settings</a>
-  {toggle}
+  <div class="topbar__left">
+    {lead}
+    <a href="/" class="home">mdview</a>
+  </div>
+  <div class="topbar__center">
+    {center}
+  </div>
+  <div class="topbar__right">
+    {actions}
+    <a class="nav-link" href="/settings">Settings</a>
+    {toggle}
+  </div>
 </header>"#,
         lead = lead,
         center = center,
