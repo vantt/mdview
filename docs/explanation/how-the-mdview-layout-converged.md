@@ -87,6 +87,33 @@ pages, so all three converged in a single change. The topbar was explicitly left
 alone here; it was being reworked in its own round at the same time, and touching
 both at once would have made either result impossible to attribute.
 
+## Round 4: code stops being laid out like prose
+
+This round fixed three things that shared one root cause — Code pages were
+inheriting decisions made for reading prose.
+
+**The main pane was capped at the reading column width.** The code table, its
+header, its banner, and the directory listing all carried the `--reading-col`
+maximum. That limit exists because long lines of prose are genuinely hard to
+read, and it is right for a markdown article. It is wrong for source code, which
+has its own line lengths and benefits from horizontal room. Dropping the cap lets
+the Code section use the full content column and makes it read as a source
+browser rather than a text page.
+
+**The sidebar was one flat list.** Directories and files were rendered into a
+single list, while the Docs sidebar separates its subfolders into their own
+labelled block. The Code sidebar was split the same way, into `Folders` and then
+`Files`.
+
+**The right half of the breadcrumb finally got its content.** The previous round
+reserved that space; here the file's language and size moved into it. That
+information already existed — it was displayed inside the code view's own header
+— so this moved it rather than adding it, removing the duplication in the
+process.
+
+That sequencing is the point worth keeping: reserving the slot and filling it
+were separate rounds, which is why filling it moved nothing else on the page.
+
 ## Sources
 
 Synthesised from the retrospective records of the layout rounds. Round 1:
@@ -95,3 +122,6 @@ Synthesised from the retrospective records of the layout rounds. Round 1:
 `cb7d6c6` (`code_tree()` in `crates/mdview/src/views.rs`). Round 3: `tsk-612`
 (`breadcrumb()` in `crates/mdview/src/views.rs`, `.breadcrumb` rules in
 `crates/mdview/assets/app.css`).
+ Round 4: `tsk-5yf`, commit `760857a`
+(`code_tree()`/`breadcrumb()`/`code_page` in `crates/mdview/src/views.rs`,
+`.codeview__*` and `.codelist` in `crates/mdview/assets/app.css`).
