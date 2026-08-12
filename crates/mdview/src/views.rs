@@ -429,7 +429,11 @@ pub fn code_dir_page(project: &Project, listing: &DirListing) -> String {
 /// rendered — no client JS, unlike Docs' JSON-payload `file_tree`, because
 /// there is no whole-project file list to ship (D1: no index).
 fn code_tree(project: &Project, listing: &DirListing, active_file: Option<&str>) -> String {
-    let mut out = String::from("<nav class=\"chapter\">");
+    let mut out = String::from(
+        "<div class=\"fg-sidebar-search\">\
+         <input class=\"fg-input\" placeholder=\"Search…\" autocomplete=\"off\" disabled></div>\
+         <nav class=\"chapter\"><div class=\"chap-sec\">Files</div>",
+    );
     if !listing.rel_path.is_empty() {
         let parent = parent_dir(&listing.rel_path);
         out.push_str(&format!(
