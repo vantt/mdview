@@ -17,28 +17,17 @@
 /// even at 100k indexed files.
 pub const SHORT_CODE_LEN: usize = 12;
 
-const FNV_OFFSET_BASIS: u64 = 0xcbf2_9ce4_8422_2325;
-const FNV_PRIME: u64 = 0x0000_0100_0000_01b3;
-
 /// Full 16-character hex hash identifying one file within one project.
 ///
-/// FNV-1a is hand-written rather than pulled from a crate because the value has
-/// to stay byte-identical across Rust releases: `std`'s `DefaultHasher` documents
-/// that its algorithm may change, which would silently kill every link already
-/// handed out. Nothing here needs to resist an adversary — the server has no
-/// authentication in the first place.
+/// The `\0` separator is what keeps `("ab", "c")` from colliding with
+/// `("a", "bc")` once the two strings are concatenated for hashing.
 pub fn path_hash(project_id: &str, rel_path: &str) -> String {
-    let mut hash = FNV_OFFSET_BASIS;
-    for byte in project_id
-        .as_bytes()
-        .iter()
-        .chain(std::iter::once(&0u8))
-        .chain(rel_path.as_bytes())
-    {
-        hash ^= *byte as u64;
-        hash = hash.wrapping_mul(FNV_PRIME);
-    }
-    format!("{hash:016x}")
+    let bytes: Vec<u8> = project_id
+        .bytes()
+        .chain(std::iter::once(0u8))
+        .chain(rel_path.bytes())
+        .collect();
+    crate::hash::fnv1a64_hex(&bytes)
 }
 
 /// The code that goes in a link: the leading [`SHORT_CODE_LEN`] characters.

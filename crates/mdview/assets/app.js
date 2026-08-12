@@ -702,11 +702,43 @@
   })();
 
   // Live reload: reload-signal over WebSocket, full-page reload (PRD FR-19, Phase 1).
+  // Scoped (docs/history/scoped-live-reload/CONTEXT.md D1): the server
+  // broadcasts every event to every connected browser unfiltered -- it holds no
+  // per-connection "who is viewing what" state. Each event names the
+  // (project_id, rel_path) it is actually about, and this client decides for
+  // itself whether that is the file it is currently showing. A page not on a
+  // /p/<id>/<rel-path> URL (the project list, /settings, /p/:id/_search) never
+  // has an identity to match, so it never reloads for a file-change event (D3).
+  function currentFileIdentity() {
+    var m = location.pathname.match(/^\/p\/([^/]+)\/(.+)$/);
+    if (!m) return null;
+    var relPath = decodeURIComponent(m[2]);
+    // "_search" is a reserved static route (server.rs), never a real indexed
+    // file (the indexer only ever indexes .md/.markdown). Excluded explicitly
+    // rather than left to that invariant alone: this is the client's own
+    // boundary to hold, not something to inherit implicitly from the server.
+    if (relPath === "_search") return null;
+    return { projectId: decodeURIComponent(m[1]), relPath: relPath };
+  }
+
+  function matchesCurrentFile(ev, id) {
+    return !!id && ev && ev.project_id === id.projectId && ev.rel_path === id.relPath;
+  }
+
   function connect() {
     var proto = location.protocol === "https:" ? "wss:" : "ws:";
     var ws = new WebSocket(proto + "//" + location.host + "/ws");
     ws.onmessage = function (ev) {
-      if (ev.data === "reload") location.reload();
+      var id = currentFileIdentity();
+      if (!id) return;
+      var payload;
+      try { payload = JSON.parse(ev.data); } catch (e) { return; }
+      var events = (payload && payload.events) || [];
+      // Both "changed" and "removed" reload when they match: a removed file's
+      // own viewer needs to see it go away too (D4), regardless of kind.
+      if (events.some(function (e) { return matchesCurrentFile(e, id); })) {
+        location.reload();
+      }
     };
     ws.onclose = function () { setTimeout(connect, 3000); };
     ws.onerror = function () { try { ws.close(); } catch (e) {} };
