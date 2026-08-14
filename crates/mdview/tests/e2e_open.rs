@@ -158,6 +158,7 @@ fn cmd_open_json_url_port_matches_real_daemon_bound_port() {
 struct RawResponse {
     status: u16,
     set_cookie: Option<String>,
+    location: Option<String>,
     body: String,
 }
 
@@ -182,23 +183,43 @@ fn raw_request(host: &str, port: u16, req: &str) -> RawResponse {
             .strip_prefix("set-cookie: ")
             .map(|v| v.to_string())
     });
+    let location = headers.lines().find_map(|l| {
+        if l.to_lowercase().starts_with("location: ") {
+            l.split_once(": ").map(|(_, v)| v.to_string())
+        } else {
+            None
+        }
+    });
     let body = raw.split("\r\n\r\n").nth(1).unwrap_or("").to_string();
     RawResponse {
         status,
         set_cookie,
+        location,
         body,
     }
 }
 
 /// `GET {path}`, optionally with a `Cookie` header. Returns (status, body).
 fn http_get(host: &str, port: u16, path: &str, cookie: Option<&str>) -> (u16, String) {
+    let (status, _location, body) = http_get_with_location(host, port, path, cookie);
+    (status, body)
+}
+
+/// Same as `http_get`, but also returns the `Location` header (for
+/// asserting an auth-redirect target).
+fn http_get_with_location(
+    host: &str,
+    port: u16,
+    path: &str,
+    cookie: Option<&str>,
+) -> (u16, Option<String>, String) {
     let cookie_header = cookie
         .map(|c| format!("Cookie: {c}\r\n"))
         .unwrap_or_default();
     let req =
         format!("GET {path} HTTP/1.1\r\nHost: {host}\r\n{cookie_header}Connection: close\r\n\r\n");
     let res = raw_request(host, port, &req);
-    (res.status, res.body)
+    (res.status, res.location, res.body)
 }
 
 /// `POST {path}` with a urlencoded form body. Returns (status, `Set-Cookie`
@@ -293,14 +314,19 @@ fn code_section_lists_dirs_highlights_files_and_denies_sensitive_paths() {
 
     let project_id = open_project(bin, &home, &root.join("README.md"));
 
-    // 0a. Unauthenticated: the Code section is gated exactly like Docs.
-    let (anon_status, _) = http_get(
+    // 0a. Unauthenticated: the Code section is gated exactly like Docs — a
+    // browser page route redirects to /login rather than a bare 404.
+    let (anon_status, anon_location, _) = http_get_with_location(
         &info.host,
         info.port,
         &format!("/p/{project_id}/_code/"),
         None,
     );
-    assert_eq!(anon_status, 404, "Code section must require login too");
+    assert_eq!(
+        anon_status, 303,
+        "Code section must require login too, via redirect"
+    );
+    assert_eq!(anon_location.as_deref(), Some("/login"));
 
     // 0b. Sign in with the token `serve()` auto-generated on first start
     // (D3) and use the resulting cookie for every request below — without
@@ -648,4 +674,46 @@ fn first_start_generates_and_prints_a_login_token_exactly_once() {
         occurrences, 1,
         "the generated token must be printed to stdout exactly once"
     );
+}
+
+/// tsk-46t: an unauthenticated browser page request redirects to `/login`
+/// (a bare 404 has nowhere useful for a navigation to go), while an
+/// unauthenticated API request stays an opaque 404 — the two extractors
+/// (`AuthPage`/`AuthSession`) must not blur together.
+#[test]
+fn unauthenticated_page_redirects_to_login_while_api_stays_opaque_404() {
+    let bin = env!("CARGO_BIN_EXE_mdview");
+    let home = scratch_home("unauth-redirect");
+
+    let child = Command::new(bin)
+        .args(["serve", "--port", "0", "--host", "127.0.0.1"])
+        .env("HOME", &home)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .expect("spawn mdview serve");
+    let _guard = DaemonGuard(child);
+
+    let info = wait_for_lock(&home, Duration::from_secs(10));
+    assert!(
+        wait_for_health(&info.host, info.port, Duration::from_secs(10)),
+        "daemon never answered /health"
+    );
+
+    // Browser page route ("/"): redirect to /login, not a bare 404.
+    let (page_status, page_location, _) = http_get_with_location(&info.host, info.port, "/", None);
+    assert_eq!(page_status, 303, "unauthenticated page route must redirect");
+    assert_eq!(page_location.as_deref(), Some("/login"));
+
+    // API route ("/api/status"): stays an opaque 404 — a fetch() call has no
+    // browser navigation to redirect, and the existing "don't confirm the
+    // route exists" contract still applies to machine callers.
+    let (api_status, _) = http_get(&info.host, info.port, "/api/status", None);
+    assert_eq!(api_status, 404, "unauthenticated API route must stay 404");
+
+    // /login itself stays open — required so the redirect target is
+    // actually reachable.
+    let (login_status, _) = http_get(&info.host, info.port, "/login", None);
+    assert_eq!(login_status, 200);
 }

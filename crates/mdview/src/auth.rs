@@ -4,8 +4,12 @@
 //! D7/D8): a login presents the configured secret (compared in constant
 //! time); on success the server issues a random session id as an httpOnly,
 //! SameSite=Strict cookie. Every protected route requires a valid session
-//! cookie; an unauthenticated request gets an **opaque 404** (D2) — no
-//! descriptive 401, nothing that confirms the route exists.
+//! cookie. Two extractors share the same credential check but differ in
+//! what an unauthenticated request gets back: `AuthSession` (API/websocket
+//! routes) returns an **opaque 404** (D2) — no descriptive 401, nothing
+//! that confirms the route exists; `AuthPage` (browser page/form routes)
+//! redirects to `/login` instead, since a browser navigation has nowhere
+//! useful to go on a bare 404.
 
 use axum::extract::{FromRequestParts, State};
 use axum::http::request::Parts;
@@ -63,12 +67,40 @@ pub async fn logout(State(state): State<AppState>, headers: HeaderMap) -> Respon
     (out, Redirect::to("/login")).into_response()
 }
 
-/// Extractor proving a request is authenticated. A valid `mdv_session`
-/// cookie is the primary credential; when the operator has configured
-/// Cloudflare Access, a verified `Cf-Access-Jwt-Assertion` header is
-/// accepted as an equivalent alternate (D1). On failure it short-circuits
-/// with an opaque 404 — the caller never distinguishes "no cookie", "bad CF
-/// token", or "unknown route".
+/// Shared credential check behind both extractors below: a valid
+/// `mdv_session` cookie is the primary credential; when the operator has
+/// configured Cloudflare Access, a verified `Cf-Access-Jwt-Assertion`
+/// header is accepted as an equivalent alternate (D1). The raw CF header is
+/// never trusted — `verify` runs the full JWKS/signature/iss/aud/exp check;
+/// any failure is treated exactly like no credential at all.
+async fn authenticated(parts: &Parts, state: &AppState) -> bool {
+    if let Some(sid) = session_cookie(&parts.headers) {
+        if state.sessions.lock().await.contains(&sid) {
+            return true;
+        }
+    }
+
+    // Additive fallback (D5): only when the operator configured CF Access
+    // does a request without a valid cookie get a second chance via an
+    // edge-verified JWT.
+    if let Some(verifier) = state.cf_access.as_ref() {
+        if let Some(assertion) = parts
+            .headers
+            .get(CF_ACCESS_HEADER)
+            .and_then(|v| v.to_str().ok())
+        {
+            if verifier.verify(assertion).await.is_ok() {
+                return true;
+            }
+        }
+    }
+
+    false
+}
+
+/// Extractor proving a request is authenticated, for API and websocket
+/// routes. On failure it short-circuits with an opaque 404 — the caller
+/// never distinguishes "no cookie", "bad CF token", or "unknown route".
 pub struct AuthSession;
 
 #[async_trait::async_trait]
@@ -79,31 +111,35 @@ impl FromRequestParts<AppState> for AuthSession {
         parts: &mut Parts,
         state: &AppState,
     ) -> Result<Self, Self::Rejection> {
-        // Primary credential: a valid session cookie.
-        if let Some(sid) = session_cookie(&parts.headers) {
-            if state.sessions.lock().await.contains(&sid) {
-                return Ok(AuthSession);
-            }
+        if authenticated(parts, state).await {
+            Ok(AuthSession)
+        } else {
+            Err(StatusCode::NOT_FOUND.into_response())
         }
+    }
+}
 
-        // Additive fallback (D5): only when the operator configured CF
-        // Access does a request without a valid cookie get a second chance
-        // via an edge-verified JWT. The raw header is never trusted —
-        // `verify` runs the full JWKS/signature/iss/aud/exp check; any
-        // failure is treated exactly like no credential at all.
-        if let Some(verifier) = state.cf_access.as_ref() {
-            if let Some(assertion) = parts
-                .headers
-                .get(CF_ACCESS_HEADER)
-                .and_then(|v| v.to_str().ok())
-            {
-                if verifier.verify(assertion).await.is_ok() {
-                    return Ok(AuthSession);
-                }
-            }
+/// Extractor proving a request is authenticated, for browser page and form
+/// routes. Same credential check as `AuthSession`, but on failure it
+/// redirects to `/login` instead of an opaque 404 — a top-level browser
+/// navigation has nowhere useful to go on a bare 404, and `/login` is
+/// itself unauthenticated (`GET /login` needs no session, or there would be
+/// no way in).
+pub struct AuthPage;
+
+#[async_trait::async_trait]
+impl FromRequestParts<AppState> for AuthPage {
+    type Rejection = Response;
+
+    async fn from_request_parts(
+        parts: &mut Parts,
+        state: &AppState,
+    ) -> Result<Self, Self::Rejection> {
+        if authenticated(parts, state).await {
+            Ok(AuthPage)
+        } else {
+            Err(Redirect::to("/login").into_response())
         }
-
-        Err(StatusCode::NOT_FOUND.into_response())
     }
 }
 
