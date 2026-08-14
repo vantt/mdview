@@ -178,7 +178,7 @@ async fn login_page() -> Response {
     Html(views::login_page()).into_response()
 }
 
-async fn index_page(_auth: crate::auth::AuthSession, State(st): State<AppState>) -> Response {
+async fn index_page(_auth: crate::auth::AuthPage, State(st): State<AppState>) -> Response {
     match st.engine.list_projects() {
         Ok(projects) => {
             let with_counts: Vec<_> = projects
@@ -251,7 +251,7 @@ struct SavedFlag {
 }
 
 async fn settings_page_handler(
-    _auth: crate::auth::AuthSession,
+    _auth: crate::auth::AuthPage,
     Query(flag): Query<SavedFlag>,
 ) -> Response {
     // Read fresh from disk so the form reflects the last save (the running daemon
@@ -277,10 +277,7 @@ struct SettingsForm {
     cf_access_aud: Option<String>,
 }
 
-async fn update_config(
-    _auth: crate::auth::AuthSession,
-    Form(form): Form<SettingsForm>,
-) -> Response {
+async fn update_config(_auth: crate::auth::AuthPage, Form(form): Form<SettingsForm>) -> Response {
     let mut cfg = mdview_core::Config::load();
     if let Some(p) = form.port {
         if p >= 1 {
@@ -343,7 +340,7 @@ async fn update_config(
 /// only deletes the registry entry and index — the project's files on disk are
 /// untouched, and re-registering re-scans them.
 async fn unregister_project(
-    _auth: crate::auth::AuthSession,
+    _auth: crate::auth::AuthPage,
     State(st): State<AppState>,
     Path(id): Path<String>,
 ) -> Response {
@@ -397,7 +394,7 @@ async fn mermaid_asset() -> impl IntoResponse {
 /// plain 404 — there is nothing correct left to show, and guessing would open the
 /// wrong file.
 async fn short_link_redirect(
-    _auth: crate::auth::AuthSession,
+    _auth: crate::auth::AuthPage,
     State(st): State<AppState>,
     Path(code): Path<String>,
 ) -> Response {
@@ -411,7 +408,7 @@ async fn short_link_redirect(
 }
 
 async fn project_home(
-    _auth: crate::auth::AuthSession,
+    _auth: crate::auth::AuthPage,
     State(st): State<AppState>,
     Path(id): Path<String>,
 ) -> Response {
@@ -463,7 +460,7 @@ fn pick_entry_file(
 }
 
 async fn project_path(
-    _auth: crate::auth::AuthSession,
+    _auth: crate::auth::AuthPage,
     State(st): State<AppState>,
     Path((id, path)): Path<(String, String)>,
 ) -> Response {
@@ -505,7 +502,7 @@ struct SearchQuery {
 }
 
 async fn search_page(
-    _auth: crate::auth::AuthSession,
+    _auth: crate::auth::AuthPage,
     State(st): State<AppState>,
     Path(id): Path<String>,
     Query(query): Query<SearchQuery>,
@@ -555,7 +552,7 @@ async fn jump_search(
 }
 
 async fn code_root(
-    _auth: crate::auth::AuthSession,
+    _auth: crate::auth::AuthPage,
     State(st): State<AppState>,
     Path(id): Path<String>,
 ) -> Response {
@@ -563,7 +560,7 @@ async fn code_root(
 }
 
 async fn code_dir_or_file(
-    _auth: crate::auth::AuthSession,
+    _auth: crate::auth::AuthPage,
     State(st): State<AppState>,
     Path((id, path)): Path<(String, String)>,
 ) -> Response {
@@ -974,9 +971,25 @@ mod auth_wiring_tests {
             .to_string()
     }
 
+    /// tsk-46t: the two extractors diverge on an unauthenticated request —
+    /// `AuthSession` (API/websocket routes) stays an opaque 404, `AuthPage`
+    /// (browser page routes) redirects to `/login`.
     #[tokio::test]
-    async fn unauth_request_to_protected_route_is_opaque_404() {
-        assert_eq!(get(router(test_state()), "/").await, StatusCode::NOT_FOUND);
+    async fn unauth_request_to_protected_api_route_is_opaque_404() {
+        assert_eq!(
+            get(router(test_state()), "/api/status").await,
+            StatusCode::NOT_FOUND
+        );
+    }
+
+    #[tokio::test]
+    async fn unauth_request_to_protected_page_route_redirects_to_login() {
+        let res = router(test_state())
+            .oneshot(Request::builder().uri("/").body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::SEE_OTHER);
+        assert_eq!(res.headers().get(header::LOCATION).unwrap(), "/login");
     }
 
     #[tokio::test]
@@ -1052,6 +1065,8 @@ mod auth_wiring_tests {
             .unwrap();
         assert_eq!(logout_res.status(), StatusCode::SEE_OTHER);
 
+        // "/" is a page route (AuthPage): logging out sends a subsequent
+        // request back to /login rather than an opaque 404.
         let after = router(state)
             .oneshot(
                 Request::builder()
@@ -1062,11 +1077,12 @@ mod auth_wiring_tests {
             )
             .await
             .unwrap();
-        assert_eq!(after.status(), StatusCode::NOT_FOUND);
+        assert_eq!(after.status(), StatusCode::SEE_OTHER);
+        assert_eq!(after.headers().get(header::LOCATION).unwrap(), "/login");
     }
 
     /// Regression guard: with CF Access unconfigured (the default
-    /// `test_state`), an unauthenticated request to a guarded route is
+    /// `test_state`), an unauthenticated request to a guarded API route is
     /// byte-identical to today — an opaque 404 — even if it carries a CF
     /// Access header, which must be completely ignored when no verifier is
     /// configured.
@@ -1075,7 +1091,7 @@ mod auth_wiring_tests {
         let res = router(test_state())
             .oneshot(
                 Request::builder()
-                    .uri("/")
+                    .uri("/api/status")
                     .header("Cf-Access-Jwt-Assertion", "anything.at.all")
                     .body(Body::empty())
                     .unwrap(),
@@ -1108,7 +1124,8 @@ mod auth_wiring_tests {
 
     /// With CF Access configured but the assertion unverifiable (not a real
     /// signed token), the request gets exactly the same opaque 404 as any
-    /// unauthenticated one — the raw header is never trusted.
+    /// unauthenticated one on an API route — the raw header is never
+    /// trusted.
     #[tokio::test]
     async fn cf_access_configured_bogus_header_is_opaque_404() {
         let (verifier, _valid) = crate::cf_access::test_verifier_with_valid_token();
@@ -1117,7 +1134,7 @@ mod auth_wiring_tests {
         let res = router(state)
             .oneshot(
                 Request::builder()
-                    .uri("/")
+                    .uri("/api/status")
                     .header("Cf-Access-Jwt-Assertion", "not.a.jwt")
                     .body(Body::empty())
                     .unwrap(),
