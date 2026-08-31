@@ -7,7 +7,14 @@
 .fg-reading-shell { display: grid; grid-template-columns: 220px minmax(0,1fr) 200px; gap: var(--space-6); align-items: start; }
 @media (max-width: 1000px){ .fg-reading-shell { grid-template-columns: 1fr; } .fg-reading-shell .fg-chapters, .fg-reading-shell .fg-toc { display: none; } }
 
-.fg-reading { max-width: var(--reading-col); margin: 0 auto; }
+/* Breakout grid: the middle track is the normal centred reading column;
+   the two 1fr side tracks are empty for ordinary content but let a wide
+   child (table) span the full width of .fg-reading's own container
+   instead of being trapped at --reading-col. .fg-prose renders no box of
+   its own (display:contents) so its children become direct grid items —
+   an intermediate box there would just reintroduce the same trap. */
+.fg-reading { display: grid; grid-template-columns: minmax(0, 1fr) min(var(--reading-col), 100%) minmax(0, 1fr); }
+.fg-reading > .fg-prose { display: contents; }
 .fg-article-title { font-family: var(--font-display); font-size: var(--fs-article-title); font-weight: var(--type-title-weight); line-height: var(--lh-prose-head); letter-spacing: var(--type-title-tracking); color: var(--color-text); }
 .fg-lede { font-family: var(--font-body); font-size: var(--fs-lede); line-height: var(--lh-lede); color: var(--color-text-muted); margin-top: var(--space-3); text-wrap: pretty; }
 
@@ -25,8 +32,13 @@
 .fg-toc__item--sub { padding-left: var(--space-3); }
 
 /* Prose engine — style rendered markdown with no per-element markup */
-.fg-prose { font-family: var(--font-body); font-size: var(--fs-prose); line-height: var(--lh-prose); color: var(--color-text-muted); max-width: var(--reading-measure); text-wrap: pretty; }
-.fg-prose > * { margin: 0; }
+.fg-prose { font-family: var(--font-body); font-size: var(--fs-prose); line-height: var(--lh-prose); color: var(--color-text-muted); text-wrap: pretty; }
+/* Measure caps each block individually (not the whole .fg-prose box) so
+   wide elements like table can opt out and use the full .fg-reading column
+   instead of being squeezed to the same line-length as body text. Every
+   child lands in the breakout grid's centre track by default (see
+   .fg-reading above); table overrides this below to span the full grid. */
+.fg-prose > * { margin: 0; max-width: var(--reading-measure); grid-column: 2; }
 .fg-prose > * + * { margin-top: var(--flow); }
 .fg-prose h1, .fg-prose h2, .fg-prose h3 { font-family: var(--font-display); line-height: var(--lh-prose-head); letter-spacing: var(--type-heading-tracking); color: var(--color-text); font-weight: var(--type-heading-weight); }
 .fg-prose h1 { font-size: var(--fs-prose-h1); }
@@ -53,7 +65,12 @@
 .fg-prose blockquote { font-family: var(--font-display); font-style: italic; font-size: var(--fs-pullquote); line-height: var(--lh-pullquote); color: var(--color-text); border-left: var(--border-width-strong) solid var(--color-action); padding-left: var(--space-4); }
 .fg-prose hr { border: 0; height: var(--space-5); margin: var(--flow-loose) auto; text-align: center; }
 .fg-prose hr::before { content: "· · ·"; color: var(--color-text-subtle); letter-spacing: 0.5em; }
-.fg-prose table { width: 100%; border-collapse: collapse; font-size: var(--fs-prose-sm); }
+/* Spans the full breakout grid (see .fg-reading above) instead of just the
+   centre track, so it can use up to .fg-reading's whole width. justify-self
+   (not a margin trick) sizes and centers it at its natural width — margin
+   percentages get confused about how much space is actually available when
+   combined with grid-column spanning, so grid alignment does this instead. */
+.fg-prose table { grid-column: 1 / -1; justify-self: center; max-width: 100%; overflow-x: auto; border-collapse: collapse; font-size: var(--fs-prose-sm); }
 .fg-prose th, .fg-prose td { text-align: left; padding: 8px var(--space-3); border-bottom: var(--border-width-hairline) solid var(--color-border); }
 .fg-prose th { font-family: var(--type-tag-font); font-size: var(--type-tag-size); text-transform: var(--type-label-case); letter-spacing: var(--type-tag-tracking); color: var(--color-text-subtle); }
 .fg-prose figure { text-align: center; }
