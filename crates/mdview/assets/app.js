@@ -46,6 +46,45 @@
       return e;
     }
 
+    // Direct (non-nested) files of a folder — same partition rule render()
+    // uses for its "here" list, factored out so a folder click can inspect
+    // its landing file before deciding whether to navigate or just zoom.
+    function directFilesOf(folder) {
+      var prefix = folder ? folder + "/" : "";
+      var out = [];
+      files.forEach(function (f) {
+        if (folder && f.p.indexOf(prefix) !== 0) return;
+        var rest = folder ? f.p.slice(prefix.length) : f.p;
+        if (rest.indexOf("/") < 0) out.push(f);
+      });
+      return out;
+    }
+
+    // A folder with no file of its own reads as dead air in the main pane —
+    // clicking it should open its README (or index, README taking priority)
+    // the way a file host would, instead of only zooming the sidebar.
+    function landingFileOf(folder) {
+      var readme = null, index = null;
+      directFilesOf(folder).forEach(function (f) {
+        var name = baseOf(f.p).toLowerCase().replace(/\.(md|markdown)$/, "");
+        if (name === "readme" && !readme) readme = f;
+        else if (name === "index" && !index) index = f;
+      });
+      return readme || index || null;
+    }
+
+    // Zoom the sidebar to `folder`; if it has a README/index, navigate the
+    // main pane to it too instead of leaving the folder click inert.
+    function gotoFolder(folder) {
+      var landing = landingFileOf(folder);
+      if (landing) {
+        window.location.href = "/p/" + pid + "/" + landing.p;
+        return;
+      }
+      focus = folder;
+      render();
+    }
+
     var focus = dirOf(current); // start in the current file's folder
 
     // Whether the subfolders disclosure is expanded — remembered for the
@@ -59,7 +98,7 @@
       // Breadcrumb: root + each ancestor segment, all clickable to zoom out.
       var bc = el("div", "chap-crumbs");
       var rootSeg = el("button", "chap-seg", rootLabel);
-      rootSeg.addEventListener("click", function () { focus = ""; render(); });
+      rootSeg.addEventListener("click", function () { gotoFolder(""); });
       bc.appendChild(rootSeg);
       if (focus) {
         var segs = focus.split("/");
@@ -69,7 +108,7 @@
           var path = acc;
           bc.appendChild(el("span", "chap-sep", "›"));
           var b = el("button", "chap-seg", s);
-          b.addEventListener("click", function () { focus = path; render(); });
+          b.addEventListener("click", function () { gotoFolder(path); });
           bc.appendChild(b);
         });
       }
@@ -113,8 +152,7 @@
         folderNames.forEach(function (name) {
           var b = el("button", "chap-subfolder", name);
           b.addEventListener("click", function () {
-            focus = focus ? focus + "/" + name : name;
-            render();
+            gotoFolder(focus ? focus + "/" + name : name);
           });
           inner.appendChild(b);
         });

@@ -69,8 +69,13 @@
    centre track, so it can use up to .fg-reading's whole width. justify-self
    (not a margin trick) sizes and centers it at its natural width — margin
    percentages get confused about how much space is actually available when
-   combined with grid-column spanning, so grid alignment does this instead. */
-.fg-prose table { grid-column: 1 / -1; justify-self: center; max-width: 100%; overflow-x: auto; border-collapse: collapse; font-size: var(--fs-prose-sm); }
+   combined with grid-column spanning, so grid alignment does this instead.
+   min-width floors a narrow table (few columns) at the centre track's own
+   width — the same min(reading-col, 100%) expression .fg-reading uses for
+   that track — so it doesn't shrink-to-fit down to something narrower than
+   the article text above/below it; wide tables still grow past that up to
+   the full breakout width via max-width. */
+.fg-prose table { grid-column: 1 / -1; justify-self: center; min-width: min(var(--reading-col), 100%); max-width: 100%; overflow-x: auto; border-collapse: collapse; font-size: var(--fs-prose-sm); }
 .fg-prose th, .fg-prose td { text-align: left; padding: 8px var(--space-3); border-bottom: var(--border-width-hairline) solid var(--color-border); }
 .fg-prose th { font-family: var(--type-tag-font); font-size: var(--type-tag-size); text-transform: var(--type-label-case); letter-spacing: var(--type-tag-tracking); color: var(--color-text-subtle); }
 .fg-prose figure { text-align: center; }
