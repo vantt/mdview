@@ -64,6 +64,11 @@ pub async fn serve() -> Result<()> {
     // Filesystem watcher (kept alive for the process lifetime).
     let _watch = crate::watch::spawn_watchers(engine.clone(), reload_tx.clone())?;
 
+    // Periodic cleanup sweep for stale registry records (files/projects
+    // nobody has accessed in a while) — detached, runs for the daemon's
+    // process lifetime.
+    crate::cleanup::spawn(engine.clone());
+
     // Bind with port auto-increment (PRD §10 / mdserve pattern).
     let cfg = &engine.config.server;
     let (listener, addr) = bind_with_retry(&cfg.host, cfg.port).await?;
@@ -464,16 +469,12 @@ async fn project_path(
     State(st): State<AppState>,
     Path((id, path)): Path<(String, String)>,
 ) -> Response {
-    // Markdown file in the index → render it.
+    // Markdown file in the index → render it. A miss gets one on-demand
+    // index attempt (`ensure_indexed`) before falling to the asset lookup and
+    // then 404 — closes the race where the file exists on disk but the
+    // watcher hasn't caught up yet.
     if let Ok(Some(project)) = st.engine.get_project(&id) {
-        if st
-            .engine
-            .store
-            .get_file(&id, &path)
-            .ok()
-            .flatten()
-            .is_some()
-        {
+        if st.engine.ensure_indexed(&project, &path).unwrap_or(false) {
             return match st.engine.render_file(&id, &path) {
                 Ok(page) => {
                     let file = st.engine.store.get_file(&id, &path).unwrap().unwrap();

@@ -157,6 +157,25 @@ impl Engine {
         IndexService::remove_file(&self.store, project, abs)
     }
 
+    /// If `rel_path` isn't in the index yet but exists on disk under the
+    /// project root, index it now. Closes the race between the filesystem
+    /// watcher noticing a new/renamed file and a request for its URL arriving
+    /// first — the watcher's debounce, or a file written by something it
+    /// isn't watching, would otherwise 404 a file that is really there.
+    /// Returns whether the file is indexed after the call (already indexed,
+    /// or newly indexed).
+    pub fn ensure_indexed(&self, project: &Project, rel_path: &str) -> Result<bool> {
+        if self.store.get_file(&project.id, rel_path)?.is_some() {
+            return Ok(true);
+        }
+        let abs = crate::link_resolver::normalize(&project.root_path.join(rel_path));
+        if indexer::rel_path_str(&project.root_path, &abs).is_empty() {
+            return Ok(false);
+        }
+        self.index_file_incremental(project, &abs)?;
+        Ok(self.store.get_file(&project.id, rel_path)?.is_some())
+    }
+
     /// Resolve and store the internal links a single file points to.
     fn compute_file_links(&self, project: &Project, abs: &Path) -> Result<()> {
         let rel = indexer::rel_path_str(&project.root_path, abs);
@@ -200,13 +219,24 @@ impl Engine {
             .ok_or_else(|| Error::FileNotFound(rel_path.to_string()))?;
         let content = std::fs::read_to_string(&file.abs_path)?;
         let index = self.store.file_abs_paths(project_id)?;
-        Ok(self.render.render(
+        let page = self.render.render(
             &content,
             &file.abs_path,
             project_id,
             &project.root_path,
             &index,
-        ))
+        );
+        self.record_access(project_id, rel_path);
+        Ok(page)
+    }
+
+    /// Record that `rel_path` in `project_id` was actually viewed — the
+    /// signal the periodic cleanup sweep checks (see
+    /// `repository::cleanup_stale`, called from the daemon). Best-effort:
+    /// bookkeeping must never fail the view itself.
+    fn record_access(&self, project_id: &str, rel_path: &str) {
+        let _ = self.store.touch_file_access(project_id, rel_path);
+        let _ = self.store.touch_project_access(project_id);
     }
 
     pub fn list_projects(&self) -> Result<Vec<Project>> {
@@ -294,6 +324,7 @@ impl Engine {
             .ok_or_else(|| Error::ProjectNotFound(project_id.to_string()))?;
         let exclude = &self.config.indexing.exclude_patterns;
         let abs = code_source::resolve_source_path(&project.root_path, rel_path, exclude)?;
+        let _ = self.store.touch_project_access(project_id);
         if abs.is_dir() {
             let listing = code_source::list_dir(&project.root_path, rel_path, exclude)?;
             return Ok(CodeView::Dir(listing));
@@ -303,6 +334,10 @@ impl Engine {
             SourceContent::Text { text, truncated } => {
                 let size = text.len() as u64;
                 let highlighted = self.render.highlight_source(&abs, &text);
+                // A no-op for non-markdown source (not a `files` row); for a
+                // markdown file viewed via the raw Code section, this counts
+                // the same as viewing its rendered page.
+                self.record_access(project_id, rel_path);
                 Ok(CodeView::File {
                     highlighted,
                     truncated,
@@ -402,6 +437,80 @@ mod tests {
         assert!(
             back.iter().any(|(rel, _)| rel == "docs/architecture.md"),
             "backlinks: {back:?}"
+        );
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// Viewing a file's rendered page must reset its "unaccessed" clock —
+    /// otherwise the cleanup sweep would drop a file's index record while
+    /// someone is actively reading it.
+    #[test]
+    fn render_file_touches_last_accessed_and_project_last_seen() {
+        let dir = std::env::temp_dir().join(format!("mdview-access-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        write(&dir, "docs/a.md", "# A");
+
+        let engine = Engine::new(SqliteStore::open_in_memory().unwrap(), Config::default());
+        let vf = engine.view_file(&dir, "docs/a.md").unwrap();
+
+        // Simulate a file/project that hasn't been viewed in a while.
+        engine.store.backdate_file_access_for_test(
+            &vf.project_id,
+            "docs/a.md",
+            "2000-01-01T00:00:00Z",
+        );
+        engine
+            .store
+            .backdate_project_for_test(&vf.project_id, "2000-01-01T00:00:00Z");
+
+        engine.render_file(&vf.project_id, "docs/a.md").unwrap();
+
+        assert_ne!(
+            engine
+                .store
+                .file_last_accessed(&vf.project_id, "docs/a.md")
+                .unwrap(),
+            "2000-01-01T00:00:00Z",
+            "render_file must bump last_accessed_at"
+        );
+        assert_ne!(
+            engine
+                .get_project(&vf.project_id)
+                .unwrap()
+                .unwrap()
+                .last_seen_at,
+            "2000-01-01T00:00:00Z",
+            "render_file must bump the project's last_seen_at too"
+        );
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// Viewing a markdown file's raw source via the Code section counts as
+    /// an access too, same as its rendered page.
+    #[test]
+    fn code_path_touches_last_accessed_for_an_indexed_markdown_file() {
+        let dir = std::env::temp_dir().join(format!("mdview-code-access-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        write(&dir, "docs/a.md", "# A");
+
+        let engine = Engine::new(SqliteStore::open_in_memory().unwrap(), Config::default());
+        let vf = engine.view_file(&dir, "docs/a.md").unwrap();
+        engine.store.backdate_file_access_for_test(
+            &vf.project_id,
+            "docs/a.md",
+            "2000-01-01T00:00:00Z",
+        );
+
+        engine.code_path(&vf.project_id, "docs/a.md").unwrap();
+
+        assert_ne!(
+            engine
+                .store
+                .file_last_accessed(&vf.project_id, "docs/a.md")
+                .unwrap(),
+            "2000-01-01T00:00:00Z"
         );
 
         std::fs::remove_dir_all(&dir).ok();

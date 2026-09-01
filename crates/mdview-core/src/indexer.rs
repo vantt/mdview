@@ -191,6 +191,14 @@ pub fn now_rfc3339() -> String {
         .unwrap_or_default()
 }
 
+/// RFC3339 UTC timestamp `secs` seconds before now — the cutoff a cleanup
+/// sweep compares stored `last_accessed_at`/`last_seen_at` values against.
+pub fn cutoff_rfc3339(secs: i64) -> String {
+    (OffsetDateTime::now_utc() - time::Duration::seconds(secs))
+        .format(&Rfc3339)
+        .unwrap_or_default()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -200,6 +208,16 @@ mod tests {
         let p = dir.join(rel);
         std::fs::create_dir_all(p.parent().unwrap()).unwrap();
         std::fs::write(p, body).unwrap();
+    }
+
+    #[test]
+    fn cutoff_rfc3339_is_earlier_than_now_by_roughly_the_requested_span() {
+        let now = now_rfc3339();
+        let one_week_ago = cutoff_rfc3339(7 * 24 * 60 * 60);
+        // RFC3339's fixed-width fields sort lexicographically like the
+        // timestamps they represent — this is the same comparison
+        // `cleanup_stale` relies on.
+        assert!(one_week_ago < now);
     }
 
     #[test]

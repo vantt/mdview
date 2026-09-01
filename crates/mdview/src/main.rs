@@ -2,6 +2,7 @@
 
 mod auth;
 mod cf_access;
+mod cleanup;
 mod cli;
 mod doctor;
 mod mcp;

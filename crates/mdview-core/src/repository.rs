@@ -109,8 +109,8 @@ impl SqliteStore {
             )
             .optional()?;
         c.execute(
-            "INSERT INTO files(project_id,rel_path,abs_path,title,size_bytes,modified_at,path_hash,content_hash)
-             VALUES(?1,?2,?3,?4,?5,?6,?7,?8)
+            "INSERT INTO files(project_id,rel_path,abs_path,title,size_bytes,modified_at,path_hash,content_hash,last_accessed_at)
+             VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9)
              ON CONFLICT(project_id,rel_path) DO UPDATE SET
                abs_path=?3, title=?4, size_bytes=?5, modified_at=?6, path_hash=?7, content_hash=?8",
             params![
@@ -122,6 +122,7 @@ impl SqliteStore {
                 f.modified_at,
                 short_link::path_hash(&f.project_id, &f.rel_path),
                 new_content_hash,
+                crate::indexer::now_rfc3339(),
             ],
         )?;
         c.execute(
@@ -285,10 +286,105 @@ impl SqliteStore {
         Ok((version, unhashed as usize))
     }
 
+    #[cfg(test)]
+    pub(crate) fn file_last_accessed(&self, project_id: &str, rel_path: &str) -> Option<String> {
+        let c = self.conn.lock().unwrap();
+        c.query_row(
+            "SELECT last_accessed_at FROM files WHERE project_id=?1 AND rel_path=?2",
+            params![project_id, rel_path],
+            |r| r.get(0),
+        )
+        .optional()
+        .unwrap()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn backdate_file_access_for_test(&self, project_id: &str, rel_path: &str, ts: &str) {
+        let c = self.conn.lock().unwrap();
+        c.execute(
+            "UPDATE files SET last_accessed_at=?3 WHERE project_id=?1 AND rel_path=?2",
+            params![project_id, rel_path, ts],
+        )
+        .unwrap();
+    }
+
+    #[cfg(test)]
+    pub(crate) fn backdate_project_for_test(&self, project_id: &str, ts: &str) {
+        let c = self.conn.lock().unwrap();
+        c.execute(
+            "UPDATE projects SET last_seen_at=?2 WHERE id=?1",
+            params![project_id, ts],
+        )
+        .unwrap();
+    }
+
     pub fn total_file_count(&self) -> Result<usize> {
         let c = self.conn.lock().unwrap();
         let n: i64 = c.query_row("SELECT COUNT(*) FROM files", [], |r| r.get(0))?;
         Ok(n as usize)
+    }
+
+    // ---- access tracking / cleanup ----
+
+    /// Record that `rel_path` was actually viewed — the signal the cleanup
+    /// sweep (`cleanup_stale`) checks. Deliberately separate from
+    /// `upsert_file`, which never touches this column on re-index: an edit
+    /// (or the filesystem watcher noticing one) is not a view, so it must
+    /// not reset a file's unaccessed clock.
+    pub fn touch_file_access(&self, project_id: &str, rel_path: &str) -> Result<()> {
+        let c = self.conn.lock().unwrap();
+        c.execute(
+            "UPDATE files SET last_accessed_at=?3 WHERE project_id=?1 AND rel_path=?2",
+            params![project_id, rel_path, crate::indexer::now_rfc3339()],
+        )?;
+        Ok(())
+    }
+
+    /// Record that a project was actually viewed (any file within it opened).
+    pub fn touch_project_access(&self, project_id: &str) -> Result<()> {
+        let c = self.conn.lock().unwrap();
+        c.execute(
+            "UPDATE projects SET last_seen_at=?2 WHERE id=?1",
+            params![project_id, crate::indexer::now_rfc3339()],
+        )?;
+        Ok(())
+    }
+
+    /// Drop every file not viewed since `file_cutoff`, and every project not
+    /// seen since `project_cutoff` (which cascades its files, FTS rows, and
+    /// links — same as `delete_project`). Both cutoffs are RFC3339 strings;
+    /// lexicographic comparison sorts correctly for RFC3339's fixed-width
+    /// fields. Projects are swept first so a file belonging to a
+    /// just-deleted project isn't also counted in the file total. Returns
+    /// `(files_removed, projects_removed)`.
+    ///
+    /// Deletes only rows in this registry — never touches a project's real
+    /// files on disk (same guarantee as `delete_project`/`delete_file`).
+    pub fn cleanup_stale(&self, file_cutoff: &str, project_cutoff: &str) -> Result<(usize, usize)> {
+        let stale_projects: Vec<String> = {
+            let c = self.conn.lock().unwrap();
+            let mut stmt = c.prepare("SELECT id FROM projects WHERE last_seen_at < ?1")?;
+            let rows = stmt.query_map(params![project_cutoff], |r| r.get::<_, String>(0))?;
+            rows.filter_map(|r| r.ok()).collect()
+        };
+        for id in &stale_projects {
+            self.delete_project(id)?;
+        }
+
+        let stale_files: Vec<(String, String)> = {
+            let c = self.conn.lock().unwrap();
+            let mut stmt =
+                c.prepare("SELECT project_id, rel_path FROM files WHERE last_accessed_at < ?1")?;
+            let rows = stmt.query_map(params![file_cutoff], |r| {
+                Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
+            })?;
+            rows.filter_map(|r| r.ok()).collect()
+        };
+        for (project_id, rel_path) in &stale_files {
+            self.delete_file(project_id, rel_path)?;
+        }
+
+        Ok((stale_files.len(), stale_projects.len()))
     }
 
     // ---- search (FTS5) ----
@@ -345,10 +441,14 @@ impl SqliteStore {
 /// the shape here is deliberately the one it expects, so adopting it later is a
 /// mechanical swap rather than a redesign.
 type MigrationStep = (i64, fn(&Connection) -> Result<()>);
-const MIGRATIONS: &[MigrationStep] = &[(1, migration_1_path_hash), (2, migration_2_content_hash)];
+const MIGRATIONS: &[MigrationStep] = &[
+    (1, migration_1_path_hash),
+    (2, migration_2_content_hash),
+    (3, migration_3_last_accessed),
+];
 
 /// Schema version this build expects — the last entry in [`MIGRATIONS`].
-pub const SCHEMA_VERSION: i64 = 2;
+pub const SCHEMA_VERSION: i64 = 3;
 
 /// Bring an existing database up to [`SCHEMA_VERSION`].
 ///
@@ -452,6 +552,31 @@ fn backfill_content_hash(conn: &Connection) -> Result<()> {
     Ok(())
 }
 
+/// v3 — access-based cleanup support. `last_accessed_at` is the timestamp
+/// `cleanup_stale` compares against to decide whether a file's index record
+/// (never the real file on disk) is still worth keeping.
+fn migration_3_last_accessed(conn: &Connection) -> Result<()> {
+    if !has_column(conn, "files", "last_accessed_at")? {
+        conn.execute(
+            "ALTER TABLE files ADD COLUMN last_accessed_at TEXT NOT NULL DEFAULT ''",
+            [],
+        )?;
+    }
+    backfill_last_accessed(conn)
+}
+
+/// Seed every row still carrying the empty default to "now", so an upgrade
+/// never makes a whole existing database instantly stale — the access clock
+/// starts fresh from the moment of the upgrade, same grace period a
+/// brand-new file gets.
+fn backfill_last_accessed(conn: &Connection) -> Result<()> {
+    conn.execute(
+        "UPDATE files SET last_accessed_at=?1 WHERE last_accessed_at=''",
+        params![crate::indexer::now_rfc3339()],
+    )?;
+    Ok(())
+}
+
 fn has_column(conn: &Connection, table: &str, column: &str) -> Result<bool> {
     let mut stmt = conn.prepare(&format!("PRAGMA table_info({table})"))?;
     let mut rows = stmt.query([])?;
@@ -510,6 +635,7 @@ CREATE TABLE IF NOT EXISTS files (
     modified_at TEXT NOT NULL,
     path_hash TEXT NOT NULL DEFAULT '',
     content_hash TEXT NOT NULL DEFAULT '',
+    last_accessed_at TEXT NOT NULL DEFAULT '',
     PRIMARY KEY(project_id, rel_path)
 );
 CREATE INDEX IF NOT EXISTS idx_files_project ON files(project_id);
@@ -827,6 +953,95 @@ mod tests {
             s.search("unique_token_xyz", Some("p1"), 10).unwrap().len(),
             0
         );
+    }
+
+    #[test]
+    fn upsert_file_seeds_last_accessed_at_but_reindex_never_resets_it() {
+        let s = SqliteStore::open_in_memory().unwrap();
+        s.upsert_project(&sample_project()).unwrap();
+        s.upsert_file(&file("docs/a.md", "Alpha"), "v1").unwrap();
+        assert!(!s.file_last_accessed("p1", "docs/a.md").unwrap().is_empty());
+
+        // Back-date it, as if this file hasn't been viewed in a while.
+        s.backdate_file_access_for_test("p1", "docs/a.md", "2000-01-01T00:00:00Z");
+
+        // Re-indexing on a content change must NOT count as a view.
+        s.upsert_file(&file("docs/a.md", "Alpha"), "v2").unwrap();
+        assert_eq!(
+            s.file_last_accessed("p1", "docs/a.md").unwrap(),
+            "2000-01-01T00:00:00Z"
+        );
+
+        // An actual view does reset it.
+        s.touch_file_access("p1", "docs/a.md").unwrap();
+        assert_ne!(
+            s.file_last_accessed("p1", "docs/a.md").unwrap(),
+            "2000-01-01T00:00:00Z"
+        );
+    }
+
+    #[test]
+    fn touch_project_access_bumps_last_seen_at() {
+        let s = SqliteStore::open_in_memory().unwrap();
+        let mut p = sample_project();
+        p.last_seen_at = "2000-01-01T00:00:00Z".into();
+        s.upsert_project(&p).unwrap();
+
+        s.touch_project_access("p1").unwrap();
+
+        let refreshed = s.get_project("p1").unwrap().unwrap();
+        assert_ne!(refreshed.last_seen_at, "2000-01-01T00:00:00Z");
+    }
+
+    #[test]
+    fn cleanup_stale_removes_unaccessed_files_but_keeps_recent_ones() {
+        let s = SqliteStore::open_in_memory().unwrap();
+        s.upsert_project(&sample_project()).unwrap();
+        s.upsert_file(&file("docs/old.md", "Old"), "stale").unwrap();
+        s.upsert_file(&file("docs/new.md", "New"), "fresh").unwrap();
+        s.backdate_file_access_for_test("p1", "docs/old.md", "2000-01-01T00:00:00Z");
+
+        let (files_removed, projects_removed) = s
+            .cleanup_stale("2020-01-01T00:00:00Z", "2000-01-01T00:00:00Z")
+            .unwrap();
+
+        assert_eq!(files_removed, 1);
+        assert_eq!(projects_removed, 0);
+        assert!(s.get_file("p1", "docs/old.md").unwrap().is_none());
+        assert!(s.get_file("p1", "docs/new.md").unwrap().is_some());
+    }
+
+    #[test]
+    fn cleanup_stale_removing_a_project_cascades_its_files_without_double_counting() {
+        let s = SqliteStore::open_in_memory().unwrap();
+        s.upsert_project(&sample_project()).unwrap();
+        s.upsert_file(&file("docs/a.md", "A"), "content").unwrap();
+        s.backdate_project_for_test("p1", "2000-01-01T00:00:00Z");
+
+        let (files_removed, projects_removed) = s
+            .cleanup_stale("2020-01-01T00:00:00Z", "2020-01-01T00:00:00Z")
+            .unwrap();
+
+        // The project itself was stale, so its file left via cascade, not a
+        // second time through the file sweep.
+        assert_eq!(projects_removed, 1);
+        assert_eq!(files_removed, 0);
+        assert!(s.get_project("p1").unwrap().is_none());
+        assert!(s.get_file("p1", "docs/a.md").unwrap().is_none());
+    }
+
+    #[test]
+    fn cleanup_stale_leaves_everything_when_nothing_is_old_enough() {
+        let s = SqliteStore::open_in_memory().unwrap();
+        s.upsert_project(&sample_project()).unwrap();
+        s.upsert_file(&file("docs/a.md", "A"), "content").unwrap();
+
+        let (files_removed, projects_removed) = s
+            .cleanup_stale("2000-01-01T00:00:00Z", "2000-01-01T00:00:00Z")
+            .unwrap();
+
+        assert_eq!(files_removed, 0);
+        assert_eq!(projects_removed, 0);
     }
 
     #[test]
