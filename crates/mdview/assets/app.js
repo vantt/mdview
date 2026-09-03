@@ -181,12 +181,13 @@
   // Code section's folder disclosure: code_tree() (views.rs) server-renders
   // the same `.chap-folders` markup the block above builds client-side for
   // Docs, so this only needs to wire the click-to-toggle + remembered-open
-  // behavior, not build any DOM. Runs once at load — safe to always attach:
-  // on a Docs page `.chap-folders__bar` does not exist yet at this point
-  // (the block above only creates it later, inside `render()`, and wires
-  // its own handler when it does), so this only ever finds real elements on
-  // a Code page.
+  // behavior, not build any DOM. Skip entirely on a Docs page (identified by
+  // `#filelist`, which only that template renders) — the block above already
+  // builds and wires its own `.chap-folders__bar` there, synchronously,
+  // before this one runs; binding a second handler to the same bar made
+  // every click toggle `is-open` on then immediately back off.
   (function () {
+    if (document.getElementById("filelist")) return;
     var bars = document.querySelectorAll(".chap-folders__bar");
     if (!bars.length) return;
     var remembered = false;
@@ -342,6 +343,11 @@
       return [parseInt(m[1], 10), parseInt(m[2], 10)];
     }
 
+    function closestBlock(node) {
+      var el = node.nodeType === 1 ? node : node.parentElement;
+      return el ? el.closest("[data-sourcepos]") : null;
+    }
+
     document.addEventListener("copy", function (e) {
       var sel = window.getSelection();
       if (!sel || sel.rangeCount === 0 || sel.isCollapsed) return;
@@ -349,6 +355,18 @@
       // Only act when the selection lives inside the rendered article.
       var anchor = sel.anchorNode;
       if (!anchor || !article.contains(anchor)) return;
+
+      // A highlight confined to a single block (e.g. a phrase within one
+      // paragraph) should copy exactly what's selected. Only fall back to
+      // the block's raw markdown once the selection spans multiple blocks
+      // or fully covers one — otherwise a partial highlight would paste
+      // the whole paragraph instead of the highlighted text.
+      var range = sel.getRangeAt(0);
+      var startBlock = closestBlock(range.startContainer);
+      var endBlock = closestBlock(range.endContainer);
+      if (startBlock && startBlock === endBlock && !sel.containsNode(startBlock, false)) {
+        return;
+      }
 
       // Collect the source line range across every mapped block the selection
       // touches (partial containment), then union to a single [min, max].
