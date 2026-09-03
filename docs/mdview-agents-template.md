@@ -19,8 +19,9 @@ Call `mdview_view_file` with:
 - `relative_path`: the file path relative to that root
 
 It returns a browser `url`. Tell the user: "You can view this at: `<url>`".
-The server auto-registers the project on first use and indexes the file
-immediately.
+The server auto-registers the project on first use — indexing happens in the
+background so the call returns immediately; the file itself is indexed and
+rendered the moment its URL is opened.
 
 ### Using CLI fallback
 

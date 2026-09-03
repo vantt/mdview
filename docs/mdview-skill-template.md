@@ -23,8 +23,8 @@ Pick the best available method:
    - `relative_path`: the file relative to that root
 
    It returns a `url` (and a `urls` array when the daemon is bound to a wildcard
-   host). It auto-registers the project and indexes the file on first use — no
-   separate registration step.
+   host). It auto-registers the project on first use — no separate registration
+   step — and indexes it in the background so the call returns immediately.
 
 2. **CLI fallback** — otherwise run:
 

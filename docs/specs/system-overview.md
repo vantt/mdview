@@ -53,8 +53,10 @@ launcher — CLI, MCP, future desktop — coordinates through `~/.mdview/daemon.
   and pushes a reload signal over WebSocket; the browser reloads the page.
 - **Search** — full-text (keyword) across a project or all projects.
 - **Agent integration (MCP)** — a single tool, `mdview_view_file(project_root,
-  relative_path)`, that ensures the project exists, indexes the file, ensures the
-  daemon is up, and returns a viewable URL.
+  relative_path)`, that ensures the project exists, ensures the daemon is up, and
+  returns a viewable URL. A brand-new project's full index runs in a detached
+  background process rather than blocking the call; the file itself is indexed
+  and rendered synchronously the moment its URL is actually opened.
 - **CLI** — `serve` (daemon), plus `register / open / list / search / status /
   refresh / unregister / stop`, `doctor`, and `version` (prints the single-source
   app version, same as `--version`).
