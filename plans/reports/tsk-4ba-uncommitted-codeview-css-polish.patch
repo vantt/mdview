@@ -1,0 +1,69 @@
+diff --git a/crates/mdview/assets/app.css b/crates/mdview/assets/app.css
+index f3eb5e7..d941d28 100644
+--- a/crates/mdview/assets/app.css
++++ b/crates/mdview/assets/app.css
+@@ -16,6 +16,14 @@
+    redefine an Atelier token custom property.
+    ============================================================ */
+ 
++/* No Atelier reset ever zeroed the UA default `body` margin (8px). Harmless
++   on a normally-scrolling page, but on Code view — whose layout math (topbar
++   53px + .content--code's calc(100vh - 53px)) already sums to exactly the
++   viewport height — that stray 8px was enough to force a second, redundant
++   outer/page scrollbar alongside `.codeview`'s own inner one. */
++body {
++  margin: 0;
++}
+ /* Reserve the sticky topbar's height when the browser scrolls something into
+    view (an autofocused search input, a heading anchor, a focused control), so
+    it never lands hidden underneath the bar. */
+@@ -31,6 +39,13 @@ main.fg-page {
+ 
+ /* ── Topbar: sticky header bar (no horizontal app-bar core role) ── */
+ .topbar {
++  /* Pinned to exactly 53px (border-box: padding+border count inside it)
++     instead of an auto height that only happened to be close to it — every
++     sticky offset below (.breadcrumb/.sidebar/.rightbar/.content--code)
++     assumes this exact number, and a mismatch there is what left a gap
++     between the topbar and the breadcrumb while scrolling. */
++  box-sizing: border-box;
++  height: 53px;
+   display: flex;
+   align-items: center;
+   gap: var(--space-4);
+@@ -876,7 +891,21 @@ pre.mermaid.zoomable:focus-within .mermaid-controls {
+ /* Highlighted source: same fixed dark "signature" panel `.fg-prose pre`
+    renders code blocks on (build_highlight_css scopes /highlight.css to
+    that one dark theme regardless of page scheme), so the syntect token
+-   colors stay correct on this panel in both light and dark page modes. */
++   colors stay correct on this panel in both light and dark page modes.
++   The dark background/color live on `.codeview` itself — the scroll
++   container `.content--code` gives it (`overflow: auto`) — rather than on
++   `.codeview__table`: a background painted on the element that scrolls
++   fills its box edge to edge at all times (it does not travel with the
++   content), so nothing behind it shows through mid-scroll the way it did
++   when only the (shorter, unpadded) table carried the color. No corner
++   rounding either — it now covers the whole pane, not a card floating in
++   it. Padding is top/bottom only: horizontal stays edge-to-edge (Code's
++   whole point is using the full width). */
++.codeview {
++  padding: var(--space-4) 0;
++  background: var(--signature-dark-bg);
++  color: var(--signature-dark-text);
++}
+ .codeview__banner {
+   margin: 0 auto var(--space-3);
+   padding: var(--space-2) var(--space-4);
+@@ -899,12 +928,7 @@ pre.mermaid.zoomable:focus-within .mermaid-controls {
+ }
+ .codeview__table {
+   width: 100%;
+-  margin: 0 auto var(--space-6);
+   border-collapse: collapse;
+-  background: var(--signature-dark-bg);
+-  color: var(--signature-dark-text);
+-  border-radius: var(--radius-md);
+-  overflow: hidden;
+   font-family: var(--font-mono);
+   font-size: var(--fs-prose-code);
+   line-height: var(--lh-prose-code);
