@@ -58,8 +58,9 @@ fn tool_schema() -> Value {
     json!({
         "name": "mdview_view_file",
         "description": "Make a markdown file viewable in the browser and return its URL. \
-    Auto-registers the project on first use and indexes the file immediately. \
-    Pass the project root and the file path relative to that root.",
+    Auto-registers the project on first use (indexing happens in the background so this \
+    returns immediately); the file itself is guaranteed indexed and rendered the moment its \
+    URL is opened. Pass the project root and the file path relative to that root.",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -99,6 +100,16 @@ fn handle_tool_call(id: Option<Value>, engine: &Engine, req: &Value) -> Value {
 
     match engine.view_file(Path::new(root), rel) {
         Ok(vf) => {
+            if vf.is_new_project {
+                // Don't block the tool response on a full recursive scan —
+                // hand it to a detached child process. The requested file
+                // becomes viewable synchronously the moment its URL is
+                // opened (`ensure_indexed` in the HTTP handler); this just
+                // backfills the rest of the project.
+                if let Err(e) = runtime::spawn_refresh_detached(&vf.project_id) {
+                    tracing::warn!("failed to spawn background indexing: {e}");
+                }
+            }
             // Ensure a daemon is up so the URL is actually viewable. When the
             // daemon binds a wildcard host with no host_name override, this is
             // one URL per reachable machine IP so the caller can pick a routable

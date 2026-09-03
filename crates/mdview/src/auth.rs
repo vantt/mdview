@@ -22,6 +22,11 @@ use crate::server::AppState;
 
 const COOKIE_NAME: &str = "mdv_session";
 
+/// Short-lived cookie holding the page a visitor was denied, set by
+/// `AuthPage` on rejection and consumed once by `login` so a successful sign-in
+/// lands back where the visitor started instead of always at `/`.
+const NEXT_COOKIE_NAME: &str = "mdv_next";
+
 /// Header Cloudflare Access sets on requests it has already authenticated at
 /// the edge. Read case-insensitively (axum lowercases header names).
 const CF_ACCESS_HEADER: &str = "cf-access-jwt-assertion";
@@ -36,7 +41,11 @@ pub struct LoginForm {
 /// auth failure (D2), so the endpoint leaks nothing about whether it exists
 /// or what it wants — including no distinguishing error on the login page
 /// itself.
-pub async fn login(State(state): State<AppState>, Form(form): Form<LoginForm>) -> Response {
+pub async fn login(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Form(form): Form<LoginForm>,
+) -> Response {
     let configured = match state.web_secret.as_ref() {
         Some(s) if !s.is_empty() => s,
         // Misconfigured (no secret) → fail closed, leak nothing.
@@ -48,11 +57,21 @@ pub async fn login(State(state): State<AppState>, Form(form): Form<LoginForm>) -
     let session_id = new_session_id();
     state.sessions.lock().await.insert(session_id.clone());
 
-    let cookie =
+    // Where AuthPage sent the visitor from, if anywhere and still safe —
+    // consumed once, then cleared below regardless of whether it was used.
+    let target = next_cookie(&headers)
+        .as_deref()
+        .and_then(safe_redirect_target)
+        .unwrap_or("/")
+        .to_string();
+
+    let session_cookie =
         format!("{COOKIE_NAME}={session_id}; HttpOnly; SameSite=Strict; Path=/; Max-Age=604800");
-    let mut headers = HeaderMap::new();
-    headers.insert(header::SET_COOKIE, cookie.parse().unwrap());
-    (headers, Redirect::to("/")).into_response()
+    let expired_next = format!("{NEXT_COOKIE_NAME}=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0");
+    let mut out = HeaderMap::new();
+    out.append(header::SET_COOKIE, session_cookie.parse().unwrap());
+    out.append(header::SET_COOKIE, expired_next.parse().unwrap());
+    (out, Redirect::to(&target)).into_response()
 }
 
 /// `POST /api/logout` — invalidate the current session, redirect to
@@ -138,23 +157,59 @@ impl FromRequestParts<AppState> for AuthPage {
         if authenticated(parts, state).await {
             Ok(AuthPage)
         } else {
-            Err(Redirect::to("/login").into_response())
+            let requested = parts
+                .uri
+                .path_and_query()
+                .map(|pq| pq.as_str())
+                .unwrap_or("/");
+            let mut headers = HeaderMap::new();
+            if let Some(target) = safe_redirect_target(requested) {
+                let cookie = format!(
+                    "{NEXT_COOKIE_NAME}={target}; HttpOnly; SameSite=Strict; Path=/; Max-Age=300"
+                );
+                if let Ok(v) = cookie.parse() {
+                    headers.insert(header::SET_COOKIE, v);
+                }
+            }
+            Err((headers, Redirect::to("/login")).into_response())
         }
     }
 }
 
-/// Extract the `mdv_session` value from the Cookie header, if present.
-pub fn session_cookie(headers: &HeaderMap) -> Option<String> {
+/// Only an internal, single-slash path is a safe `next` redirect target.
+/// `//host/evil` (protocol-relative) and `/\host/evil` (browsers normalize
+/// the backslash to a second slash) both fail this, closing the open-redirect
+/// hole a raw `next` value would otherwise open.
+fn safe_redirect_target(next: &str) -> Option<&str> {
+    if next.starts_with('/') && !next.starts_with("//") && !next.starts_with("/\\") {
+        Some(next)
+    } else {
+        None
+    }
+}
+
+/// Extract a named cookie's value from the Cookie header, if present.
+fn cookie_value(headers: &HeaderMap, name: &str) -> Option<String> {
     let raw = headers.get(header::COOKIE)?.to_str().ok()?;
     for pair in raw.split(';') {
         let pair = pair.trim();
-        if let Some(v) = pair.strip_prefix(&format!("{COOKIE_NAME}=")) {
+        if let Some(v) = pair.strip_prefix(&format!("{name}=")) {
             if !v.is_empty() {
                 return Some(v.to_string());
             }
         }
     }
     None
+}
+
+/// Extract the `mdv_session` value from the Cookie header, if present.
+pub fn session_cookie(headers: &HeaderMap) -> Option<String> {
+    cookie_value(headers, COOKIE_NAME)
+}
+
+/// Extract the `mdv_next` value from the Cookie header, if present.
+fn next_cookie(headers: &HeaderMap) -> Option<String> {
+    cookie_value(headers, NEXT_COOKIE_NAME)
 }
 
 fn new_session_id() -> String {
@@ -205,6 +260,16 @@ mod tests {
         assert_eq!(a.len(), 32);
         assert!(a.chars().all(|c| c.is_ascii_hexdigit()));
         assert_ne!(a, b);
+    }
+
+    #[test]
+    fn safe_redirect_target_rejects_open_redirects() {
+        assert_eq!(safe_redirect_target("/p/abc/docs/architect"), Some("/p/abc/docs/architect"));
+        assert_eq!(safe_redirect_target("/"), Some("/"));
+        assert_eq!(safe_redirect_target("//evil.example"), None);
+        assert_eq!(safe_redirect_target("/\\evil.example"), None);
+        assert_eq!(safe_redirect_target("https://evil.example"), None);
+        assert_eq!(safe_redirect_target("evil.example"), None);
     }
 
     #[test]

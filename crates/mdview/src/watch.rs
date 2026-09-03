@@ -146,7 +146,16 @@ mod tests {
 
     fn engine_with_project(dir: &std::path::Path) -> Engine {
         let engine = Engine::new(SqliteStore::open_in_memory().unwrap(), Config::default());
-        engine.ensure_project(dir, None).unwrap();
+        let (project, _) = engine.ensure_project(dir, None).unwrap();
+        // `ensure_project` no longer scans (D-async-index) — index whatever's
+        // already on disk now so these tests exercise the watcher's
+        // incremental reindex against a known baseline, same as before.
+        for entry in fs::read_dir(dir).into_iter().flatten().flatten() {
+            let path = entry.path();
+            if is_markdown(&path) {
+                engine.index_file_incremental(&project, &path).unwrap();
+            }
+        }
         engine
     }
 

@@ -237,6 +237,25 @@ pub fn spawn_daemon_detached() -> Result<()> {
     Ok(())
 }
 
+/// Spawn `mdview refresh <project_id>` fully detached, so a newly-registered
+/// project's full recursive scan happens off the calling process — `register`/
+/// `open`/the MCP tool return as soon as the project row exists (and, for
+/// `open`, the one requested file is viewable) instead of blocking on the
+/// whole repo. Safe to run alongside an already-running daemon: CLI commands
+/// and the daemon already share the same SQLite registry concurrently.
+pub fn spawn_refresh_detached(project_id: &str) -> Result<()> {
+    let exe = std::env::current_exe()?;
+    let mut cmd = std::process::Command::new(exe);
+    cmd.arg("refresh")
+        .arg(project_id)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null());
+    apply_detach(&mut cmd);
+    cmd.spawn()?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::{

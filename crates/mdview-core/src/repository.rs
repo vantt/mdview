@@ -31,6 +31,11 @@ impl SqliteStore {
     fn from_conn(conn: Connection) -> Result<Self> {
         conn.pragma_update(None, "journal_mode", "WAL").ok();
         conn.pragma_update(None, "foreign_keys", "ON").ok();
+        // Multiple processes share this DB (daemon + CLI + MCP, and now a
+        // detached background `refresh`) — without a busy timeout a writer
+        // that loses the race gets an immediate "database is locked" error
+        // instead of waiting the brief moment WAL contention actually needs.
+        conn.busy_timeout(std::time::Duration::from_secs(15)).ok();
         conn.execute_batch(SCHEMA)?;
         migrate(&conn)?;
         Ok(Self {

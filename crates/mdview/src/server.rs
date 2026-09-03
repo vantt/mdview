@@ -436,25 +436,12 @@ async fn project_home(
 fn pick_entry_file(
     files: &[mdview_core::domain::IndexedFile],
 ) -> Option<&mdview_core::domain::IndexedFile> {
-    fn rank(rel: &str) -> u8 {
-        match rel
-            .rsplit('/')
-            .next()
-            .unwrap_or(rel)
-            .to_ascii_lowercase()
-            .as_str()
-        {
-            "readme.md" => 0,
-            "index.md" => 1,
-            _ => 2,
-        }
-    }
     fn depth(rel: &str) -> usize {
         rel.bytes().filter(|&b| b == b'/').count()
     }
     files.iter().min_by(|a, b| {
-        rank(&a.rel_path)
-            .cmp(&rank(&b.rel_path))
+        entry_rank(&a.rel_path)
+            .cmp(&entry_rank(&b.rel_path))
             .then_with(|| depth(&a.rel_path).cmp(&depth(&b.rel_path)))
             .then_with(|| {
                 a.rel_path
@@ -462,6 +449,47 @@ fn pick_entry_file(
                     .cmp(&b.rel_path.to_ascii_lowercase())
             })
     })
+}
+
+/// README beats index.md beats everything else — the ranking `pick_entry_file`
+/// and `pick_folder_landing` both sort by.
+fn entry_rank(rel: &str) -> u8 {
+    match rel
+        .rsplit('/')
+        .next()
+        .unwrap_or(rel)
+        .to_ascii_lowercase()
+        .as_str()
+    {
+        "readme.md" => 0,
+        "index.md" => 1,
+        _ => 2,
+    }
+}
+
+/// The README/index a folder's *direct* children offer, if any. Same
+/// precedence as `pick_entry_file`, but scoped to one folder's immediate
+/// files (not the whole project) and with no "just pick something" fallback:
+/// a folder whose only files are ordinary docs stays a 404 rather than
+/// guessing which one the visitor meant. `folder` is a rel-path prefix with
+/// no trailing slash (`""` for the project root).
+fn pick_folder_landing<'a>(
+    files: &'a [mdview_core::domain::IndexedFile],
+    folder: &str,
+) -> Option<&'a mdview_core::domain::IndexedFile> {
+    let prefix = if folder.is_empty() {
+        String::new()
+    } else {
+        format!("{folder}/")
+    };
+    files
+        .iter()
+        .filter(|f| match f.rel_path.strip_prefix(prefix.as_str()) {
+            Some(rest) => !rest.is_empty() && !rest.contains('/'),
+            None => false,
+        })
+        .filter(|f| entry_rank(&f.rel_path) < 2)
+        .min_by_key(|f| (entry_rank(&f.rel_path), f.rel_path.to_ascii_lowercase()))
 }
 
 async fn project_path(
@@ -491,6 +519,14 @@ async fn project_path(
             if let Ok(bytes) = std::fs::read(&abs) {
                 return asset_response(&abs, bytes);
             }
+        }
+        // Neither a file nor an asset — if it names a folder with a README
+        // (or index) among its direct children, redirect there instead of
+        // 404ing, the same landing-page convention project_home uses at the
+        // project root.
+        let files = st.engine.list_files(&id).unwrap_or_default();
+        if let Some(entry) = pick_folder_landing(&files, path.trim_end_matches('/')) {
+            return Redirect::to(&format!("/p/{id}/{}", entry.rel_path)).into_response();
         }
     }
     not_found("file not found")
@@ -900,6 +936,46 @@ mod asset_response_tests {
     }
 
     #[test]
+    fn folder_landing_prefers_readme_then_index_direct_children_only() {
+        // README among direct children wins.
+        let files = vec![
+            f("docs/architect/overview.md"),
+            f("docs/architect/README.md"),
+        ];
+        assert_eq!(
+            pick_folder_landing(&files, "docs/architect")
+                .unwrap()
+                .rel_path,
+            "docs/architect/README.md"
+        );
+
+        // No README → index.md wins.
+        let files = vec![f("docs/architect/index.md"), f("docs/architect/zoo.md")];
+        assert_eq!(
+            pick_folder_landing(&files, "docs/architect")
+                .unwrap()
+                .rel_path,
+            "docs/architect/index.md"
+        );
+
+        // Neither README nor index among direct children → no guess, 404.
+        let files = vec![f("docs/architect/guide.md")];
+        assert!(pick_folder_landing(&files, "docs/architect").is_none());
+
+        // A README in a nested subfolder doesn't count as a direct child.
+        let files = vec![f("docs/architect/nested/README.md")];
+        assert!(pick_folder_landing(&files, "docs/architect").is_none());
+
+        // A README in a sibling folder (same prefix as substring) doesn't match.
+        let files = vec![f("docs/architecture/README.md")];
+        assert!(pick_folder_landing(&files, "docs/architect").is_none());
+
+        // Project root uses "" as the folder.
+        let files = vec![f("guide.md"), f("README.md")];
+        assert_eq!(pick_folder_landing(&files, "").unwrap().rel_path, "README.md");
+    }
+
+    #[test]
     fn loopback_detection_flags_wildcard_and_lan_as_exposed() {
         assert!(is_loopback_host("127.0.0.1"));
         assert!(is_loopback_host("localhost"));
@@ -991,6 +1067,52 @@ mod auth_wiring_tests {
             .unwrap();
         assert_eq!(res.status(), StatusCode::SEE_OTHER);
         assert_eq!(res.headers().get(header::LOCATION).unwrap(), "/login");
+    }
+
+    /// Denied on a deep page → the `next` cookie AuthPage sets carries the
+    /// visitor back there after a successful login, instead of always to `/`.
+    #[tokio::test]
+    async fn login_returns_to_the_page_that_required_it() {
+        let state = test_state();
+        let denied = router(state.clone())
+            .oneshot(
+                Request::builder()
+                    .uri("/settings")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(denied.status(), StatusCode::SEE_OTHER);
+        assert_eq!(denied.headers().get(header::LOCATION).unwrap(), "/login");
+        let next_cookie = cookie_from(&denied);
+        assert!(next_cookie.starts_with("mdv_next="));
+
+        let login_res = router(state)
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/login")
+                    .header("content-type", "application/x-www-form-urlencoded")
+                    .header(header::COOKIE, next_cookie)
+                    .body(Body::from(format!("token={TOKEN}")))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(login_res.status(), StatusCode::SEE_OTHER);
+        assert_eq!(
+            login_res.headers().get(header::LOCATION).unwrap(),
+            "/settings"
+        );
+        // The next cookie is consumed once — cleared so a later login (e.g.
+        // after logout, with no fresh denial) falls back to "/" again.
+        let cleared = login_res
+            .headers()
+            .get_all(header::SET_COOKIE)
+            .iter()
+            .any(|v| v.to_str().unwrap().starts_with("mdv_next=; "));
+        assert!(cleared);
     }
 
     #[tokio::test]

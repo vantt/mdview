@@ -224,7 +224,14 @@ fn cmd_serve(port: Option<u16>, host: Option<String>) -> Result<()> {
 
 fn cmd_register(path: &Path, name: Option<&str>, json: bool) -> Result<()> {
     let engine = runtime::build_engine()?;
-    let project = engine.register(path, name)?;
+    let (project, is_new) = engine.register(path, name)?;
+    if is_new {
+        // Don't block this command on a full recursive scan of the project —
+        // hand it to a detached child process and return immediately.
+        if let Err(e) = runtime::spawn_refresh_detached(&project.id) {
+            eprintln!("mdview: failed to spawn background indexing: {e}");
+        }
+    }
     let count = engine.file_count(&project.id)?;
     if json {
         println!(
@@ -232,9 +239,16 @@ fn cmd_register(path: &Path, name: Option<&str>, json: bool) -> Result<()> {
             serde_json::json!({
                 "project_id": project.id, "name": project.name,
                 "root_path": project.root_path, "file_count": count,
-                "url": format!("/p/{}/", project.id)
+                "url": format!("/p/{}/", project.id),
+                "indexing": if is_new { "background" } else { "up-to-date" }
             })
         );
+    } else if is_new {
+        println!(
+            "Registered '{}' ({}) — indexing in the background",
+            project.name, project.id
+        );
+        println!("  {}", project.root_path.display());
     } else {
         println!(
             "Registered '{}' ({}) — {} markdown files",
@@ -252,6 +266,14 @@ fn cmd_open(path: &Path, json: bool) -> Result<()> {
     let root = find_project_root(&engine, &abs);
     let rel = indexer::rel_path_str(&root, &abs);
     let vf = engine.view_file(&root, &rel)?;
+    if vf.is_new_project {
+        // Don't block this command on a full recursive scan — the daemon
+        // will index the requested file on demand when the URL is opened;
+        // a detached child process backfills the rest of the project.
+        if let Err(e) = runtime::spawn_refresh_detached(&vf.project_id) {
+            eprintln!("mdview: failed to spawn background indexing: {e}");
+        }
+    }
     // Short form, same as the MCP tool emits (D9): a deep path pushes the full
     // URL past a terminal's width, where it wraps and stops being clickable.
     let bases = runtime::ensure_daemon_bases();

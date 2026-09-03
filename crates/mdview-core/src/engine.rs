@@ -25,6 +25,10 @@ pub struct ViewFile {
     pub rel_path: String,
     /// Short code for this file — the `<code>` in `/s/<code>`.
     pub code: String,
+    /// Whether this call just created the project (as opposed to reusing an
+    /// existing one). Callers use this to decide whether a background index
+    /// needs kicking off — see `view_file`'s doc comment.
+    pub is_new_project: bool,
 }
 
 impl Engine {
@@ -48,13 +52,20 @@ impl Engine {
         std::fs::canonicalize(root).unwrap_or_else(|_| root.to_path_buf())
     }
 
-    /// Find the project owning `root`, or create + index it (implicit registration).
-    pub fn ensure_project(&self, root: &Path, name: Option<&str>) -> Result<Project> {
+    /// Find the project owning `root`, or create it (implicit registration).
+    /// Never scans — a brand-new project's row is created empty and its
+    /// second return value is `true`. Indexing is deliberately the caller's
+    /// job: `view_file`/`register` return fast so an MCP/CLI response never
+    /// blocks on a full recursive scan, while the actual file content gets
+    /// indexed on demand (`ensure_indexed`, called synchronously from the
+    /// HTTP path when a visitor really opens a page) or via a background
+    /// `refresh` the app layer kicks off for a `true` return here.
+    pub fn ensure_project(&self, root: &Path, name: Option<&str>) -> Result<(Project, bool)> {
         let root = Self::canonical(root);
         if let Some(mut p) = self.store.find_project_by_root(&root)? {
             p.last_seen_at = indexer::now_rfc3339();
             self.store.upsert_project(&p)?;
-            return Ok(p);
+            return Ok((p, false));
         }
         let id = self.unique_id(&indexer::slug_from_root(&root))?;
         let name = name.map(|s| s.to_string()).unwrap_or_else(|| {
@@ -72,14 +83,7 @@ impl Engine {
             last_seen_at: now,
         };
         self.store.upsert_project(&project)?;
-        IndexService::index_project(
-            &self.store,
-            &project,
-            &self.config.indexing.exclude_patterns,
-            self.max_bytes(),
-        )?;
-        self.reindex_links(&project)?;
-        Ok(project)
+        Ok((project, true))
     }
 
     fn unique_id(&self, base: &str) -> Result<String> {
@@ -95,13 +99,18 @@ impl Engine {
         Err(Error::Other("could not allocate project id".into()))
     }
 
-    /// The core `mdview_view_file` use case: ensure project, index the file now,
-    /// return its app URL.
+    /// The core `mdview_view_file` use case: ensure the project exists and
+    /// hand back its app URL. Deliberately does *not* index anything —
+    /// indexing here would make every first-view of a large project block
+    /// the MCP/CLI response on a full scan. The URL is computable from the
+    /// project id + rel path alone; the actual content gets indexed either
+    /// by the caller's background refresh (`is_new_project`) or, at the
+    /// latest, synchronously when a browser really requests the page
+    /// (`ensure_indexed` in the HTTP handler).
     pub fn view_file(&self, project_root: &Path, rel_path: &str) -> Result<ViewFile> {
-        let project = self.ensure_project(project_root, None)?;
+        let (project, is_new_project) = self.ensure_project(project_root, None)?;
         let abs = project.root_path.join(rel_path);
         let abs = crate::link_resolver::normalize(&abs);
-        self.index_file_incremental(&project, &abs)?;
         let rel = indexer::rel_path_str(&project.root_path, &abs);
         if rel.is_empty() {
             return Err(Error::PathOutsideProject(abs));
@@ -112,11 +121,14 @@ impl Engine {
             project_id: project.id,
             rel_path: rel,
             code,
+            is_new_project,
         })
     }
 
-    /// Register a project explicitly (CLI). Same as ensure_project + optional name.
-    pub fn register(&self, root: &Path, name: Option<&str>) -> Result<Project> {
+    /// Register a project explicitly (CLI). Same as ensure_project + optional
+    /// name — returns whether the project was newly created so the caller can
+    /// kick off a background scan.
+    pub fn register(&self, root: &Path, name: Option<&str>) -> Result<(Project, bool)> {
         self.ensure_project(root, name)
     }
 
@@ -414,8 +426,16 @@ mod tests {
         let vf = engine.view_file(&dir, "docs/architecture.md").unwrap();
         assert!(vf.url.starts_with("/p/"));
         assert!(vf.url.ends_with("/docs/architecture.md"));
+        assert!(vf.is_new_project);
 
-        // project auto-created + fully scanned (both files indexed)
+        // view_file deliberately doesn't scan (that would block the caller on
+        // a full recursive index) — nothing is indexed yet.
+        assert_eq!(engine.file_count(&vf.project_id).unwrap(), 0);
+
+        // Stand in for the background refresh a real caller kicks off on
+        // `is_new_project`, or the on-demand `ensure_indexed` a browser visit
+        // triggers.
+        engine.refresh(&vf.project_id).unwrap();
         assert_eq!(engine.file_count(&vf.project_id).unwrap(), 2);
 
         // rendering rewrites the cross-folder link
@@ -429,6 +449,7 @@ mod tests {
         // second call reuses the same project id
         let vf2 = engine.view_file(&dir, "src/api/README.md").unwrap();
         assert_eq!(vf.project_id, vf2.project_id);
+        assert!(!vf2.is_new_project);
 
         // backlinks: architecture.md links to the API readme (FR-18)
         let back = engine
@@ -453,6 +474,7 @@ mod tests {
 
         let engine = Engine::new(SqliteStore::open_in_memory().unwrap(), Config::default());
         let vf = engine.view_file(&dir, "docs/a.md").unwrap();
+        engine.refresh(&vf.project_id).unwrap();
 
         // Simulate a file/project that hasn't been viewed in a while.
         engine.store.backdate_file_access_for_test(
@@ -497,6 +519,7 @@ mod tests {
 
         let engine = Engine::new(SqliteStore::open_in_memory().unwrap(), Config::default());
         let vf = engine.view_file(&dir, "docs/a.md").unwrap();
+        engine.refresh(&vf.project_id).unwrap();
         engine.store.backdate_file_access_for_test(
             &vf.project_id,
             "docs/a.md",
@@ -528,7 +551,7 @@ mod tests {
         write(&dir, "node_modules/pkg/logo.png", "vendored-png-bytes");
 
         let engine = Engine::new(SqliteStore::open_in_memory().unwrap(), Config::default());
-        let project = engine.register(&dir, None).unwrap();
+        let (project, _) = engine.register(&dir, None).unwrap();
 
         // allowed extension → Ok
         assert!(engine.asset_path(&project.id, "images/logo.png").is_ok());

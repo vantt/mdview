@@ -76,7 +76,12 @@ mod tests {
         write(&dir, "a.md", "# A");
 
         let engine = Engine::new(SqliteStore::open_in_memory().unwrap(), Config::default());
-        let project = engine.register(&dir, None).unwrap();
+        let (project, _) = engine.register(&dir, None).unwrap();
+        // `register` no longer scans (D-async-index) — index the fixture file
+        // now so the sweep has something real to test against.
+        engine
+            .index_file_incremental(&project, &dir.join("a.md"))
+            .unwrap();
 
         sweep_once(&engine, IMMEDIATELY, NEVER);
 
@@ -97,7 +102,12 @@ mod tests {
         write(&dir, "a.md", "# A");
 
         let engine = Engine::new(SqliteStore::open_in_memory().unwrap(), Config::default());
-        let project = engine.register(&dir, None).unwrap();
+        let (project, _) = engine.register(&dir, None).unwrap();
+        // `register` no longer scans (D-async-index) — index the fixture file
+        // now so the sweep has something real to test against.
+        engine
+            .index_file_incremental(&project, &dir.join("a.md"))
+            .unwrap();
 
         sweep_once(&engine, NEVER, IMMEDIATELY);
 
@@ -118,7 +128,12 @@ mod tests {
         write(&dir, "a.md", "# A");
 
         let engine = Engine::new(SqliteStore::open_in_memory().unwrap(), Config::default());
-        let project = engine.register(&dir, None).unwrap();
+        let (project, _) = engine.register(&dir, None).unwrap();
+        // `register` no longer scans (D-async-index) — index the fixture file
+        // now so the sweep has something real to test against.
+        engine
+            .index_file_incremental(&project, &dir.join("a.md"))
+            .unwrap();
 
         sweep_once(&engine, NEVER, NEVER);
 
