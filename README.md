@@ -42,6 +42,7 @@ into its own URL namespace, and live-reloads on save. The docs your agent genera
 | 🔍 **Find anything** | Full-text search across the entire project (SQLite FTS5) plus fuzzy file-jump. |
 | 📊 **Diagrams that move** | Mermaid renders client-side with pan / zoom / fullscreen — and pinch-to-zoom on mobile. |
 | 📋 **Copy-ready code** | Syntax-highlighted code blocks with a one-tap copy button. |
+| ✏️ **Edit in place** | Hit Edit on any doc, fix it in a CodeMirror editor with markdown highlighting, Ctrl+S saves straight to disk and re-renders. Refuses to clobber a file your agent changed meanwhile. |
 | 🤖 **Agent-native** | A single MCP tool, `mdview_view_file`, hands your agent a clickable URL the moment it writes a doc. |
 | 📱 **Read anywhere** | Responsive layout, mobile sidebar drawer, light & dark. Browse from your phone over the LAN or an SSH tunnel. |
 | 🦀 **One binary** | Written in Rust. No runtime, no Node, no Docker. Install and go. |

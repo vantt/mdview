@@ -160,6 +160,35 @@ content itself.
 - **Afterwards:** the operator (often an agent) pastes back authorable markdown,
   not rendered output — round-tripping documentation without de-rendering by hand.
 
+### Edit in place (file pages)
+
+- **Trigger:** an Edit button (pencil icon) in the reading breadcrumb, beside
+  Copy. It swaps the rendered article for a CodeMirror 6 editor holding the
+  file's raw markdown (the same source Copy uses), with Save / Cancel above
+  it. The editor gives markdown syntax highlighting, line numbers, undo,
+  search (Ctrl/Cmd+F), line wrapping, and follows the page's light/dark
+  theme. The bundle is vendored and served by the daemon (no CDN), fetched
+  only on the first Edit click; if it fails to load, a plain textarea holding
+  the same text stays in service.
+- **Saving:** Save (or Ctrl/Cmd+S) sends the text to the daemon, which
+  overwrites the file on disk and re-indexes it in the same step, then the
+  page reloads to show the fresh render. Title, search, and backlinks reflect
+  the edit immediately, without waiting for the watcher.
+- **Conflict:** the page carries a hash of the source it was rendered from and
+  the editor sends it back. If the file on disk no longer matches (an agent or
+  another tab wrote it meanwhile), the save is refused and the Save button
+  becomes an explicit **Overwrite**; Cancel and reload shows the newer version
+  instead.
+- **Unsaved draft protection:** a live-reload event for the file being edited
+  is parked while the draft is dirty and applied once it is saved or
+  discarded; navigating away with a dirty draft prompts first; Cancel on a
+  dirty draft asks before discarding. Escape cancels; Tab indents.
+- **Scope:** only files already in the index are writable. The editor cannot
+  create files, rename, or reach any path the viewer does not list.
+- **Afterwards:** the operator fixes a typo or reshapes a doc the agent wrote
+  without leaving the browser, and the next `mdview_view_file` call or reload
+  shows the result.
+
 ### Mermaid diagram zoom / pan / fullscreen (file pages)
 
 - **Triggers:** a rendered file containing a Mermaid diagram; the diagram is
@@ -197,6 +226,11 @@ file list (paths + titles); no other actor consumes it.
   reachable bind is a supported mode (settings.md R3), so the operator's local
   path is treated the same way as any other local-only detail: never exposed
   to whoever can reach the page.
+
+- **R6.** The in-place editor writes only to files the index already lists,
+  and a save whose base hash is stale is refused (409) rather than applied;
+  overwriting a changed file is always an explicit second action by the
+  operator, never the default.
 
 ## Edge Cases Settled
 
@@ -236,8 +270,16 @@ snapshot under `docs/specs/visuals/web-interface/` is an open item.
   functions.
 - `crates/mdview/assets/app.js` — chapter renderer (breadcrumb zoom in/out,
   files by title), TOC scrollspy (`IntersectionObserver` over the article's
-  headings, toggles the matching TOC link's active state).
+  headings, toggles the matching TOC link's active state), in-place editor
+  (`#edit-md` / `#md-editor`, `PUT /api/projects/:id/files/*`; parks live
+  reload while a draft is dirty; lazy-loads `/static/codemirror.min.js`).
+- `crates/mdview/assets/codemirror.min.js` — vendored CodeMirror 6 bundle,
+  built from `tools/codemirror-bundle/` (`npm install && npm run build`);
+  `entry.js` there lists the extensions and the `mdviewCodeMirror` global.
+- `crates/mdview/src/server.rs` — `save_file` (the editor's PUT route);
+  `crates/mdview-core/src/engine.rs` — `Engine::save_file` (atomic write +
+  re-index, `Error::Conflict` on a stale base hash).
 - `crates/mdview/assets/app.css` — `.chapter` / `.chap-*` styles, `.toc` /
-  `.backlinks`, `.breadcrumb`, `.fg-sidebar-search`.
+  `.backlinks`, `.breadcrumb`, `.fg-sidebar-search`, `.md-editor`.
 - `crates/mdview/assets/atelier/components.css` — `.fg-input` / `.fg-select`
   (shared form-field skeleton used by the sidebar search box too).

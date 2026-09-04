@@ -35,6 +35,10 @@ launcher — CLI, MCP, future desktop — coordinates through `~/.mdview/daemon.
   server-side with class-based styling (theme via CSS, no re-render), mermaid
   marked for client rendering, output sanitized so untrusted agent markdown is
   safe to view.
+- **In-place editing** — a file page can be switched into a CodeMirror editor
+  over its raw markdown and saved back to disk through the daemon, which
+  re-indexes the file in the same step and refuses to overwrite a file that
+  changed underneath the editor (see web-interface.md, "Edit in place").
 - **Appearance** — one cohesive visual style applied to every page, with a
   Light/Dark color scheme the operator can toggle (OS-default on first load,
   remembered per browser). Scheme swaps only the color layer; the interface is

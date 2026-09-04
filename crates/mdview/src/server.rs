@@ -10,7 +10,7 @@ use axum::{
     },
     http::{header, StatusCode},
     response::{Html, IntoResponse, Redirect, Response},
-    routing::{get, post},
+    routing::{get, post, put},
     Json, Router,
 };
 use mdview_core::config::ServerConfig;
@@ -161,9 +161,11 @@ fn router(state: AppState) -> Router {
         .route("/settings", get(settings_page_handler))
         .route("/api/config", get(api_config).post(update_config))
         .route("/api/projects/:id/unregister", post(unregister_project))
+        .route("/api/projects/:id/files/*path", put(save_file))
         .route("/static/app.css", get(css_asset))
         .route("/static/app.js", get(js_asset))
         .route("/static/mermaid.min.js", get(mermaid_asset))
+        .route("/static/codemirror.min.js", get(codemirror_asset))
         .route("/highlight.css", get(highlight_asset))
         .route("/ws", get(ws_handler))
         .route("/s/:code", get(short_link_redirect))
@@ -390,6 +392,18 @@ async fn mermaid_asset() -> impl IntoResponse {
     )
 }
 
+/// Vendored CodeMirror 6 bundle (~540 KB) for the in-place editor. Only
+/// fetched when someone clicks Edit, and cacheable like Mermaid.
+async fn codemirror_asset() -> impl IntoResponse {
+    (
+        [
+            (header::CONTENT_TYPE, "application/javascript"),
+            (header::CACHE_CONTROL, "public, max-age=604800"),
+        ],
+        views::CODEMIRROR_JS,
+    )
+}
+
 /// `/s/<code>` → the file's real page.
 ///
 /// A redirect rather than a second way to render the page: everything about
@@ -533,6 +547,53 @@ async fn project_path(
         }
     }
     not_found("file not found")
+}
+
+#[derive(serde::Deserialize)]
+struct SaveFileBody {
+    content: String,
+    /// `content_hash` of the source the editor loaded (the file page ships
+    /// it in `#mdsource`'s `data-hash`). Omitted = overwrite unconditionally.
+    #[serde(default)]
+    base_hash: Option<String>,
+}
+
+/// `PUT /api/projects/:id/files/<rel_path>` — the in-browser editor's save.
+/// JSON in, JSON out; `AuthSession` (opaque 404) rather than `AuthPage`
+/// because a redirect-to-login is useless to a fetch() caller. CSRF is
+/// covered by the SameSite=Strict session cookie plus the JSON content type
+/// (no CORS layer, so a cross-origin page can't get past the preflight).
+///
+/// 409 with `{"error":"conflict"}` when `base_hash` no longer matches the
+/// bytes on disk — an agent or another tab wrote the file meanwhile; the
+/// client offers an explicit overwrite that retries without the hash.
+async fn save_file(
+    _auth: crate::auth::AuthSession,
+    State(st): State<AppState>,
+    Path((id, path)): Path<(String, String)>,
+    Json(body): Json<SaveFileBody>,
+) -> Response {
+    match st
+        .engine
+        .save_file(&id, &path, &body.content, body.base_hash.as_deref())
+    {
+        Ok(hash) => Json(json!({ "ok": true, "hash": hash })).into_response(),
+        Err(mdview_core::Error::Conflict(_)) => (
+            StatusCode::CONFLICT,
+            Json(json!({ "ok": false, "error": "conflict" })),
+        )
+            .into_response(),
+        Err(mdview_core::Error::ProjectNotFound(_)) | Err(mdview_core::Error::FileNotFound(_)) => (
+            StatusCode::NOT_FOUND,
+            Json(json!({ "ok": false, "error": "not_found" })),
+        )
+            .into_response(),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({ "ok": false, "error": e.to_string() })),
+        )
+            .into_response(),
+    }
 }
 
 #[derive(serde::Deserialize)]
@@ -975,7 +1036,10 @@ mod asset_response_tests {
 
         // Project root uses "" as the folder.
         let files = vec![f("guide.md"), f("README.md")];
-        assert_eq!(pick_folder_landing(&files, "").unwrap().rel_path, "README.md");
+        assert_eq!(
+            pick_folder_landing(&files, "").unwrap().rel_path,
+            "README.md"
+        );
     }
 
     #[test]

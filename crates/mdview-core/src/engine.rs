@@ -276,6 +276,53 @@ impl Engine {
         Ok(page)
     }
 
+    /// Overwrite the markdown file `rel_path` in `project_id` with `content`
+    /// and re-index it, so the next render (and the sidebar title, search,
+    /// backlinks) already reflect the new bytes without waiting for the
+    /// watcher. Only files already in the index are writable — the index is
+    /// the whitelist of what the viewer shows, so it is also the whitelist of
+    /// what the viewer may edit; nothing here can create a file or touch a
+    /// path the viewer never listed.
+    ///
+    /// `expected_hash`, when given, is the `content_hash` of the source the
+    /// editor started from (the page ships it). If the bytes on disk no longer
+    /// hash to it, someone (an agent, another tab) wrote the file meanwhile
+    /// and the save is refused with `Error::Conflict` rather than silently
+    /// clobbering their work; the caller may retry without a hash to force.
+    /// Returns the hash of the newly written content.
+    pub fn save_file(
+        &self,
+        project_id: &str,
+        rel_path: &str,
+        content: &str,
+        expected_hash: Option<&str>,
+    ) -> Result<String> {
+        let project = self
+            .store
+            .get_project(project_id)?
+            .ok_or_else(|| Error::ProjectNotFound(project_id.to_string()))?;
+        let file = self
+            .store
+            .get_file(project_id, rel_path)?
+            .ok_or_else(|| Error::FileNotFound(rel_path.to_string()))?;
+        if let Some(expected) = expected_hash {
+            let current = std::fs::read_to_string(&file.abs_path)?;
+            if indexer::content_hash(&current) != expected {
+                return Err(Error::Conflict(rel_path.to_string()));
+            }
+        }
+        // Write to a sibling temp file and rename over the target so a crash
+        // mid-write never leaves a truncated document behind.
+        let tmp = file.abs_path.with_extension("mdview-save.tmp");
+        std::fs::write(&tmp, content)?;
+        if let Err(e) = std::fs::rename(&tmp, &file.abs_path) {
+            let _ = std::fs::remove_file(&tmp);
+            return Err(e.into());
+        }
+        self.index_file_incremental(&project, &file.abs_path)?;
+        Ok(indexer::content_hash(content))
+    }
+
     /// Record that `rel_path` in `project_id` was actually viewed — the
     /// signal the periodic cleanup sweep checks (see
     /// `repository::cleanup_stale`, called from the daemon). Best-effort:
@@ -522,6 +569,72 @@ mod tests {
 
         // The lookup indexed the file as a side effect, same as ensure_indexed.
         assert_eq!(engine.file_count(&vf.project_id).unwrap(), 1);
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// Saving from the editor must land on disk *and* in the index in one
+    /// step (title/search must not lag until the watcher catches up), must
+    /// refuse to clobber a file someone else changed since the editor loaded
+    /// it, and must never write a path the index doesn't list.
+    #[test]
+    fn save_file_writes_reindexes_and_detects_conflicts() {
+        let dir = std::env::temp_dir().join(format!("mdview-eng-save-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        write(&dir, "docs/guide.md", "# Old title\n");
+
+        let engine = Engine::new(SqliteStore::open_in_memory().unwrap(), Config::default());
+        let vf = engine.view_file(&dir, "docs/guide.md").unwrap();
+        let project = engine.get_project(&vf.project_id).unwrap().unwrap();
+        assert!(engine.ensure_indexed(&project, "docs/guide.md").unwrap());
+        let base = indexer::content_hash("# Old title\n");
+
+        let new_hash = engine
+            .save_file(
+                &vf.project_id,
+                "docs/guide.md",
+                "# New title\n",
+                Some(&base),
+            )
+            .unwrap();
+        assert_eq!(new_hash, indexer::content_hash("# New title\n"));
+        assert_eq!(
+            std::fs::read_to_string(dir.join("docs/guide.md")).unwrap(),
+            "# New title\n"
+        );
+        let file = engine
+            .store
+            .get_file(&vf.project_id, "docs/guide.md")
+            .unwrap()
+            .unwrap();
+        assert_eq!(file.title, "New title");
+        assert!(!dir.join("docs/guide.mdview-save.tmp").exists());
+
+        // Stale base hash → conflict, disk untouched.
+        let err = engine
+            .save_file(&vf.project_id, "docs/guide.md", "# Clobber\n", Some(&base))
+            .unwrap_err();
+        assert!(matches!(err, Error::Conflict(_)), "got {err:?}");
+        assert_eq!(
+            std::fs::read_to_string(dir.join("docs/guide.md")).unwrap(),
+            "# New title\n"
+        );
+
+        // No base hash → force overwrite.
+        engine
+            .save_file(&vf.project_id, "docs/guide.md", "# Forced\n", None)
+            .unwrap();
+        assert_eq!(
+            std::fs::read_to_string(dir.join("docs/guide.md")).unwrap(),
+            "# Forced\n"
+        );
+
+        // Unindexed path → refused, nothing created.
+        let err = engine
+            .save_file(&vf.project_id, "docs/other.md", "x", None)
+            .unwrap_err();
+        assert!(matches!(err, Error::FileNotFound(_)), "got {err:?}");
+        assert!(!dir.join("docs/other.md").exists());
 
         std::fs::remove_dir_all(&dir).ok();
     }

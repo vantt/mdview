@@ -786,12 +786,220 @@
     headings.forEach(function (h) { observer.observe(h); });
   })();
 
-  // Live reload: reload-signal over WebSocket, full-page reload (PRD FR-19, Phase 1).
-  // Scoped (docs/history/scoped-live-reload/CONTEXT.md D1): the server
-  // broadcasts every event to every connected browser unfiltered -- it holds no
-  // per-connection "who is viewing what" state. Each event names the
-  // (project_id, rel_path) it is actually about, and this client decides for
-  // itself whether that is the file it is currently showing. A page not on a
+  // In-place markdown editor. The Edit button swaps the rendered article for
+  // an editor pre-filled from #mdsource — CodeMirror 6 (vendored, lazy-loaded
+  // from /static/codemirror.min.js on the first click) with the plain
+  // textarea as the fallback if that script fails. Save PUTs the text back
+  // to the daemon (which rewrites the file and re-indexes it) and reloads the
+  // page so the reader sees the fresh render. `editor.dirty` is read by the
+  // live-reload handler below: an unsaved draft must survive a file-change
+  // event, so the reload is parked until the draft is saved or discarded.
+  var editor = { dirty: false, pendingReload: false };
+  (function () {
+    var btn = document.getElementById("edit-md");
+    var box = document.getElementById("md-editor");
+    var src = document.getElementById("mdsource");
+    var reading = document.querySelector(".fg-reading");
+    if (!btn || !box || !src || !reading) return;
+    var ta = box.querySelector(".md-editor__ta");
+    var cmHost = box.querySelector(".md-editor__cm");
+    var status = box.querySelector(".md-editor__status");
+    var saveBtn = box.querySelector(".md-editor__save");
+    var cancelBtn = box.querySelector(".md-editor__cancel");
+    var id = currentFileIdentity();
+    if (!id) return;
+    var baseHash = src.getAttribute("data-hash") || null;
+    var original;
+    try { original = JSON.parse(src.textContent || '""'); } catch (e) { original = src.textContent || ""; }
+    var open = false, saving = false, force = false;
+    var cm = null;          // CodeMirror EditorView once mounted
+    var cmTheme = null;     // Compartment holding the light/dark theme
+    var cmLoad = null;      // Promise for the bundle, shared across clicks
+
+    // Uniform surface over whichever editor is live (CodeMirror or textarea).
+    function getValue() { return cm ? cm.state.doc.toString() : ta.value; }
+    function setValue(text) {
+      if (cm) {
+        cm.dispatch({ changes: { from: 0, to: cm.state.doc.length, insert: text } });
+      } else {
+        ta.value = text;
+      }
+    }
+    function focusEditor() { if (cm) cm.focus(); else ta.focus(); }
+
+    function setStatus(msg, kind) {
+      status.textContent = msg || "";
+      status.className = "md-editor__status" + (kind ? " is-" + kind : "");
+    }
+    function setDirty(d) {
+      editor.dirty = d;
+      box.classList.toggle("is-dirty", d);
+    }
+    function onInput() {
+      setDirty(getValue() !== original);
+      if (force) { force = false; saveBtn.textContent = "Save"; }
+    }
+    function isDark() {
+      return document.documentElement.getAttribute("data-scheme") === "dark";
+    }
+    function themeExt(lib) {
+      // Light mode leans on the page's own tokens (see .md-editor .cm-editor
+      // in app.css); dark mode uses CodeMirror's One Dark for real syntax
+      // colours the light highlight style would lack on a dark ground.
+      return isDark() ? lib.oneDark : [];
+    }
+
+    // Load the CodeMirror bundle once, on demand. Resolves to the global it
+    // defines, or rejects — in which case the textarea stays in service.
+    function loadCodeMirror() {
+      if (window.mdviewCodeMirror) return Promise.resolve(window.mdviewCodeMirror);
+      if (cmLoad) return cmLoad;
+      cmLoad = new Promise(function (resolve, reject) {
+        var s = document.createElement("script");
+        s.src = "/static/codemirror.min.js";
+        s.onload = function () {
+          window.mdviewCodeMirror ? resolve(window.mdviewCodeMirror) : reject(new Error("bundle defined no editor"));
+        };
+        s.onerror = function () { reject(new Error("could not load /static/codemirror.min.js")); };
+        document.head.appendChild(s);
+      });
+      return cmLoad;
+    }
+    function mountCodeMirror(lib, text) {
+      cmTheme = new lib.Compartment();
+      cm = new lib.EditorView({
+        parent: cmHost,
+        state: lib.EditorState.create({
+          doc: text,
+          extensions: [
+            lib.baseExtensions,
+            cmTheme.of(themeExt(lib)),
+            lib.EditorView.updateListener.of(function (u) { if (u.docChanged) onInput(); }),
+            // Save from inside the editor too: CodeMirror swallows keydown
+            // it handles, so the document-level Ctrl+S below never sees it.
+            lib.keymap.of([{ key: "Mod-s", run: function () { save(); return true; } }])
+          ]
+        })
+      });
+      ta.hidden = true;
+      cmHost.hidden = false;
+      // Follow the page's theme toggle (app.js sets data-scheme on <html>).
+      new MutationObserver(function () {
+        cm.dispatch({ effects: cmTheme.reconfigure(themeExt(lib)) });
+      }).observe(document.documentElement, { attributes: true, attributeFilter: ["data-scheme"] });
+    }
+
+    function show() {
+      open = true;
+      setDirty(false);
+      force = false;
+      saveBtn.textContent = "Save";
+      setStatus("");
+      reading.hidden = true;
+      box.hidden = false;
+      btn.setAttribute("aria-expanded", "true");
+      btn.classList.add("is-active");
+      if (cm) {
+        setValue(original);
+        focusEditor();
+        return;
+      }
+      // First open: textarea shows immediately, CodeMirror takes over when
+      // the bundle arrives (carrying over anything typed meanwhile).
+      ta.value = original;
+      ta.focus();
+      loadCodeMirror().then(function (lib) {
+        if (!open || cm) return;
+        mountCodeMirror(lib, ta.value);
+        focusEditor();
+      }, function (e) {
+        setStatus("Plain editor (" + ((e && e.message) || e) + ")", "warn");
+      });
+    }
+    function hide() {
+      open = false;
+      setDirty(false);
+      box.hidden = true;
+      reading.hidden = false;
+      btn.setAttribute("aria-expanded", "false");
+      btn.classList.remove("is-active");
+      // A file-change event arrived while the draft was open: honour it now.
+      if (editor.pendingReload) location.reload();
+    }
+    function cancel() {
+      if (editor.dirty && !window.confirm("Discard your unsaved changes?")) return;
+      hide();
+    }
+    function save() {
+      if (saving || !open) return;
+      saving = true;
+      saveBtn.disabled = true;
+      setStatus("Saving…");
+      var body = { content: getValue() };
+      if (!force && baseHash) body.base_hash = baseHash;
+      fetch("/api/projects/" + encodeURIComponent(id.projectId) + "/files/" +
+            id.relPath.split("/").map(encodeURIComponent).join("/"), {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        credentials: "same-origin",
+        body: JSON.stringify(body)
+      }).then(function (r) {
+        if (r.ok) {
+          // Saved: the draft is now the file. Drop dirty first so the
+          // beforeunload guard doesn't prompt, then reload for the render.
+          setDirty(false);
+          setStatus("Saved", "ok");
+          editor.pendingReload = true;
+          hide();
+          return;
+        }
+        if (r.status === 409) {
+          force = true;
+          saveBtn.textContent = "Overwrite";
+          setStatus("This file changed on disk since you opened it. Overwrite it, or Cancel and reload to see the new version.", "warn");
+          return;
+        }
+        return r.text().then(function (t) { throw new Error(t || ("HTTP " + r.status)); });
+      }).catch(function (e) {
+        setStatus("Save failed: " + ((e && e.message) || e), "err");
+      }).then(function () {
+        saving = false;
+        saveBtn.disabled = false;
+      });
+    }
+
+    btn.addEventListener("click", function () { open ? cancel() : show(); });
+    cancelBtn.addEventListener("click", cancel);
+    saveBtn.addEventListener("click", save);
+    ta.addEventListener("input", onInput);
+    // Ctrl/Cmd+S saves while the editor is open (the textarea path; the
+    // CodeMirror path binds its own Mod-s above); Escape cancels, with the
+    // discard prompt when dirty.
+    document.addEventListener("keydown", function (ev) {
+      if (!open) return;
+      if ((ev.ctrlKey || ev.metaKey) && ev.key.toLowerCase() === "s") {
+        ev.preventDefault();
+        save();
+      } else if (ev.key === "Escape" && box.contains(document.activeElement)) {
+        ev.preventDefault();
+        cancel();
+      }
+    });
+    // Textarea fallback only: Tab inserts a real tab instead of leaving the
+    // field (CodeMirror's indentWithTab covers the same in the real editor).
+    ta.addEventListener("keydown", function (ev) {
+      if (ev.key !== "Tab" || ev.ctrlKey || ev.metaKey || ev.altKey) return;
+      ev.preventDefault();
+      ta.setRangeText("\t", ta.selectionStart, ta.selectionEnd, "end");
+      onInput();
+    });
+    window.addEventListener("beforeunload", function (ev) {
+      if (!editor.dirty) return;
+      ev.preventDefault();
+      ev.returnValue = "";
+    });
+  })();
+
   // /p/<id>/<rel-path> URL (the project list, /settings, /p/:id/_search) never
   // has an identity to match, so it never reloads for a file-change event (D3).
   function currentFileIdentity() {
@@ -822,6 +1030,9 @@
       // Both "changed" and "removed" reload when they match: a removed file's
       // own viewer needs to see it go away too (D4), regardless of kind.
       if (events.some(function (e) { return matchesCurrentFile(e, id); })) {
+        // Never reload over an open draft — the editor reloads itself once
+        // the draft is saved or discarded (see `editor` above).
+        if (editor.dirty) { editor.pendingReload = true; return; }
         location.reload();
       }
     };

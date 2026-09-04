@@ -584,6 +584,94 @@ main.fg-page {
   flex: none;
   display: block;
 }
+.copy-md.is-active {
+  color: var(--color-action);
+  border-color: var(--color-action);
+}
+
+/* ── In-place markdown editor (file pages; toggled by #edit-md) ─────
+   Sits where the rendered article was, at the same reading-column width
+   as .breadcrumb--reading so the swap doesn't shift the page. ─────── */
+.md-editor {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  max-width: var(--reading-col);
+  margin: var(--space-5) auto var(--space-8);
+  padding: 0 var(--space-6);
+}
+.md-editor__bar {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-2);
+}
+.md-editor__status {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-family: var(--type-body-sm-font);
+  font-size: var(--type-body-sm-size);
+  color: var(--color-text-muted);
+}
+.md-editor__status.is-ok { color: var(--color-success); }
+.md-editor__status.is-warn { color: var(--color-warning); }
+.md-editor__status.is-err { color: var(--color-danger); }
+.md-editor__ta {
+  width: 100%;
+  box-sizing: border-box;
+  min-height: 70vh;
+  padding: var(--space-4);
+  resize: vertical;
+  background: var(--color-surface-raised);
+  border: var(--border-width-hairline) solid var(--color-border);
+  border-radius: var(--input-radius);
+  color: var(--color-text);
+  font-family: var(--font-mono);
+  font-size: var(--type-body-sm-size);
+  line-height: 1.6;
+  tab-size: 4;
+  white-space: pre;
+  overflow-wrap: normal;
+  overflow-x: auto;
+}
+.md-editor__ta:focus {
+  outline: none;
+  border-color: var(--color-border-interactive);
+}
+.md-editor.is-dirty .md-editor__ta {
+  border-color: var(--color-action);
+}
+/* CodeMirror host: same frame as the textarea fallback so the swap-in is
+   invisible. Light mode reuses page tokens; dark mode is One Dark, whose
+   own background is kept but framed by the same border. */
+.md-editor .cm-editor {
+  min-height: 70vh;
+  border: var(--border-width-hairline) solid var(--color-border);
+  border-radius: var(--input-radius);
+  background: var(--color-surface-raised);
+  font-size: var(--type-body-sm-size);
+  overflow: hidden;
+}
+.md-editor .cm-editor.cm-focused {
+  outline: none;
+  border-color: var(--color-border-interactive);
+}
+.md-editor.is-dirty .cm-editor {
+  border-color: var(--color-action);
+}
+.md-editor .cm-scroller {
+  font-family: var(--font-mono);
+  line-height: 1.6;
+  min-height: 70vh;
+}
+.md-editor .cm-content {
+  padding: var(--space-3) 0;
+}
+.md-editor .cm-gutters {
+  background: transparent;
+  border-right: var(--border-width-hairline) solid var(--color-border);
+  color: var(--color-text-subtle);
+}
 
 /* ── Responsive: hide rails on narrow viewports ─────────────────── */
 @media (max-width: 900px) {
@@ -626,6 +714,9 @@ main.fg-page {
   }
   .copy-md {
     padding: var(--space-1) var(--space-2);
+  }
+  .md-editor {
+    padding: 0 var(--space-4);
   }
 }
 

@@ -16,6 +16,9 @@ pub enum Error {
     #[error("invalid path: {0}")]
     InvalidPath(String),
 
+    #[error("file changed on disk since it was loaded: {0}")]
+    Conflict(String),
+
     #[error("io error: {0}")]
     Io(#[from] std::io::Error),
 

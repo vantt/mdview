@@ -83,11 +83,16 @@ pub fn file_page(
 ) -> String {
     let tree = file_tree(project, files, &file.rel_path);
     let right = right_panel(project, page, backlinks);
-    let breadcrumb = breadcrumb(project, "", &file.rel_path, true, copy_md_button());
-    // Raw markdown source for copy-as-markdown: the client maps a DOM selection
-    // (via data-sourcepos line ranges) back to these source lines. Escape `<`
-    // so a source containing "</script>" can't break out of the tag.
+    let actions = format!("{}{}", edit_md_button(), copy_md_button());
+    let breadcrumb = breadcrumb(project, "", &file.rel_path, true, &actions);
+    // Raw markdown source for copy-as-markdown and the in-place editor: the
+    // client maps a DOM selection (via data-sourcepos line ranges) back to
+    // these source lines, and the editor loads its textarea from it. Escape
+    // `<` so a source containing "</script>" can't break out of the tag.
     let source_json = escape_json_for_script(&page.source);
+    // Hash of that same source: the editor sends it back on save so the
+    // daemon can refuse to clobber a file something else wrote meanwhile.
+    let source_hash = mdview_core::indexer::content_hash(&page.source);
     let head_extra = if page.has_mermaid {
         // Mermaid is vendored and served locally (/static/mermaid.min.js) rather
         // than loaded from a CDN: the daemon commonly runs on a LAN/offline host
@@ -140,7 +145,8 @@ pub fn file_page(
     <div class="fg-reading">
       <article class="fg-prose markdown-body">{html}</article>
     </div>
-    <script type="application/json" id="mdsource">{source_json}</script>
+    {editor}
+    <script type="application/json" id="mdsource" data-hash="{source_hash}">{source_json}</script>
   </main>
   {right}
 </div>"#,
@@ -152,6 +158,8 @@ pub fn file_page(
         tree = tree,
         breadcrumb = breadcrumb,
         html = page.html,
+        editor = md_editor(),
+        source_hash = source_hash,
         source_json = source_json,
         right = right,
     );
@@ -636,6 +644,31 @@ fn sidebar_toggle() -> &'static str {
     r#"<button id="sidebar-toggle" class="sidebar-toggle" type="button" aria-label="Toggle file navigation" aria-controls="sidebar" aria-expanded="false">☰</button>"#
 }
 
+/// Edit-this-file action beside the Copy button (file pages only). Toggles
+/// the in-place markdown editor (`md_editor`); app.js owns the behaviour.
+fn edit_md_button() -> &'static str {
+    r#"<button id="edit-md" class="copy-md" type="button" title="Edit this file" aria-label="Edit this file" aria-controls="md-editor" aria-expanded="false"><svg class="copy-md__icon" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"></path><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"></path></svg><span class="copy-md__txt">Edit</span></button>"#
+}
+
+/// The in-place markdown editor: a CodeMirror host (filled by app.js once
+/// /static/codemirror.min.js loads) with a plain textarea as the fallback
+/// if that script fails, plus a Save/Cancel bar. Rendered hidden on every file page; the Edit button
+/// swaps it in for the rendered article. Server-side markup (rather than
+/// built by app.js) so the CSS has real elements to target and the page
+/// stays one document — but it does nothing without scripting, so it stays
+/// hidden when scripting is off.
+fn md_editor() -> &'static str {
+    r#"<div id="md-editor" class="md-editor" hidden>
+      <div class="md-editor__bar">
+        <span class="md-editor__status" aria-live="polite"></span>
+        <button type="button" class="fg-btn fg-btn--ghost md-editor__cancel">Cancel</button>
+        <button type="button" class="fg-btn fg-btn--primary md-editor__save">Save</button>
+      </div>
+      <div class="md-editor__cm" hidden></div>
+      <textarea class="md-editor__ta" spellcheck="false" aria-label="Markdown source"></textarea>
+    </div>"#
+}
+
 /// Copy-the-whole-page-as-Markdown action for the top bar (file pages only; it
 /// reads the `#mdsource` blob). Icon collapses to just the glyph on mobile.
 fn copy_md_button() -> &'static str {
@@ -897,6 +930,9 @@ pub const APP_JS: &str = include_str!("../assets/app.js");
 /// Vendored Mermaid (self-contained UMD build) served at /static/mermaid.min.js
 /// so diagrams render without a CDN. Only loaded on pages that contain a diagram.
 pub const MERMAID_JS: &str = include_str!("../assets/mermaid.min.js");
+/// Vendored CodeMirror 6 bundle for the in-place Docs editor; built from
+/// `tools/codemirror-bundle/` and lazy-loaded by app.js on the first Edit.
+pub const CODEMIRROR_JS: &str = include_str!("../assets/codemirror.min.js");
 
 #[cfg(test)]
 mod tests {

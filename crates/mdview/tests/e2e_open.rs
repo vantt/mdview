@@ -236,6 +236,26 @@ fn http_post_form(host: &str, port: u16, path: &str, form: &str) -> (u16, Option
     (res.status, cookie)
 }
 
+/// `PUT {path}` with a JSON body, optionally with a `Cookie` header.
+/// Returns (status, body).
+fn http_put_json(
+    host: &str,
+    port: u16,
+    path: &str,
+    json: &str,
+    cookie: Option<&str>,
+) -> (u16, String) {
+    let cookie_header = cookie
+        .map(|c| format!("Cookie: {c}\r\n"))
+        .unwrap_or_default();
+    let req = format!(
+        "PUT {path} HTTP/1.1\r\nHost: {host}\r\n{cookie_header}Content-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{json}",
+        json.len()
+    );
+    let res = raw_request(host, port, &req);
+    (res.status, res.body)
+}
+
 /// Read the daemon's auto-generated login token from `config.toml` under
 /// `home` (D3: `serve()` generates and persists one on first start when
 /// none is configured) and exchange it for a session cookie.
@@ -449,6 +469,156 @@ fn code_section_lists_dirs_highlights_files_and_denies_sensitive_paths() {
         body[breadcrumb_at..breadcrumb_end].contains("id=\"copy-md\""),
         "copy-as-markdown button must live inside the breadcrumb, not the topbar: {body}"
     );
+}
+
+/// The Docs page's Edit button saves through `PUT /api/projects/:id/files/*`:
+/// the write lands on disk and in the index at once (the re-rendered page
+/// and its title reflect it immediately), a stale `base_hash` is refused
+/// with 409 instead of clobbering, an unindexed path is never created, and
+/// the route is session-gated like every other API.
+#[test]
+fn docs_edit_saves_file_reindexes_and_refuses_stale_overwrite() {
+    let bin = env!("CARGO_BIN_EXE_mdview");
+    let home = scratch_home("edit");
+    let root = home.join("proj");
+
+    write_file(&root.join("README.md"), b"# Hello\n\nold body\n");
+
+    let child = Command::new(bin)
+        .args(["serve", "--port", "0", "--host", "127.0.0.1"])
+        .env("HOME", &home)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .expect("spawn mdview serve");
+    let _guard = DaemonGuard(child);
+
+    let info = wait_for_lock(&home, Duration::from_secs(10));
+    assert!(
+        wait_for_health(&info.host, info.port, Duration::from_secs(10)),
+        "daemon never answered /health"
+    );
+
+    let project_id = open_project(bin, &home, &root.join("README.md"));
+    let cookie = login_and_get_cookie(&info.host, info.port, &home);
+    let save_path = format!("/api/projects/{project_id}/files/README.md");
+
+    // Anonymous save: opaque 404, disk untouched.
+    let (status, _) = http_put_json(
+        &info.host,
+        info.port,
+        &save_path,
+        r##"{"content":"# Hacked\n"}"##,
+        None,
+    );
+    assert_eq!(status, 404, "save must require a session");
+    assert_eq!(
+        std::fs::read_to_string(root.join("README.md")).unwrap(),
+        "# Hello\n\nold body\n"
+    );
+
+    // The file page ships the editor, the Edit button, and the source hash
+    // the editor sends back as base_hash.
+    let (status, page) = http_get(
+        &info.host,
+        info.port,
+        &format!("/p/{project_id}/README.md"),
+        Some(&cookie),
+    );
+    assert_eq!(status, 200);
+    assert!(
+        page.contains("id=\"edit-md\""),
+        "Edit button missing: {page}"
+    );
+    assert!(
+        page.contains("id=\"md-editor\""),
+        "editor markup missing: {page}"
+    );
+    assert!(
+        page.contains("md-editor__cm"),
+        "CodeMirror host missing: {page}"
+    );
+    // The editor bundle is vendored and served by the daemon itself (no CDN).
+    let (status, cm) = http_get(
+        &info.host,
+        info.port,
+        "/static/codemirror.min.js",
+        Some(&cookie),
+    );
+    assert_eq!(status, 200, "CodeMirror bundle must be served locally");
+    assert!(
+        cm.contains("mdviewCodeMirror"),
+        "bundle must define the editor global"
+    );
+    let hash_at = page
+        .find("id=\"mdsource\" data-hash=\"")
+        .expect("mdsource carries data-hash");
+    let hash_start = hash_at + "id=\"mdsource\" data-hash=\"".len();
+    let base_hash = &page[hash_start..hash_start + 16];
+    assert!(
+        base_hash.chars().all(|c| c.is_ascii_hexdigit()),
+        "hash: {base_hash}"
+    );
+
+    // Save with the matching base hash: disk, index (title), and render all
+    // move together.
+    let body = format!(r##"{{"content":"# Renamed\n\nnew body\n","base_hash":"{base_hash}"}}"##);
+    let (status, resp) = http_put_json(&info.host, info.port, &save_path, &body, Some(&cookie));
+    assert_eq!(status, 200, "save must succeed: {resp}");
+    assert!(resp.contains("\"ok\":true"), "{resp}");
+    assert_eq!(
+        std::fs::read_to_string(root.join("README.md")).unwrap(),
+        "# Renamed\n\nnew body\n"
+    );
+    let (_, page) = http_get(
+        &info.host,
+        info.port,
+        &format!("/p/{project_id}/README.md"),
+        Some(&cookie),
+    );
+    assert!(
+        page.contains("new body"),
+        "re-render must show the saved text: {page}"
+    );
+    assert!(
+        page.contains("<title>Renamed"),
+        "index title must update at once: {page}"
+    );
+
+    // Stale base hash (the one from before the save): 409, disk untouched.
+    let (status, resp) = http_put_json(&info.host, info.port, &save_path, &body, Some(&cookie));
+    assert_eq!(status, 409, "stale base_hash must be refused: {resp}");
+    assert!(resp.contains("conflict"), "{resp}");
+    assert_eq!(
+        std::fs::read_to_string(root.join("README.md")).unwrap(),
+        "# Renamed\n\nnew body\n"
+    );
+
+    // No base hash: explicit overwrite goes through.
+    let (status, _) = http_put_json(
+        &info.host,
+        info.port,
+        &save_path,
+        r##"{"content":"# Forced\n"}"##,
+        Some(&cookie),
+    );
+    assert_eq!(status, 200);
+    assert_eq!(
+        std::fs::read_to_string(root.join("README.md")).unwrap(),
+        "# Forced\n"
+    );
+
+    // A path the index never listed is not writable — nothing gets created.
+    let (status, _) = http_put_json(
+        &info.host,
+        info.port,
+        &format!("/api/projects/{project_id}/files/docs/new.md"),
+        r##"{"content":"# New\n"}"##,
+        Some(&cookie),
+    );
+    assert_eq!(status, 404, "unindexed paths must not be creatable");
+    assert!(!root.join("docs/new.md").exists());
 }
 
 /// The Code sidebar carries a `chap-crumbs` path right below the search
