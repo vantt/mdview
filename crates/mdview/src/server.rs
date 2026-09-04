@@ -395,15 +395,18 @@ async fn mermaid_asset() -> impl IntoResponse {
 /// A redirect rather than a second way to render the page: everything about
 /// rendering, including how relative links inside a document resolve, stays in
 /// `project_path` with no duplicate. The long URL keeps working unchanged; this
-/// is an extra door, not a replacement. A code whose file has left the index is a
-/// plain 404 — there is nothing correct left to show, and guessing would open the
-/// wrong file.
+/// is an extra door, not a replacement. `resolve_short_code` indexes the file
+/// on demand the same way `project_path` does for the long URL, so a code
+/// handed out before the background refresh/watcher caught up still resolves.
+/// A code whose file has left the index (or never existed) is a plain 404 —
+/// there is nothing correct left to show, and guessing would open the wrong
+/// file.
 async fn short_link_redirect(
     _auth: crate::auth::AuthPage,
     State(st): State<AppState>,
     Path(code): Path<String>,
 ) -> Response {
-    match st.engine.store.find_by_hash_prefix(&code) {
+    match st.engine.resolve_short_code(&code) {
         Ok(Some((project_id, rel_path))) => {
             Redirect::to(&format!("/p/{project_id}/{rel_path}")).into_response()
         }

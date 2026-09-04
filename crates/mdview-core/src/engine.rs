@@ -188,6 +188,40 @@ impl Engine {
         Ok(self.store.get_file(&project.id, rel_path)?.is_some())
     }
 
+    /// Resolve `/s/<code>` to `(project_id, rel_path)`, indexing the file on
+    /// demand if needed.
+    ///
+    /// `view_file` hands out a code derived from the path hash without
+    /// indexing anything, on the assumption a background refresh or the
+    /// watcher will have indexed the file by the time anyone clicks the
+    /// link. When that hasn't happened yet, the fast hash lookup misses —
+    /// unlike `ensure_indexed`, there's no `rel_path` to index directly, so
+    /// this falls back to a filename-only scan (no content reads) of every
+    /// registered project, hashing each candidate to find the one the code
+    /// belongs to, then indexes just that file.
+    pub fn resolve_short_code(&self, code: &str) -> Result<Option<(String, String)>> {
+        if let Some(hit) = self.store.find_by_hash_prefix(code)? {
+            return Ok(Some(hit));
+        }
+        for project in self.store.list_projects()? {
+            for abs in indexer::scan_markdown_files(
+                &project.root_path,
+                &self.config.indexing.exclude_patterns,
+            ) {
+                let rel = indexer::rel_path_str(&project.root_path, &abs);
+                if rel.is_empty() {
+                    continue;
+                }
+                let hash = crate::short_link::path_hash(&project.id, &rel);
+                if hash.starts_with(code) {
+                    self.index_file_incremental(&project, &abs)?;
+                    return Ok(Some((project.id, rel)));
+                }
+            }
+        }
+        Ok(None)
+    }
+
     /// Resolve and store the internal links a single file points to.
     fn compute_file_links(&self, project: &Project, abs: &Path) -> Result<()> {
         let rel = indexer::rel_path_str(&project.root_path, abs);
@@ -459,6 +493,35 @@ mod tests {
             back.iter().any(|(rel, _)| rel == "docs/architecture.md"),
             "backlinks: {back:?}"
         );
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// The short code `view_file` hands back must resolve even before any
+    /// background refresh or watcher has indexed the file — otherwise a
+    /// visitor who clicks the short link before that catch-up finishes gets
+    /// a 404 while the long `/p/...` URL for the same file works fine.
+    #[test]
+    fn resolve_short_code_indexes_on_demand() {
+        let dir = std::env::temp_dir().join(format!("mdview-eng-short-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        write(&dir, "docs/architecture.md", "# Arch");
+
+        let engine = Engine::new(SqliteStore::open_in_memory().unwrap(), Config::default());
+        let vf = engine.view_file(&dir, "docs/architecture.md").unwrap();
+
+        // Nothing indexed yet, same as view_file_auto_creates_project_and_returns_url.
+        assert_eq!(engine.file_count(&vf.project_id).unwrap(), 0);
+
+        let (project_id, rel_path) = engine
+            .resolve_short_code(&vf.code)
+            .unwrap()
+            .expect("short code should resolve even though nothing was indexed yet");
+        assert_eq!(project_id, vf.project_id);
+        assert_eq!(rel_path, "docs/architecture.md");
+
+        // The lookup indexed the file as a side effect, same as ensure_indexed.
+        assert_eq!(engine.file_count(&vf.project_id).unwrap(), 1);
 
         std::fs::remove_dir_all(&dir).ok();
     }
