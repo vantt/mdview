@@ -1,5 +1,8 @@
 //! Shared runtime helpers: build the engine, and spawn/await the daemon.
-//! Lock + health live in `mdview_core::daemon` (shared with the desktop shell).
+//! Lock + health + the spawn-gate/readiness coordination live in
+//! `mdview_core::daemon` (shared with the desktop shell); this module wraps
+//! that shared `ensure_bind` with the CLI's own spawn strategy and stderr
+//! reporting.
 
 use anyhow::Result;
 use mdview_core::config::{self, Config};
@@ -16,130 +19,36 @@ pub fn build_engine() -> Result<Engine> {
     Ok(Engine::new(store, config))
 }
 
-/// How long a spawn-gate lock may sit before its owner is presumed dead and the
-/// gate is stolen — comfortably longer than the readiness poll below.
-const SPAWN_GATE_STALE: Duration = Duration::from_secs(15);
-
-/// The spawn-gate lock path: a sibling of the daemon lock. Its existence means
-/// "some invocation is currently spawning the daemon".
-fn spawn_gate_path() -> std::path::PathBuf {
-    daemon::lock_path().with_extension("spawning")
-}
-
-/// Outcome of trying to become the daemon spawner.
-enum Gate {
-    /// We own the gate and must do the spawn. The guard is held only for its
-    /// `Drop` (which removes the gate file), never read — hence `dead_code`.
-    Acquired(#[allow(dead_code)] SpawnGate),
-    /// Another live invocation holds the gate — wait for the daemon, don't spawn.
-    Held,
-    /// The gate file could not be used at all — caller should spawn unguarded.
-    Unavailable,
-}
-
-/// RAII guard that removes the spawn-gate file when the spawner is done.
-struct SpawnGate {
-    path: std::path::PathBuf,
-}
-
-impl Drop for SpawnGate {
-    fn drop(&mut self) {
-        let _ = std::fs::remove_file(&self.path);
-    }
-}
-
-/// Atomically claim the spawn gate at `path` via `create_new` (O_EXCL), so
-/// exactly one racer wins. An existing gate older than `stale_after` is assumed
-/// abandoned (its owner died mid-spawn) and stolen.
-fn acquire_spawn_gate_at(path: &std::path::Path, stale_after: Duration) -> Gate {
-    let claim = |p: &std::path::Path| {
-        std::fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(p)
-    };
-    match claim(path) {
-        Ok(_) => Gate::Acquired(SpawnGate {
-            path: path.to_path_buf(),
-        }),
-        Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
-            let stale = std::fs::metadata(path)
-                .and_then(|m| m.modified())
-                .ok()
-                .and_then(|t| t.elapsed().ok())
-                .map(|age| age > stale_after)
-                .unwrap_or(true); // unreadable/future mtime → treat as stale
-            if !stale {
-                return Gate::Held;
-            }
-            let _ = std::fs::remove_file(path);
-            match claim(path) {
-                Ok(_) => Gate::Acquired(SpawnGate {
-                    path: path.to_path_buf(),
-                }),
-                Err(_) => Gate::Held, // lost the steal race to another invocation
-            }
-        }
-        // Directory missing/unwritable etc. — the gate is unusable here.
-        Err(_) => Gate::Unavailable,
-    }
-}
+/// How many times, and how often, the CLI polls for daemon readiness after
+/// spawning it before giving up and falling back (2s total).
+const READY_POLL_ATTEMPTS: u32 = 20;
+const READY_POLL_INTERVAL: Duration = Duration::from_millis(100);
 
 /// Ensure a daemon is running and resolve its real bind `(host, port)` — the
 /// connectivity values, spawning a daemon if none is up. This is the shared
 /// basis for the *display* URL builders below; it never mutates connectivity.
+/// Delegates the actual spawn-gate/readiness coordination to
+/// `mdview_core::daemon::ensure_bind`, so the CLI and the desktop shell agree
+/// on one implementation; only the spawn strategy and error reporting differ.
 fn ensure_bind() -> (String, u16) {
-    if let Some(info) = daemon::running_daemon() {
-        return (info.host, info.port);
-    }
-    // Serialize the cold-start spawn: parallel `open`/`view_file` invocations
-    // must not each launch a daemon (two daemons fight over the port and the
-    // SQLite registry, and the loser becomes an unkillable orphan). Only the
-    // gate holder spawns; if the gate is unusable we degrade to the old
-    // unguarded spawn — never worse than before. `_gate` is held across the
-    // whole readiness wait so no second invocation spawns during the window.
-    let _gate = acquire_spawn_gate_at(&spawn_gate_path(), SPAWN_GATE_STALE);
-    match &_gate {
-        Gate::Acquired(_) => {
-            // Re-check under the gate: another spawner may have just finished.
-            if let Some(info) = daemon::running_daemon() {
-                return (info.host, info.port);
-            }
-            if let Err(e) = spawn_daemon_detached() {
-                eprintln!("mdview: failed to auto-spawn daemon: {e}");
-            }
+    let result = daemon::ensure_bind(
+        READY_POLL_ATTEMPTS,
+        READY_POLL_INTERVAL,
+        || spawn_daemon_detached().map_err(|e| std::io::Error::other(e.to_string())),
+        |e| eprintln!("mdview: failed to auto-spawn daemon: {e}"),
+    );
+    match result {
+        Ok(bind) => bind,
+        Err(bind) => {
+            // Daemon never answered: surface it rather than silently handing
+            // back a config-default URL that looks live. The URL is still
+            // returned for the caller to print, but the operator now sees
+            // why it may not respond.
+            eprintln!(
+                "mdview: daemon did not become ready in time; the viewer URL may not respond yet."
+            );
+            bind
         }
-        Gate::Held => {} // another invocation is spawning; just wait below.
-        Gate::Unavailable => {
-            if let Err(e) = spawn_daemon_detached() {
-                eprintln!("mdview: failed to auto-spawn daemon: {e}");
-            }
-        }
-    }
-    for _ in 0..20 {
-        std::thread::sleep(Duration::from_millis(100));
-        if let Some(info) = daemon::running_daemon() {
-            return (info.host, info.port);
-        }
-    }
-    // Daemon never answered: surface it rather than silently handing back a
-    // config-default URL that looks live. The URL is still returned for the
-    // caller to print, but the operator now sees why it may not respond.
-    eprintln!("mdview: daemon did not become ready in time; the viewer URL may not respond yet.");
-    let cfg = Config::load();
-    bind_fallback(daemon::read_lock(), &cfg)
-}
-
-/// Pure fallback decision for `ensure_bind()`'s timeout branch (unit-tested,
-/// no I/O). `serve()` writes the daemon lock with the real bound `(host,
-/// port)` immediately after `bind_with_retry` succeeds — before the daemon
-/// answers its own health check — so a lock found here holds the real bound
-/// port even though `running_daemon()`'s poll timed out. Only the configured
-/// port is used when no lock exists at all (the daemon was never spawned).
-fn bind_fallback(lock: Option<DaemonInfo>, cfg: &Config) -> (String, u16) {
-    match lock {
-        Some(info) => (info.host, info.port),
-        None => (cfg.server.host.clone(), cfg.server.port),
     }
 }
 
@@ -258,58 +167,8 @@ pub fn spawn_refresh_detached(project_id: &str) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        acquire_spawn_gate_at, bind_fallback, build_display_urls, is_wildcard, DaemonInfo, Gate,
-    };
-    use mdview_core::config::Config;
+    use super::{build_display_urls, is_wildcard};
     use std::time::Duration;
-
-    fn gate_tmp(label: &str) -> std::path::PathBuf {
-        let dir = std::env::temp_dir().join(format!(
-            "mdview-gate-{label}-{}-{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ));
-        std::fs::create_dir_all(&dir).unwrap();
-        dir.join("daemon.spawning")
-    }
-
-    #[test]
-    fn spawn_gate_grants_one_holder_then_blocks_until_released() {
-        let path = gate_tmp("excl");
-        let g1 = acquire_spawn_gate_at(&path, Duration::from_secs(15));
-        assert!(matches!(g1, Gate::Acquired(_)));
-        assert!(path.exists());
-        // A second racer, while the gate is held and fresh, must be blocked.
-        assert!(matches!(
-            acquire_spawn_gate_at(&path, Duration::from_secs(15)),
-            Gate::Held
-        ));
-        // Dropping the guard releases the gate file...
-        drop(g1);
-        assert!(!path.exists());
-        // ...and it can be claimed again.
-        assert!(matches!(
-            acquire_spawn_gate_at(&path, Duration::from_secs(15)),
-            Gate::Acquired(_)
-        ));
-        std::fs::remove_dir_all(path.parent().unwrap()).ok();
-    }
-
-    #[test]
-    fn spawn_gate_steals_a_stale_lock() {
-        let path = gate_tmp("stale");
-        std::fs::write(&path, b"").unwrap();
-        // stale_after = 0 → an existing gate is immediately abandoned and stolen.
-        assert!(matches!(
-            acquire_spawn_gate_at(&path, Duration::from_secs(0)),
-            Gate::Acquired(_)
-        ));
-        std::fs::remove_dir_all(path.parent().unwrap()).ok();
-    }
 
     // The daemon-detach behavior (setsid) had no automated guard — the function
     // was once "detached" in name only. This exercises the real `apply_detach`
@@ -386,31 +245,5 @@ mod tests {
         assert!(is_wildcard("[::]"));
         assert!(!is_wildcard("127.0.0.1"));
         assert!(!is_wildcard("192.168.1.1"));
-    }
-
-    #[test]
-    fn bind_fallback_prefers_the_lock_port_over_the_config_port() {
-        let mut cfg = Config::default();
-        cfg.server.port = 7700;
-        cfg.server.host = "127.0.0.1".into();
-        let lock = DaemonInfo {
-            pid: 1234,
-            host: "127.0.0.1".into(),
-            port: 7701, // bind_with_retry auto-incremented past the configured port
-            started_at: "2026-07-16T00:00:00Z".into(),
-            version: None,
-        };
-        assert_eq!(
-            bind_fallback(Some(lock), &cfg),
-            ("127.0.0.1".to_string(), 7701)
-        );
-    }
-
-    #[test]
-    fn bind_fallback_uses_config_port_when_no_lock_exists() {
-        let mut cfg = Config::default();
-        cfg.server.port = 7700;
-        cfg.server.host = "127.0.0.1".into();
-        assert_eq!(bind_fallback(None, &cfg), ("127.0.0.1".to_string(), 7700));
     }
 }
