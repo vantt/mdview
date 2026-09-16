@@ -100,13 +100,20 @@ impl Engine {
     }
 
     /// The core `mdview_view_file` use case: ensure the project exists and
-    /// hand back its app URL. Deliberately does *not* index anything —
-    /// indexing here would make every first-view of a large project block
-    /// the MCP/CLI response on a full scan. The URL is computable from the
+    /// hand back its app URL. Deliberately does *not* content-index the file
+    /// — that would make every first-view of a large project block the
+    /// MCP/CLI response on a full scan. The URL is computable from the
     /// project id + rel path alone; the actual content gets indexed either
     /// by the caller's background refresh (`is_new_project`) or, at the
     /// latest, synchronously when a browser really requests the page
     /// (`ensure_indexed` in the HTTP handler).
+    ///
+    /// It does register the path (`register_known_path`, a stat + one cheap
+    /// insert — no content read) so `/s/<code>` resolves in O(1) via
+    /// `path_hash` from the moment this call returns, instead of needing
+    /// `resolve_short_code`'s full-tree fallback scan on the first click.
+    /// Best-effort: a failure here (e.g. the file vanished mid-call) must
+    /// never fail `view_file` itself, since the URL is valid either way.
     pub fn view_file(&self, project_root: &Path, rel_path: &str) -> Result<ViewFile> {
         let (project, is_new_project) = self.ensure_project(project_root, None)?;
         let abs = project.root_path.join(rel_path);
@@ -116,6 +123,7 @@ impl Engine {
             return Err(Error::PathOutsideProject(abs));
         }
         let code = crate::short_link::short_code(&crate::short_link::path_hash(&project.id, &rel));
+        self.register_known_path_stub(&project.id, &abs, &rel);
         Ok(ViewFile {
             url: format!("/p/{}/{}", project.id, rel),
             project_id: project.id,
@@ -123,6 +131,34 @@ impl Engine {
             code,
             is_new_project,
         })
+    }
+
+    /// `stat` + `register_known_path`, best-effort: a failure (file vanished,
+    /// permission denied) must never fail the caller, since the URL/redirect
+    /// stays valid either way — real content-indexing is `ensure_indexed`'s
+    /// job, this only ever needs to make `path_hash` resolvable. Shared by
+    /// `view_file` and `resolve_short_code`'s scan fallback.
+    fn register_known_path_stub(&self, project_id: &str, abs: &Path, rel: &str) {
+        let Ok(meta) = std::fs::metadata(abs) else {
+            return;
+        };
+        let stub = IndexedFile {
+            project_id: project_id.to_string(),
+            abs_path: abs.to_path_buf(),
+            rel_path: rel.to_string(),
+            title: indexer::filename(abs),
+            size_bytes: meta.len(),
+            modified_at: meta
+                .modified()
+                .ok()
+                .and_then(|t| {
+                    time::OffsetDateTime::from(t)
+                        .format(&time::format_description::well_known::Rfc3339)
+                        .ok()
+                })
+                .unwrap_or_default(),
+        };
+        let _ = self.store.register_known_path(&stub);
     }
 
     /// Register a project explicitly (CLI). Same as ensure_project + optional
@@ -176,8 +212,14 @@ impl Engine {
     /// isn't watching, would otherwise 404 a file that is really there.
     /// Returns whether the file is indexed after the call (already indexed,
     /// or newly indexed).
+    ///
+    /// Checks `is_content_indexed`, not just row existence: `view_file` now
+    /// leaves a `register_known_path` stub (path known, content unread)
+    /// behind for every file it hands a URL out for, and that stub must still
+    /// get a real index here on first view — otherwise its title/search/
+    /// backlinks would stay stuck on the placeholder forever.
     pub fn ensure_indexed(&self, project: &Project, rel_path: &str) -> Result<bool> {
-        if self.store.get_file(&project.id, rel_path)?.is_some() {
+        if self.store.is_content_indexed(&project.id, rel_path)? {
             return Ok(true);
         }
         let abs = crate::link_resolver::normalize(&project.root_path.join(rel_path));
@@ -188,23 +230,31 @@ impl Engine {
         Ok(self.store.get_file(&project.id, rel_path)?.is_some())
     }
 
-    /// Resolve `/s/<code>` to `(project_id, rel_path)`, indexing the file on
-    /// demand if needed.
+    /// Resolve `/s/<code>` to `(project_id, rel_path)`. Content-indexing the
+    /// file, if it isn't already, is the redirect target's job
+    /// (`ensure_indexed`, called from the `/p/...` handler) — this only needs
+    /// to answer "which file".
     ///
-    /// `view_file` hands out a code derived from the path hash without
-    /// indexing anything, on the assumption a background refresh or the
-    /// watcher will have indexed the file by the time anyone clicks the
-    /// link. When that hasn't happened yet, the fast hash lookup misses —
-    /// unlike `ensure_indexed`, there's no `rel_path` to index directly, so
-    /// this falls back to a filename-only scan (no content reads) of every
-    /// registered project, hashing each candidate to find the one the code
-    /// belongs to, then indexes just that file.
+    /// `find_by_hash_prefix` reads the `path_hash` column, which is now set
+    /// the moment `view_file` hands the code out (`register_known_path`'s
+    /// stub row) — so in the common case this resolves in O(1) without ever
+    /// touching the filesystem. The scan below is a safety net for a code
+    /// whose stub is missing (a link from before this existed, or a registry
+    /// restored from an older backup): a filename-only scan (no content
+    /// reads) of every registered project, hashing each candidate to find the
+    /// one the code belongs to, then registering just that file's stub so the
+    /// redirect target can index it.
+    ///
+    /// The scan ignores `.gitignore` (unlike a full project scan) so it stays
+    /// in parity with the long URL: `ensure_indexed` indexes whatever file is
+    /// named regardless of `.gitignore`, and a link handed out by `view_file`
+    /// for such a file must resolve here too, not 404 forever.
     pub fn resolve_short_code(&self, code: &str) -> Result<Option<(String, String)>> {
         if let Some(hit) = self.store.find_by_hash_prefix(code)? {
             return Ok(Some(hit));
         }
         for project in self.store.list_projects()? {
-            for abs in indexer::scan_markdown_files(
+            for abs in indexer::scan_markdown_files_ignoring_gitignore(
                 &project.root_path,
                 &self.config.indexing.exclude_patterns,
             ) {
@@ -214,7 +264,7 @@ impl Engine {
                 }
                 let hash = crate::short_link::path_hash(&project.id, &rel);
                 if hash.starts_with(code) {
-                    self.index_file_incremental(&project, &abs)?;
+                    self.register_known_path_stub(&project.id, &abs, &rel);
                     return Ok(Some((project.id, rel)));
                 }
             }
@@ -509,15 +559,25 @@ mod tests {
         assert!(vf.url.ends_with("/docs/architecture.md"));
         assert!(vf.is_new_project);
 
-        // view_file deliberately doesn't scan (that would block the caller on
-        // a full recursive index) — nothing is indexed yet.
-        assert_eq!(engine.file_count(&vf.project_id).unwrap(), 0);
+        // view_file deliberately doesn't content-index (that would make the
+        // MCP call block on a full recursive read+FTS+links pipeline for a
+        // large project) — but it does register the viewed file's path as a
+        // stub, so it already counts as a row...
+        assert_eq!(engine.file_count(&vf.project_id).unwrap(), 1);
+        assert!(!engine
+            .store
+            .is_content_indexed(&vf.project_id, "docs/architecture.md")
+            .unwrap());
 
         // Stand in for the background refresh a real caller kicks off on
         // `is_new_project`, or the on-demand `ensure_indexed` a browser visit
         // triggers.
         engine.refresh(&vf.project_id).unwrap();
         assert_eq!(engine.file_count(&vf.project_id).unwrap(), 2);
+        assert!(engine
+            .store
+            .is_content_indexed(&vf.project_id, "docs/architecture.md")
+            .unwrap());
 
         // rendering rewrites the cross-folder link
         let page = engine
@@ -548,8 +608,10 @@ mod tests {
     /// background refresh or watcher has indexed the file — otherwise a
     /// visitor who clicks the short link before that catch-up finishes gets
     /// a 404 while the long `/p/...` URL for the same file works fine.
+    /// `view_file`'s stub row (`register_known_path`) is what makes this an
+    /// O(1) `path_hash` lookup instead of a full-tree scan.
     #[test]
-    fn resolve_short_code_indexes_on_demand() {
+    fn resolve_short_code_resolves_from_the_view_file_stub_without_scanning() {
         let dir = std::env::temp_dir().join(format!("mdview-eng-short-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         write(&dir, "docs/architecture.md", "# Arch");
@@ -557,18 +619,138 @@ mod tests {
         let engine = Engine::new(SqliteStore::open_in_memory().unwrap(), Config::default());
         let vf = engine.view_file(&dir, "docs/architecture.md").unwrap();
 
-        // Nothing indexed yet, same as view_file_auto_creates_project_and_returns_url.
-        assert_eq!(engine.file_count(&vf.project_id).unwrap(), 0);
+        // The path is known (stub row) but content isn't read/indexed yet.
+        assert_eq!(engine.file_count(&vf.project_id).unwrap(), 1);
+        assert!(!engine
+            .store
+            .is_content_indexed(&vf.project_id, "docs/architecture.md")
+            .unwrap());
+
+        // Deleting the file from disk proves resolution comes from the DB
+        // stub alone: a scan (which reads the filesystem) would find nothing.
+        std::fs::remove_file(dir.join("docs/architecture.md")).unwrap();
 
         let (project_id, rel_path) = engine
             .resolve_short_code(&vf.code)
             .unwrap()
-            .expect("short code should resolve even though nothing was indexed yet");
+            .expect("short code should resolve from the stub even though nothing was content-indexed and the file is now gone");
         assert_eq!(project_id, vf.project_id);
         assert_eq!(rel_path, "docs/architecture.md");
 
-        // The lookup indexed the file as a side effect, same as ensure_indexed.
-        assert_eq!(engine.file_count(&vf.project_id).unwrap(), 1);
+        // resolve_short_code only answers "which file" — content-indexing
+        // stays content-indexed only once something actually reads it.
+        assert!(!engine
+            .store
+            .is_content_indexed(&vf.project_id, "docs/architecture.md")
+            .unwrap());
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// `ensure_indexed` must not mistake a `view_file` stub (path known,
+    /// content unread — title still the filename placeholder) for a real
+    /// index and skip indexing: the file's title, FTS content, and links must
+    /// all still get filled in on first real view.
+    #[test]
+    fn ensure_indexed_upgrades_a_view_file_stub_to_a_real_index() {
+        let dir = std::env::temp_dir().join(format!("mdview-eng-stub-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        write(&dir, "docs/guide.md", "# Real Title\nbody");
+
+        let engine = Engine::new(SqliteStore::open_in_memory().unwrap(), Config::default());
+        let vf = engine.view_file(&dir, "docs/guide.md").unwrap();
+        let stub = engine
+            .store
+            .get_file(&vf.project_id, "docs/guide.md")
+            .unwrap()
+            .unwrap();
+        assert_eq!(stub.title, "guide.md"); // placeholder: filename, not the real H1
+
+        let project = engine.get_project(&vf.project_id).unwrap().unwrap();
+        assert!(engine.ensure_indexed(&project, "docs/guide.md").unwrap());
+        assert!(engine
+            .store
+            .is_content_indexed(&vf.project_id, "docs/guide.md")
+            .unwrap());
+
+        let indexed = engine
+            .store
+            .get_file(&vf.project_id, "docs/guide.md")
+            .unwrap()
+            .unwrap();
+        assert_eq!(indexed.title, "Real Title");
+
+        let hits = engine.search("body", Some(&vf.project_id), 10).unwrap();
+        assert!(
+            hits.iter().any(|h| h.rel_path == "docs/guide.md"),
+            "expected docs/guide.md in FTS search results: {hits:?}"
+        );
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// A file matched by the project's own `.gitignore` still resolves via its
+    /// short code, the same way it is still viewable via the long `/p/...`
+    /// URL (`ensure_indexed` never consults `.gitignore`). Before this fix the
+    /// fallback scan respected `.gitignore` and such a link 404'd forever.
+    ///
+    /// Registers the project directly (`register`, no stub) rather than going
+    /// through `view_file`, so this actually exercises the scan fallback
+    /// instead of short-circuiting on `view_file`'s own stub row — the
+    /// scenario this test targets is a code whose stub is missing (an old
+    /// link, or a registry restored from an older backup).
+    #[test]
+    fn resolve_short_code_finds_gitignored_file() {
+        let dir = std::env::temp_dir().join(format!("mdview-eng-short-gi-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        write(&dir, ".gitignore", "notes/\n");
+        write(&dir, "notes/scratch.md", "# Scratch");
+
+        let engine = Engine::new(SqliteStore::open_in_memory().unwrap(), Config::default());
+        let (project, _) = engine.register(&dir, None).unwrap();
+        let code = crate::short_link::short_code(&crate::short_link::path_hash(
+            &project.id,
+            "notes/scratch.md",
+        ));
+
+        let (project_id, rel_path) = engine
+            .resolve_short_code(&code)
+            .unwrap()
+            .expect("short code should resolve even though the file is gitignored");
+        assert_eq!(project_id, project.id);
+        assert_eq!(rel_path, "notes/scratch.md");
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// Same as `resolve_short_code_finds_gitignored_file`, but for a path
+    /// excluded via the repo's local `.git/info/exclude` instead of a tracked
+    /// `.gitignore` — the actual root cause of the reported 404 (a `.claude`
+    /// worktree path is typically excluded this way, precisely so it need not
+    /// be committed). `git_exclude` is a separate WalkBuilder toggle from
+    /// `git_ignore`; the first version of this fix only disabled the latter.
+    #[test]
+    fn resolve_short_code_finds_locally_excluded_file() {
+        let dir =
+            std::env::temp_dir().join(format!("mdview-eng-short-gitexcl-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join(".git/info")).unwrap();
+        std::fs::write(dir.join(".git/info/exclude"), "worktrees/\n").unwrap();
+        write(&dir, "worktrees/task-1/README.md", "# Task 1");
+
+        let engine = Engine::new(SqliteStore::open_in_memory().unwrap(), Config::default());
+        let (project, _) = engine.register(&dir, None).unwrap();
+        let code = crate::short_link::short_code(&crate::short_link::path_hash(
+            &project.id,
+            "worktrees/task-1/README.md",
+        ));
+
+        let (project_id, rel_path) = engine
+            .resolve_short_code(&code)
+            .unwrap()
+            .expect("short code should resolve even though the file is locally excluded");
+        assert_eq!(project_id, project.id);
+        assert_eq!(rel_path, "worktrees/task-1/README.md");
 
         std::fs::remove_dir_all(&dir).ok();
     }

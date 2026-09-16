@@ -141,6 +141,53 @@ impl SqliteStore {
         Ok(old_content_hash.as_deref() != Some(new_content_hash.as_str()))
     }
 
+    /// Register that `rel_path` exists at `abs_path`, without reading its
+    /// content — cheap enough to call on every `view_file` (unlike
+    /// `upsert_file`, which reads the file and rewrites `files_fts`). This is
+    /// what lets `/s/<code>` resolve in O(1) from the moment `view_file` hands
+    /// the code out, instead of needing `resolve_short_code`'s full-tree
+    /// fallback scan the first time the link is clicked.
+    ///
+    /// `content_hash` stays at its `''` default — the same sentinel
+    /// `migration_2_content_hash` already uses for "row exists, content not
+    /// read yet" — so `is_content_indexed` can tell a stub from a real row.
+    /// A no-op if the row already exists (stub or real): never overwrites
+    /// real indexed data with a placeholder.
+    pub fn register_known_path(&self, f: &IndexedFile) -> Result<()> {
+        let c = self.conn.lock().unwrap();
+        c.execute(
+            "INSERT INTO files(project_id,rel_path,abs_path,title,size_bytes,modified_at,path_hash,content_hash,last_accessed_at)
+             VALUES(?1,?2,?3,?4,?5,?6,?7,'',?8)
+             ON CONFLICT(project_id,rel_path) DO NOTHING",
+            params![
+                f.project_id,
+                f.rel_path,
+                f.abs_path.to_string_lossy(),
+                f.title,
+                f.size_bytes as i64,
+                f.modified_at,
+                short_link::path_hash(&f.project_id, &f.rel_path),
+                crate::indexer::now_rfc3339(),
+            ],
+        )?;
+        Ok(())
+    }
+
+    /// Whether `rel_path`'s row (if any) carries real content-derived data —
+    /// `false` for a `register_known_path` stub or a missing row, `true` once
+    /// `upsert_file` has actually read the file.
+    pub fn is_content_indexed(&self, project_id: &str, rel_path: &str) -> Result<bool> {
+        let c = self.conn.lock().unwrap();
+        let hash: Option<String> = c
+            .query_row(
+                "SELECT content_hash FROM files WHERE project_id=?1 AND rel_path=?2",
+                params![project_id, rel_path],
+                |r| r.get(0),
+            )
+            .optional()?;
+        Ok(hash.is_some_and(|h| !h.is_empty()))
+    }
+
     pub fn delete_file(&self, project_id: &str, rel_path: &str) -> Result<()> {
         let c = self.conn.lock().unwrap();
         c.execute(

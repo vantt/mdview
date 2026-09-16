@@ -90,12 +90,33 @@ impl IndexService {
 /// Walk `root` recursively, returning absolute paths of markdown files.
 /// Respects .gitignore (via WalkBuilder) and prunes `exclude` directory names.
 pub fn scan_markdown_files(root: &Path, exclude: &[String]) -> Vec<PathBuf> {
+    scan_markdown_files_with(root, exclude, true)
+}
+
+/// Same walk as [`scan_markdown_files`], but never skips a file any ignore
+/// mechanism (`.gitignore`, `.git/info/exclude`, a generic `.ignore` file)
+/// would otherwise hide.
+///
+/// Used to locate one already-known-viewable file (short-link resolution),
+/// where none of those must hide a file that the long URL
+/// (`Engine::ensure_indexed`, which consults none of them) would happily
+/// index — a project's `.git/info/exclude` commonly excludes local-only
+/// paths (e.g. `.claude/worktrees/`) that still hold real, viewable files.
+/// `exclude`'s named directories (`.git`, `node_modules`, `target`, …) still
+/// get pruned, so this stays cheap even over a large ignored tree.
+pub fn scan_markdown_files_ignoring_gitignore(root: &Path, exclude: &[String]) -> Vec<PathBuf> {
+    scan_markdown_files_with(root, exclude, false)
+}
+
+fn scan_markdown_files_with(root: &Path, exclude: &[String], respect_gitignore: bool) -> Vec<PathBuf> {
     let mut out = Vec::new();
     let exclude: Vec<String> = exclude.to_vec();
     let walker = WalkBuilder::new(root)
         .hidden(false)
-        .git_ignore(true)
+        .ignore(respect_gitignore)
+        .git_ignore(respect_gitignore)
         .git_global(false)
+        .git_exclude(respect_gitignore)
         .parents(false)
         .filter_entry(move |e| {
             let name = e.file_name().to_string_lossy();
@@ -133,7 +154,7 @@ pub fn rel_path_str(root: &Path, abs: &Path) -> String {
     }
 }
 
-fn filename(p: &Path) -> String {
+pub(crate) fn filename(p: &Path) -> String {
     p.file_name()
         .and_then(|s| s.to_str())
         .unwrap_or("untitled")
