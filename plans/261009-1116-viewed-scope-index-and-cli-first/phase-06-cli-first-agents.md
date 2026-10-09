@@ -1,7 +1,7 @@
 ---
 phase: 6
 title: "CLI-first agent integration"
-status: pending
+status: completed
 priority: P1
 effort: "5h"
 dependencies: [1]
