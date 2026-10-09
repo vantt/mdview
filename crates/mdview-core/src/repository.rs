@@ -462,8 +462,8 @@ impl SqliteStore {
         sort: SearchSort,
         limit: usize,
     ) -> Result<Vec<SearchResult>> {
-        let fts_query = fts_sanitize(query);
-        if fts_query.is_empty() {
+        let terms = fts_terms(query);
+        if terms.is_empty() {
             return Ok(vec![]);
         }
         let scope = dir_prefix
@@ -486,20 +486,62 @@ impl SqliteStore {
         );
         let c = self.conn.lock().unwrap();
         let mut stmt = c.prepare(&sql)?;
-        let rows = stmt.query_map(params![fts_query, project_id, scope, limit as i64], |r| {
-            let project_id: String = r.get(0)?;
-            let rel_path: String = r.get(1)?;
-            Ok(SearchResult {
-                url: crate::domain::file_url(&project_id, &rel_path),
-                project_id,
-                rel_path,
-                title: r.get(2)?,
-                excerpt: String::new(),
-                modified_at: r.get(3)?,
-                score: r.get(4)?,
-            })
-        })?;
-        Ok(rows.collect::<std::result::Result<Vec<_>, _>>()?)
+        let mut run = |fts_query: &str, limit: usize| -> Result<Vec<SearchResult>> {
+            let rows =
+                stmt.query_map(params![fts_query, project_id, scope, limit as i64], |r| {
+                    let project_id: String = r.get(0)?;
+                    let rel_path: String = r.get(1)?;
+                    Ok(SearchResult {
+                        url: crate::domain::file_url(&project_id, &rel_path),
+                        project_id,
+                        rel_path,
+                        title: r.get(2)?,
+                        excerpt: String::new(),
+                        modified_at: r.get(3)?,
+                        score: r.get(4)?,
+                    })
+                })?;
+            Ok(rows.collect::<std::result::Result<Vec<_>, _>>()?)
+        };
+
+        let prefix_query = fts_prefix_query(&terms);
+        if sort == SearchSort::Recent {
+            // Recency order over the full (prefix) result set; tiers only
+            // matter for relevance.
+            return run(&prefix_query, limit);
+        }
+        // Tiers, best first: the terms as an adjacent phrase, all terms as
+        // whole words, then prefix matches. bm25 orders within a tier; a file
+        // already listed by an earlier tier is skipped.
+        let mut tiers = Vec::with_capacity(3);
+        if terms.len() > 1 {
+            tiers.push(format!("\"{}\"", terms.join(" ")));
+        }
+        tiers.push(
+            terms
+                .iter()
+                .map(|t| format!("\"{t}\""))
+                .collect::<Vec<_>>()
+                .join(" "),
+        );
+        tiers.push(prefix_query);
+        let mut out: Vec<SearchResult> = Vec::new();
+        let mut seen = std::collections::HashSet::new();
+        for q in &tiers {
+            if out.len() >= limit {
+                break;
+            }
+            // Earlier tiers may overlap; over-fetch by what is already kept.
+            for hit in run(q, limit)? {
+                if out.len() >= limit {
+                    break;
+                }
+                if seen.insert((hit.project_id.clone(), hit.rel_path.clone())) {
+                    out.push(hit);
+                }
+            }
+        }
+        Ok(out)
     }
 }
 
@@ -742,13 +784,20 @@ fn row_to_file(r: &rusqlite::Row) -> IndexedFile {
     }
 }
 
-/// Make a user query safe for FTS5 MATCH: fold it exactly as the indexed text
-/// was folded, keep alphanumerics, and quote each token as a prefix search.
-/// Avoids syntax errors from FTS special chars.
-fn fts_sanitize(query: &str) -> String {
+/// Fold a user query exactly as the indexed text was folded and split it into
+/// alphanumeric tokens, which keeps FTS5 special characters out of the MATCH.
+fn fts_terms(query: &str) -> Vec<String> {
     fold(query)
         .split(|c: char| !c.is_alphanumeric())
         .filter(|t| !t.is_empty())
+        .map(str::to_string)
+        .collect()
+}
+
+/// Every term quoted as a prefix search.
+fn fts_prefix_query(terms: &[String]) -> String {
+    terms
+        .iter()
         .map(|t| format!("\"{t}\"*"))
         .collect::<Vec<_>>()
         .join(" ")
@@ -1338,5 +1387,54 @@ mod tests {
             .search("shared", None, None, SearchSort::Relevance, 10)
             .unwrap();
         assert_eq!(relevant[0].rel_path, "old.md");
+    }
+
+    #[test]
+    fn search_ranks_phrase_then_whole_words_then_prefix_matches() {
+        let s = SqliteStore::open_in_memory().unwrap();
+        s.upsert_project(&sample_project()).unwrap();
+        s.index_docs(&[
+            doc(
+                "prefix.md",
+                "P",
+                "giải pháp danh sách giao việc, danh mục giả định",
+            ),
+            doc("words.md", "W", "gia đình, danh sách; gia ... danh"),
+            doc("phrase.md", "F", "Kết quả được đánh giá lại"),
+        ])
+        .unwrap();
+        let order = |q: &str| -> Vec<String> {
+            s.search(q, Some("p1"), None, SearchSort::Relevance, 10)
+                .unwrap()
+                .into_iter()
+                .map(|r| r.rel_path)
+                .collect()
+        };
+        assert_eq!(order("danh gia")[0], "phrase.md");
+        assert_eq!(order("danh gia"), ["phrase.md", "words.md", "prefix.md"]);
+        assert_eq!(order("đánh giá")[0], "phrase.md");
+        // Limit applies across tiers, with no duplicates.
+        let limited = s
+            .search("danh gia", None, None, SearchSort::Relevance, 2)
+            .unwrap();
+        assert_eq!(limited.len(), 2);
+        assert_eq!(limited[0].rel_path, "phrase.md");
+        assert_eq!(limited[1].rel_path, "words.md");
+    }
+
+    #[test]
+    fn search_recent_keeps_every_match_in_recency_order() {
+        let s = SqliteStore::open_in_memory().unwrap();
+        s.upsert_project(&sample_project()).unwrap();
+        let mut phrase = doc("phrase.md", "F", "được đánh giá");
+        phrase.file.modified_at = "2020-01-01T00:00:00Z".into();
+        let mut prefix = doc("prefix.md", "P", "danh sách giải pháp");
+        prefix.file.modified_at = "2026-01-01T00:00:00Z".into();
+        s.index_docs(&[phrase, prefix]).unwrap();
+        let hits = s
+            .search("danh gia", None, None, SearchSort::Recent, 10)
+            .unwrap();
+        let paths: Vec<_> = hits.iter().map(|h| h.rel_path.as_str()).collect();
+        assert_eq!(paths, ["prefix.md", "phrase.md"]);
     }
 }
