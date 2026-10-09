@@ -517,37 +517,60 @@ async fn project_path(
     State(st): State<AppState>,
     Path((id, path)): Path<(String, String)>,
 ) -> Response {
-    // Markdown file in the index → render it. A miss gets one on-demand
-    // index attempt (`ensure_indexed`) before falling to the asset lookup and
-    // then 404 — closes the race where the file exists on disk but the
-    // watcher hasn't caught up yet.
-    if let Ok(Some(project)) = st.engine.get_project(&id) {
-        if st.engine.ensure_indexed(&project, &path).unwrap_or(false) {
-            return match st.engine.render_file(&id, &path) {
-                Ok(page) => {
-                    let file = st.engine.store.get_file(&id, &path).unwrap().unwrap();
-                    let files = st.engine.sidebar_files(&id).unwrap_or_default();
-                    let backlinks = st.engine.backlinks(&id, &path).unwrap_or_default();
-                    Html(views::file_page(&project, &file, &page, &files, &backlinks))
-                        .into_response()
-                }
-                Err(e) => internal_error(&e.to_string()),
-            };
-        }
-        // Otherwise serve as a static asset (image, etc.) with traversal guard.
-        if let Ok(abs) = st.engine.asset_path(&id, &path) {
-            if let Ok(bytes) = std::fs::read(&abs) {
-                return asset_response(&abs, bytes);
+    // Markdown file inside the project → index (if new/changed) and render it.
+    // Anything else (assets, folders, non-markdown) falls through below.
+    // Read, render and index work is blocking, so it runs off the async workers.
+    let Ok(Some(project)) = st.engine.get_project(&id) else {
+        return not_found("file not found");
+    };
+    let engine = st.engine.clone();
+    let (view_id, view_path) = (id.clone(), path.clone());
+    let viewed = tokio::task::spawn_blocking(move || {
+        let Some(viewed) = engine.view_page(&view_id, &view_path)? else {
+            return Ok(None);
+        };
+        let files = engine.sidebar_files(&view_id).unwrap_or_default();
+        let backlinks = engine.backlinks(&view_id, &view_path).unwrap_or_default();
+        Ok::<_, mdview_core::Error>(Some((viewed, files, backlinks)))
+    })
+    .await;
+    match viewed {
+        Ok(Ok(Some((viewed, files, backlinks)))) => {
+            if !viewed.neighbours.is_empty() {
+                let engine = st.engine.clone();
+                let (nid, neighbours) = (id.clone(), viewed.neighbours.clone());
+                tokio::task::spawn_blocking(move || {
+                    if let Err(e) = engine.index_neighbours(&nid, &neighbours) {
+                        tracing::warn!("indexing neighbours of {nid} failed: {e}");
+                    }
+                });
             }
+            return Html(views::file_page(
+                &project,
+                &viewed.file,
+                &viewed.page,
+                &files,
+                &backlinks,
+            ))
+            .into_response();
         }
-        // Neither a file nor an asset — if it names a folder with a README
-        // (or index) among its direct children, redirect there instead of
-        // 404ing, the same landing-page convention project_home uses at the
-        // project root.
-        let files = st.engine.sidebar_files(&id).unwrap_or_default();
-        if let Some(entry) = pick_folder_landing(&files, path.trim_end_matches('/')) {
-            return Redirect::to(&format!("/p/{id}/{}", entry.rel_path)).into_response();
+        Ok(Ok(None)) => {}
+        Ok(Err(e)) => return internal_error(&e.to_string()),
+        Err(e) => return internal_error(&format!("render task failed: {e}")),
+    }
+    // Otherwise serve as a static asset (image, etc.) with traversal guard.
+    if let Ok(abs) = st.engine.asset_path(&id, &path) {
+        if let Ok(bytes) = std::fs::read(&abs) {
+            return asset_response(&abs, bytes);
         }
+    }
+    // Neither a file nor an asset — if it names a folder with a README
+    // (or index) among its direct children, redirect there instead of
+    // 404ing, the same landing-page convention project_home uses at the
+    // project root.
+    let files = st.engine.sidebar_files(&id).unwrap_or_default();
+    if let Some(entry) = pick_folder_landing(&files, path.trim_end_matches('/')) {
+        return Redirect::to(&format!("/p/{id}/{}", entry.rel_path)).into_response();
     }
     not_found("file not found")
 }

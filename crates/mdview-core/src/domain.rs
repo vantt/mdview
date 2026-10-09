@@ -99,4 +99,7 @@ pub struct RenderedPage {
     /// The raw markdown source, carried so the viewer can map a DOM selection
     /// back to source lines (copy-as-markdown) via the `data-sourcepos` attrs.
     pub source: String,
+    /// Project-relative internal link targets that resolved, sorted and
+    /// deduplicated.
+    pub links: Vec<String>,
 }

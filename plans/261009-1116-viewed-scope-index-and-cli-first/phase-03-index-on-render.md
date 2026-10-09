@@ -1,7 +1,7 @@
 ---
 phase: 3
 title: "Index on render: one read + neighbours"
-status: pending
+status: completed
 priority: P1
 effort: "5h"
 dependencies: [1]
@@ -99,4 +99,10 @@ backlinked without a full-repo scan.
 
 ## Handoff notes
 
-_(record cross-ownership needs here)_
+- `crates/mdview-core/src/sync.rs` (frozen) has a test calling
+  `engine.ensure_indexed(&project, ...)`. `ensure_indexed` is removed from the
+  public API, but a `#[cfg(test)] pub(crate) fn ensure_indexed` shim (wrapping
+  `view_page`) remains in `engine.rs` so that test compiles. P7: change that
+  sync.rs test to `view_page(&id, "notes/scratch.md")` and delete the shim.
+- Stale doc comments mention `ensure_indexed` in `crates/mdview/src/mcp.rs:107`
+  and `crates/mdview-core/src/indexer.rs:154`; reword to `view_page`.
