@@ -138,8 +138,9 @@ full sync on demand. Projects idle for 14 days are removed from the registry.
 
 **Upgrading.** The registry is rebuilt as `~/.mdview/registry-v4.db`; it is a
 disposable cache and no data is migrated. Restart agent sessions so old
-`mdview mcp` processes exit. A running daemon from an older build is restarted
-automatically the next time the CLI needs it; older builds keep using
+`mdview mcp` processes exit. A running daemon from an older build — including a
+`mdview serve` you started by hand — is stopped and restarted automatically the
+next time the CLI needs it; older builds keep using
 `registry.db`.
 
 ---
