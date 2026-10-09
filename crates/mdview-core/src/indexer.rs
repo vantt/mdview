@@ -52,7 +52,8 @@ impl IndexService {
         if meta.len() > max_bytes {
             return None;
         }
-        let content = std::fs::read_to_string(&file_path).ok()?;
+        let raw = std::fs::read_to_string(&file_path).ok()?;
+        let content = strip_bom(&raw).to_string();
         let title = extract_title(&content).unwrap_or_else(|| filename(&file_path));
         let modified_at = modified_rfc3339(&meta);
         let file = IndexedFile {
@@ -226,10 +227,37 @@ pub fn content_hash(content: &str) -> String {
     crate::hash::fnv1a64_hex(content.as_bytes())
 }
 
-/// First `# H1` in the document, if any.
+/// First `# H1` in the document, if any. A leading byte-order mark is
+/// ignored and lines inside fenced code blocks are never headings.
 pub fn extract_title(content: &str) -> Option<String> {
-    for line in content.lines() {
+    // (fence char, opening run length) while inside a fenced block.
+    let mut fence: Option<(char, usize)> = None;
+    for line in strip_bom(content).lines() {
+        let indent = line.len() - line.trim_start_matches(' ').len();
         let t = line.trim_start();
+        let marker = if indent < 4 {
+            t.chars().next().filter(|c| matches!(c, '`' | '~'))
+        } else {
+            None
+        };
+        if let Some(ch) = marker {
+            let run = t.chars().take_while(|&c| c == ch).count();
+            let rest = &t[run..];
+            match fence {
+                Some((open, len)) if open == ch && run >= len && rest.trim().is_empty() => {
+                    fence = None;
+                    continue;
+                }
+                None if run >= 3 && !(ch == '`' && rest.contains('`')) => {
+                    fence = Some((ch, run));
+                    continue;
+                }
+                _ => {}
+            }
+        }
+        if fence.is_some() {
+            continue;
+        }
         if let Some(rest) = t.strip_prefix("# ") {
             let title = rest.trim();
             if !title.is_empty() {
@@ -238,6 +266,11 @@ pub fn extract_title(content: &str) -> Option<String> {
         }
     }
     None
+}
+
+/// `content` without a leading UTF-8 byte-order mark.
+pub(crate) fn strip_bom(content: &str) -> &str {
+    content.strip_prefix('\u{feff}').unwrap_or(content)
 }
 
 /// Derive a URL-safe project id from a root path's directory name.
@@ -429,5 +462,34 @@ mod tests {
     fn slug_generation() {
         assert_eq!(slug_from_root(Path::new("/home/x/My App")), "my-app");
         assert_eq!(slug_from_root(Path::new("/home/x/proj.v2")), "proj-v2");
+    }
+
+    #[test]
+    fn title_skips_bom_and_fenced_code() {
+        assert_eq!(extract_title("\u{feff}# Real\n").as_deref(), Some("Real"));
+        let fenced = "\u{feff}```bash\n# not a title\n```\n\n# Real\n";
+        assert_eq!(extract_title(fenced).as_deref(), Some("Real"));
+        let tilde = "~~~yaml\n# x\n~~~\n# Real\n";
+        assert_eq!(extract_title(tilde).as_deref(), Some("Real"));
+        // A longer fence is not closed by a shorter run.
+        let nested = "````md\n```\n# x\n```\n````\n# Real\n";
+        assert_eq!(extract_title(nested).as_deref(), Some("Real"));
+        assert_eq!(extract_title("```\n# only in code\n```\n"), None);
+        assert_eq!(extract_title("no heading\n## sub\n"), None);
+    }
+
+    #[test]
+    fn bom_file_is_indexed_with_clean_content_and_real_title() {
+        let dir = tempdir("bom");
+        write(&dir, "a.md", "\u{feff}```sh\n# comment\n```\n# Real\n");
+        write(&dir, "b.md", "\u{feff}plain text\n");
+        let project = project_for(&dir);
+        let (a, content) =
+            IndexService::read_file(&project, &dir.join("a.md"), 1 << 20, &[]).unwrap();
+        assert_eq!(a.title, "Real");
+        assert!(!content.starts_with('\u{feff}'));
+        let (b, _) = IndexService::read_file(&project, &dir.join("b.md"), 1 << 20, &[]).unwrap();
+        assert_eq!(b.title, "b.md");
+        std::fs::remove_dir_all(&dir).ok();
     }
 }
