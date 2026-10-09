@@ -75,10 +75,7 @@ impl IndexService {
         exclude: &[String],
     ) -> Option<IndexedDoc> {
         let (file, content) = Self::read_file(project, abs, max_bytes, exclude)?;
-        let fs = ProjectFs {
-            root: &project.root_path,
-            exclude,
-        };
+        let fs = ProjectFs::new(&project.root_path, exclude);
         let links =
             render::extract_internal_links(&content, &file.abs_path, &project.root_path, &fs);
         Some(IndexedDoc {
@@ -128,11 +125,17 @@ pub fn is_excluded(rel: &str, exclude: &[String]) -> bool {
 /// lives outside the project.
 pub fn confine(root: &Path, abs: &Path, exclude: &[String]) -> Option<PathBuf> {
     let root = std::fs::canonicalize(root).ok()?;
+    confine_in(&root, abs, exclude)
+}
+
+/// [`confine`] for callers that already hold the canonical project root, so a
+/// loop over many candidates canonicalizes the root once instead of per file.
+pub fn confine_in(canonical_root: &Path, abs: &Path, exclude: &[String]) -> Option<PathBuf> {
     let canonical = std::fs::canonicalize(abs).ok()?;
     if !canonical.is_file() || !is_markdown(&canonical) {
         return None;
     }
-    let rel = canonical.strip_prefix(&root).ok()?;
+    let rel = canonical.strip_prefix(canonical_root).ok()?;
     if is_excluded(&rel.to_string_lossy(), exclude) {
         return None;
     }
@@ -335,6 +338,7 @@ mod tests {
         );
 
         let store = SqliteStore::open_in_memory().unwrap();
+        store.upsert_project(&project).unwrap();
         store.index_docs(&docs).unwrap();
         let deep = store
             .get_file(&project.id, "docs/nested/deep.md")
@@ -369,6 +373,18 @@ mod tests {
         assert!(confine(&dir, &dir.join("missing.md"), &exclude).is_none());
         assert!(confine(&dir, &dir.join("docs"), &exclude).is_none());
 
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn confine_in_matches_confine_for_a_canonical_root() {
+        let dir = tempdir("confine-in");
+        write(&dir, "a.md", "# A");
+        write(&dir, "Cargo.toml", "[package]");
+        let root = std::fs::canonicalize(&dir).unwrap();
+        assert!(confine_in(&root, &dir.join("a.md"), &[]).is_some());
+        assert!(confine_in(&root, &dir.join("Cargo.toml"), &[]).is_none());
+        assert!(confine_in(&root, &dir.join("docs/../../x.md"), &[]).is_none());
         std::fs::remove_dir_all(&dir).ok();
     }
 

@@ -9,6 +9,7 @@ use mdview_core::render::HighlightedSource;
 use mdview_core::snippet;
 
 pub fn layout(title: &str, head_extra: &str, body: &str) -> String {
+    let title = esc(title);
     format!(
         r#"<!doctype html>
 <html lang="en" data-theme="atelier" class="fg-root">
@@ -1103,6 +1104,22 @@ mod tests {
             }],
             ..Default::default()
         }
+    }
+
+    #[test]
+    fn search_query_in_title_cannot_inject_markup_into_head() {
+        let out = outcome("");
+        let html = search_page(
+            &project(),
+            "</title><script>alert(1)</script>",
+            "",
+            false,
+            SearchSort::Relevance,
+            Ok(&out),
+        );
+        let head = &html[..html.find("</head>").unwrap()];
+        assert!(!head.contains("<script>alert"), "{head}");
+        assert!(head.contains("&lt;/title&gt;&lt;script&gt;"));
     }
 
     #[test]

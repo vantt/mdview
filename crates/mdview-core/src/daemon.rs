@@ -24,6 +24,10 @@ pub struct DaemonInfo {
     /// itself the signal that it is older than the current binary.
     #[serde(default)]
     pub version: Option<String>,
+    /// Registry schema version the daemon was built with; `None` for locks
+    /// written before it was recorded (older than any schema-stamped build).
+    #[serde(default)]
+    pub schema: Option<i64>,
 }
 
 impl DaemonInfo {
@@ -306,6 +310,7 @@ mod tests {
             port: 7700,
             started_at: "2026-07-15T00:00:00Z".into(),
             version: Some("0.5.2".into()),
+            schema: Some(4),
         };
         let s = serde_json::to_string(&info).unwrap();
         let back: DaemonInfo = serde_json::from_str(&s).unwrap();
@@ -324,6 +329,7 @@ mod tests {
         let info: DaemonInfo = serde_json::from_str(legacy).unwrap();
         assert_eq!(info.pid, 42);
         assert_eq!(info.version, None);
+        assert_eq!(info.schema, None);
     }
 
     #[test]
@@ -434,6 +440,7 @@ mod tests {
             port: 7701, // bind_with_retry auto-incremented past the configured port
             started_at: "2026-07-16T00:00:00Z".into(),
             version: None,
+            schema: None,
         };
         assert_eq!(
             bind_fallback(Some(lock), &cfg),

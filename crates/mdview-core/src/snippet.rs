@@ -45,7 +45,14 @@ pub fn excerpt(content: &str, terms: &[String], max_words: usize) -> String {
     let hits: Vec<bool> = words.iter().map(|w| word_matches(w, terms)).collect();
     let window = max_words.min(words.len());
     let last_start = words.len() - window;
-    let count = |s: usize| hits[s..s + window].iter().filter(|h| **h).count();
+    // Prefix sums make every window's match count O(1), so the scan is linear
+    // in the number of words.
+    let mut prefix = Vec::with_capacity(hits.len() + 1);
+    prefix.push(0usize);
+    for h in &hits {
+        prefix.push(prefix[prefix.len() - 1] + usize::from(*h));
+    }
+    let count = |s: usize| prefix[s + window] - prefix[s];
 
     let (mut best_start, mut best) = (0, count(0));
     for s in 1..=last_start {
@@ -99,6 +106,17 @@ mod tests {
 
     fn run(content: &str, query: &str, n: usize) -> String {
         marked(&excerpt(content, &query_terms(query), n))
+    }
+
+    #[test]
+    fn best_window_is_found_in_a_long_text() {
+        let mut words = vec!["filler"; 5000];
+        words[3000] = "needle";
+        words[3001] = "needle";
+        let text = words.join(" ");
+        let out = run(&text, "needle", 24);
+        assert!(out.starts_with("… "), "{out}");
+        assert_eq!(out.matches("[needle]").count(), 2, "{out}");
     }
 
     #[test]

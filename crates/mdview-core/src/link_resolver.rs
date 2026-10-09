@@ -24,13 +24,26 @@ impl IndexLookup for std::collections::HashSet<PathBuf> {
 /// broken. Goes through [`crate::indexer::confine`], so only markdown inside
 /// the canonical project root (and outside excluded directories) ever counts.
 pub struct ProjectFs<'a> {
-    pub root: &'a Path,
-    pub exclude: &'a [String],
+    /// Canonicalized once at construction; `None` when the root is unreadable,
+    /// in which case nothing is contained.
+    canonical_root: Option<PathBuf>,
+    exclude: &'a [String],
+}
+
+impl<'a> ProjectFs<'a> {
+    pub fn new(root: &Path, exclude: &'a [String]) -> Self {
+        Self {
+            canonical_root: std::fs::canonicalize(root).ok(),
+            exclude,
+        }
+    }
 }
 
 impl IndexLookup for ProjectFs<'_> {
     fn contains(&self, abs: &Path) -> bool {
-        crate::indexer::confine(self.root, abs, self.exclude).is_some()
+        self.canonical_root
+            .as_deref()
+            .is_some_and(|root| crate::indexer::confine_in(root, abs, self.exclude).is_some())
     }
 }
 

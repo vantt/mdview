@@ -64,14 +64,19 @@ impl Engine {
         let terms = snippet::query_terms(query);
         let max_bytes = self.max_bytes();
         let exclude = &self.config.indexing.exclude_patterns;
-        let mut projects: HashMap<String, Option<Project>> = HashMap::new();
+        // Project root and its canonical form, resolved once per project.
+        let mut projects: HashMap<String, Option<(Project, std::path::PathBuf)>> = HashMap::new();
         for r in results.iter_mut() {
-            let project = projects
-                .entry(r.project_id.clone())
-                .or_insert_with(|| self.store.get_project(&r.project_id).ok().flatten());
-            let Some(project) = project else { continue };
-            let Some(abs) = indexer::confine(
-                &project.root_path,
+            let entry = projects.entry(r.project_id.clone()).or_insert_with(|| {
+                let project = self.store.get_project(&r.project_id).ok().flatten()?;
+                let root = std::fs::canonicalize(&project.root_path).ok()?;
+                Some((project, root))
+            });
+            let Some((project, canonical_root)) = entry else {
+                continue;
+            };
+            let Some(abs) = indexer::confine_in(
+                canonical_root,
                 &project.root_path.join(&r.rel_path),
                 exclude,
             ) else {
@@ -84,16 +89,26 @@ impl Engine {
     }
 }
 
-/// Lossy UTF-8 text of `path`, or `None` when unreadable or over `max_bytes`.
+/// At most this many leading bytes of a file feed an excerpt.
+const EXCERPT_READ_BYTES: u64 = 256 * 1024;
+
+/// Lossy UTF-8 text of the first [`EXCERPT_READ_BYTES`] of `path`, or `None`
+/// when unreadable or larger than `max_bytes`. A multi-byte character cut by
+/// the read limit is dropped rather than turned into a replacement character.
 fn read_capped(path: &std::path::Path, max_bytes: u64) -> Option<String> {
     let file = std::fs::File::open(path).ok()?;
+    if file.metadata().ok()?.len() > max_bytes {
+        return None;
+    }
     let mut buf = Vec::new();
-    // One byte past the cap distinguishes "exactly at" from "over".
-    file.take(max_bytes.saturating_add(1))
+    file.take(EXCERPT_READ_BYTES.min(max_bytes))
         .read_to_end(&mut buf)
         .ok()?;
-    if buf.len() as u64 > max_bytes {
-        return None;
+    if let Err(e) = std::str::from_utf8(&buf) {
+        // `error_len() == None` means the input merely ended mid-character.
+        if e.error_len().is_none() {
+            buf.truncate(e.valid_up_to());
+        }
     }
     Some(String::from_utf8_lossy(&buf).into_owned())
 }
@@ -143,6 +158,20 @@ mod tests {
         let hits = engine.search_indexed("quan trong", 10).unwrap();
         assert_eq!(hits.len(), 1);
         assert_eq!(hits[0].excerpt, "");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn excerpt_read_stops_at_the_limit_on_a_character_boundary() {
+        let dir = std::env::temp_dir().join(format!("mdview-search-limit-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("big.md");
+        // 3-byte characters never align with the 256 KiB limit.
+        std::fs::write(&path, "€".repeat(200_000)).unwrap();
+        let text = read_capped(&path, 10 * 1024 * 1024).unwrap();
+        assert!(text.len() as u64 <= EXCERPT_READ_BYTES);
+        assert!(text.len() as u64 > EXCERPT_READ_BYTES - 4);
+        assert!(!text.contains('\u{FFFD}'));
         std::fs::remove_dir_all(&dir).ok();
     }
 

@@ -326,10 +326,7 @@ impl Engine {
         else {
             return Ok(None);
         };
-        let fs = ProjectFs {
-            root: &project.root_path,
-            exclude,
-        };
+        let fs = ProjectFs::new(&project.root_path, exclude);
         let page = self.render.render(
             &content,
             &file.abs_path,
@@ -390,14 +387,26 @@ impl Engine {
             candidates.extend(siblings);
         }
 
+        // Dedupe and cap on cheap string work first, so a directory with
+        // thousands of siblings never pays a canonicalize + stat per file.
         let mut seen = std::collections::HashSet::new();
-        let mut cands: Vec<(String, PathBuf, std::fs::Metadata)> = Vec::new();
+        let mut capped: Vec<(String, PathBuf)> = Vec::new();
         for abs in candidates {
+            if capped.len() >= NEIGHBOUR_CAP {
+                break;
+            }
             let rel = indexer::rel_path_str(&project.root_path, &abs);
             if rel.is_empty() || rel == file.rel_path || !seen.insert(rel.clone()) {
                 continue;
             }
-            if indexer::confine(&project.root_path, &abs, exclude).is_none() {
+            capped.push((rel, abs));
+        }
+        let Ok(canonical_root) = std::fs::canonicalize(&project.root_path) else {
+            return Ok(Vec::new());
+        };
+        let mut cands: Vec<(String, PathBuf, std::fs::Metadata)> = Vec::new();
+        for (rel, abs) in capped {
+            if indexer::confine_in(&canonical_root, &abs, exclude).is_none() {
                 continue;
             }
             let Ok(meta) = std::fs::metadata(&abs) else {

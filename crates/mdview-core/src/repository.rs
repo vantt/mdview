@@ -173,7 +173,8 @@ impl SqliteStore {
         let c = self.conn.lock().unwrap();
         c.execute(
             "INSERT INTO files(project_id,rel_path,abs_path,title,size_bytes,modified_at,path_hash,content_hash)
-             VALUES(?1,?2,?3,?4,?5,?6,?7,'')
+             SELECT ?1,?2,?3,?4,?5,?6,?7,''
+             WHERE EXISTS (SELECT 1 FROM projects WHERE id=?1)
              ON CONFLICT(project_id,rel_path) DO NOTHING",
             params![
                 f.project_id,
@@ -229,11 +230,20 @@ impl SqliteStore {
         project_id: &str,
         rel_paths: &[String],
     ) -> Result<HashMap<String, FileState>> {
+        // Chunked so a long path list stays under SQLite's bound-parameter limit.
+        const CHUNK: usize = 500;
         let c = self.conn.lock().unwrap();
         let mut out = HashMap::with_capacity(rel_paths.len());
-        for rel in rel_paths {
-            if let Some(state) = file_state_in(&c, project_id, rel)? {
-                out.insert(rel.clone(), state);
+        for chunk in rel_paths.chunks(CHUNK) {
+            let marks = vec!["?"; chunk.len()].join(",");
+            let mut stmt = c.prepare(&format!(
+                "SELECT {FILE_STATE_COLS} FROM files WHERE project_id=?1 AND rel_path IN ({marks})"
+            ))?;
+            let args = std::iter::once(project_id).chain(chunk.iter().map(String::as_str));
+            let rows = stmt.query_map(rusqlite::params_from_iter(args), row_to_file_state)?;
+            for r in rows {
+                let state = r?;
+                out.insert(state.rel_path.clone(), state);
             }
         }
         Ok(out)
@@ -442,8 +452,8 @@ impl SqliteStore {
     /// and has no `snippet()`, so excerpts are built elsewhere (`excerpt` is
     /// empty here). Row errors propagate instead of silently dropping hits.
     ///
-    /// `dir_prefix` limits results to files under that folder (`%`, `_` and
-    /// `\` in the folder name are matched literally).
+    /// `dir_prefix` limits results to files under that folder, matched
+    /// literally and case-sensitively.
     pub fn search(
         &self,
         query: &str,
@@ -456,10 +466,10 @@ impl SqliteStore {
         if fts_query.is_empty() {
             return Ok(vec![]);
         }
-        let like = dir_prefix
+        let scope = dir_prefix
             .map(|d| d.trim_matches('/'))
             .filter(|d| !d.is_empty())
-            .map(|d| format!("{}/%", escape_like(d)));
+            .map(|d| format!("{d}/"));
         let order = match sort {
             SearchSort::Relevance => "bm25(files_fts)",
             SearchSort::Recent => "f.modified_at DESC, bm25(files_fts)",
@@ -470,17 +480,17 @@ impl SqliteStore {
              JOIN files f ON f.fts_rowid = files_fts.rowid
              WHERE files_fts MATCH ?1
                AND (?2 IS NULL OR f.project_id = ?2)
-               AND (?3 IS NULL OR f.rel_path LIKE ?3 ESCAPE '\\')
+               AND (?3 IS NULL OR substr(f.rel_path, 1, length(?3)) = ?3)
              ORDER BY {order}
              LIMIT ?4"
         );
         let c = self.conn.lock().unwrap();
         let mut stmt = c.prepare(&sql)?;
-        let rows = stmt.query_map(params![fts_query, project_id, like, limit as i64], |r| {
+        let rows = stmt.query_map(params![fts_query, project_id, scope, limit as i64], |r| {
             let project_id: String = r.get(0)?;
             let rel_path: String = r.get(1)?;
             Ok(SearchResult {
-                url: format!("/p/{project_id}/{rel_path}"),
+                url: crate::domain::file_url(&project_id, &rel_path),
                 project_id,
                 rel_path,
                 title: r.get(2)?,
@@ -603,6 +613,15 @@ fn file_state_in(c: &Connection, project_id: &str, rel_path: &str) -> Result<Opt
 /// Upsert one doc inside an open write transaction.
 fn index_doc_in(c: &Connection, doc: &IndexedDoc) -> Result<bool> {
     let f = &doc.file;
+    // A project deleted while a sync was in flight must not get orphan rows.
+    let project_exists: bool = c.query_row(
+        "SELECT EXISTS(SELECT 1 FROM projects WHERE id=?1)",
+        params![f.project_id],
+        |r| r.get(0),
+    )?;
+    if !project_exists {
+        return Ok(false);
+    }
     let new_hash = indexer::content_hash(&doc.content);
     let old: Option<(String, i64)> = c
         .query_row(
@@ -721,18 +740,6 @@ fn row_to_file(r: &rusqlite::Row) -> IndexedFile {
         size_bytes: r.get_unwrap::<_, i64>(4) as u64,
         modified_at: r.get_unwrap(5),
     }
-}
-
-/// Escape `\`, `%` and `_` so a folder name is matched literally by `LIKE ... ESCAPE '\'`.
-fn escape_like(s: &str) -> String {
-    let mut out = String::with_capacity(s.len());
-    for c in s.chars() {
-        if matches!(c, '\\' | '%' | '_') {
-            out.push('\\');
-        }
-        out.push(c);
-    }
-    out
 }
 
 /// Make a user query safe for FTS5 MATCH: fold it exactly as the indexed text
@@ -949,6 +956,33 @@ mod tests {
         s.index_docs(&[d]).unwrap();
         assert!(s.backlinks("p1", "b.md").unwrap().is_empty());
         assert_eq!(s.backlinks("p1", "c.md").unwrap().len(), 1);
+    }
+
+    #[test]
+    fn file_states_for_spans_more_than_one_chunk() {
+        let s = SqliteStore::open_in_memory().unwrap();
+        s.upsert_project(&sample_project()).unwrap();
+        let docs: Vec<_> = (0..1200)
+            .map(|i| doc(&format!("d{i}.md"), "T", "x"))
+            .collect();
+        s.index_docs(&docs).unwrap();
+        let mut rels: Vec<String> = (0..1200).map(|i| format!("d{i}.md")).collect();
+        rels.push("missing.md".into());
+        let states = s.file_states_for("p1", &rels).unwrap();
+        assert_eq!(states.len(), 1200);
+        assert!(states.contains_key("d1199.md"));
+        assert!(!states.contains_key("missing.md"));
+    }
+
+    #[test]
+    fn indexing_a_deleted_project_leaves_no_rows() {
+        let s = SqliteStore::open_in_memory().unwrap();
+        s.upsert_project(&sample_project()).unwrap();
+        s.delete_project("p1").unwrap();
+        assert_eq!(s.index_docs(&[doc("a.md", "A", "x")]).unwrap(), vec![false]);
+        s.register_known_path(&file("b.md", "b.md")).unwrap();
+        assert!(s.file_states("p1").unwrap().is_empty());
+        assert!(s.file_state("p1", "a.md").unwrap().is_none());
     }
 
     #[test]
@@ -1250,6 +1284,39 @@ mod tests {
         );
         assert_eq!(rels(Some("")).len(), 4);
         assert_eq!(rels(None).len(), 4);
+    }
+
+    #[test]
+    fn search_dir_scope_is_case_sensitive() {
+        let s = SqliteStore::open_in_memory().unwrap();
+        s.upsert_project(&sample_project()).unwrap();
+        s.index_docs(&[
+            doc("Docs/x.md", "X", "shared"),
+            doc("docs/y.md", "Y", "shared"),
+        ])
+        .unwrap();
+        let hits = s
+            .search(
+                "shared",
+                Some("p1"),
+                Some("docs"),
+                SearchSort::Relevance,
+                10,
+            )
+            .unwrap();
+        let rels: Vec<_> = hits.iter().map(|r| r.rel_path.as_str()).collect();
+        assert_eq!(rels, vec!["docs/y.md"]);
+    }
+
+    #[test]
+    fn search_urls_encode_each_path_segment() {
+        let s = SqliteStore::open_in_memory().unwrap();
+        s.upsert_project(&sample_project()).unwrap();
+        s.index_docs(&[doc("sub/C#.md", "C", "shared")]).unwrap();
+        let hits = s
+            .search("shared", Some("p1"), None, SearchSort::Relevance, 10)
+            .unwrap();
+        assert_eq!(hits[0].url, "/p/p1/sub/C%23.md");
     }
 
     #[test]

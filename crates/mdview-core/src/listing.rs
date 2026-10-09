@@ -136,7 +136,7 @@ impl Engine {
                 .into_iter()
                 .take(limit)
                 .map(|(rel_path, title, _)| FuzzyHit {
-                    url: format!("/p/{project_id}/{rel_path}"),
+                    url: crate::domain::file_url(project_id, &rel_path),
                     rel_path,
                     title,
                     score: 0,

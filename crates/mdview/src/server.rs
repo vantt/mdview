@@ -79,6 +79,7 @@ pub async fn serve() -> Result<()> {
         port: addr.port(),
         started_at: now_rfc3339(),
         version: Some(env!("CARGO_PKG_VERSION").to_string()),
+        schema: Some(mdview_core::repository::SCHEMA_VERSION),
     })?;
     tracing::info!("mdview serving on http://{addr}");
     // A wildcard bind (`0.0.0.0`) makes `http://0.0.0.0:PORT` a dead link, so
@@ -437,7 +438,14 @@ async fn project_home(
     State(st): State<AppState>,
     Path(id): Path<String>,
 ) -> Response {
-    match st.engine.sidebar_files(&id) {
+    let engine = st.engine.clone();
+    let project_id = id.clone();
+    let listed = tokio::task::spawn_blocking(move || engine.sidebar_files(&project_id)).await;
+    let listed = match listed {
+        Ok(r) => r,
+        Err(e) => return internal_error(&format!("listing task failed: {e}")),
+    };
+    match listed {
         Ok(files) if !files.is_empty() => {
             let entry = pick_entry_file(&files).unwrap_or(&files[0]);
             Redirect::to(&format!("/p/{}/{}", id, entry.rel_path)).into_response()
@@ -568,11 +576,18 @@ async fn project_path(
     // (or index) among its direct children, redirect there instead of
     // 404ing, the same landing-page convention project_home uses at the
     // project root.
-    let files = st.engine.sidebar_files(&id).unwrap_or_default();
-    if let Some(entry) = pick_folder_landing(&files, path.trim_end_matches('/')) {
-        return Redirect::to(&format!("/p/{id}/{}", entry.rel_path)).into_response();
+    let engine = st.engine.clone();
+    let (land_id, folder) = (id.clone(), path.trim_end_matches('/').to_string());
+    let landing = tokio::task::spawn_blocking(move || {
+        let files = engine.sidebar_files(&land_id).unwrap_or_default();
+        pick_folder_landing(&files, &folder).map(|f| f.rel_path.clone())
+    })
+    .await;
+    match landing {
+        Ok(Some(rel)) => Redirect::to(&format!("/p/{id}/{rel}")).into_response(),
+        Ok(None) => not_found("file not found"),
+        Err(e) => internal_error(&format!("listing task failed: {e}")),
     }
-    not_found("file not found")
 }
 
 #[derive(serde::Deserialize)]

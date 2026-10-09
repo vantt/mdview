@@ -103,3 +103,36 @@ pub struct RenderedPage {
     /// deduplicated.
     pub links: Vec<String>,
 }
+
+/// Viewer URL for a file: `/p/<project_id>/<rel_path>` with every path segment
+/// percent-encoded (the `/` separators are kept), so names such as `C#.md` or
+/// `a?b.md` survive as path rather than turning into a fragment or query.
+pub fn file_url(project_id: &str, rel_path: &str) -> String {
+    let mut out = format!("/p/{project_id}/");
+    for (i, segment) in rel_path.split('/').enumerate() {
+        if i > 0 {
+            out.push('/');
+        }
+        for b in segment.bytes() {
+            if b.is_ascii_alphanumeric() || matches!(b, b'-' | b'.' | b'_' | b'~') {
+                out.push(b as char);
+            } else {
+                out.push_str(&format!("%{b:02X}"));
+            }
+        }
+    }
+    out
+}
+
+#[cfg(test)]
+mod url_tests {
+    use super::file_url;
+
+    #[test]
+    fn segments_are_encoded_and_separators_kept() {
+        assert_eq!(file_url("p1", "docs/a.md"), "/p/p1/docs/a.md");
+        assert_eq!(file_url("p1", "C#.md"), "/p/p1/C%23.md");
+        assert_eq!(file_url("p1", "x/a?b c.md"), "/p/p1/x/a%3Fb%20c.md");
+        assert_eq!(file_url("p1", "tài.md"), "/p/p1/t%C3%A0i.md");
+    }
+}

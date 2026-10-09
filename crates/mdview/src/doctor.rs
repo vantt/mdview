@@ -197,24 +197,26 @@ fn daemon_version_verdict(
     }
 }
 
-/// Byte offset of the big-endian `user_version` field in a SQLite file header.
-const SQLITE_USER_VERSION_OFFSET: usize = 60;
-const SQLITE_HEADER_MAGIC: &[u8; 16] = b"SQLite format 3\0";
-
-/// `PRAGMA user_version` of the database file at `path`, read straight from the
-/// file header so a diagnostic never opens (and thereby creates or resets) the
-/// store. `Ok(None)` means the file is not a SQLite database.
+/// `PRAGMA user_version` of the database file at `path`, read through a
+/// read-only connection so the value reflects a stamp still held in the WAL and
+/// a diagnostic never creates or resets the store. `Ok(None)` means the file is
+/// not a SQLite database.
 fn read_user_version(path: &Path) -> std::io::Result<Option<i64>> {
-    use std::io::Read;
-    let mut header = [0u8; 64];
-    let mut file = std::fs::File::open(path)?;
-    if file.read_exact(&mut header).is_err() || &header[..16] != SQLITE_HEADER_MAGIC {
-        return Ok(None);
+    use rusqlite::{Connection, ErrorCode, OpenFlags};
+    if !path.exists() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            "database file does not exist",
+        ));
     }
-    let raw: [u8; 4] = header[SQLITE_USER_VERSION_OFFSET..SQLITE_USER_VERSION_OFFSET + 4]
-        .try_into()
-        .expect("4-byte slice");
-    Ok(Some(i64::from(u32::from_be_bytes(raw))))
+    let flags = OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX;
+    let version = Connection::open_with_flags(path, flags)
+        .and_then(|c| c.query_row("PRAGMA user_version", [], |r| r.get::<_, i64>(0)));
+    match version {
+        Ok(v) => Ok(Some(v)),
+        Err(rusqlite::Error::SqliteFailure(e, _)) if e.code == ErrorCode::NotADatabase => Ok(None),
+        Err(e) => Err(std::io::Error::other(e.to_string())),
+    }
 }
 
 /// Report the index database's schema state without touching it, and (only when
@@ -1297,6 +1299,9 @@ mod index_schema_tests {
     use super::*;
     use mdview_core::repository::SCHEMA_VERSION;
 
+    /// Byte offset of the big-endian `user_version` field in a SQLite header.
+    const SQLITE_USER_VERSION_OFFSET: usize = 60;
+
     fn tmp_dir(label: &str) -> PathBuf {
         let dir = std::env::temp_dir().join(format!(
             "mdview-schema-{label}-{}-{}",
@@ -1342,6 +1347,29 @@ mod index_schema_tests {
         assert_eq!(c.status, Status::Warn);
         assert!(c.detail.contains("rebuilt on next start"));
         assert_eq!(bytes, std::fs::read(&db).unwrap());
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn stamp_still_in_the_wal_is_reported() {
+        let dir = tmp_dir("wal");
+        let db = dir.join("registry-v4.db");
+        let writer = rusqlite::Connection::open(&db).unwrap();
+        writer.pragma_update(None, "journal_mode", "WAL").unwrap();
+        writer.pragma_update(None, "wal_autocheckpoint", 0).unwrap();
+        writer.execute_batch("CREATE TABLE t(x)").unwrap();
+        writer.pragma_update(None, "user_version", 4).unwrap();
+        assert_eq!(read_user_version(&db).unwrap(), Some(4));
+        drop(writer);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn non_sqlite_file_reads_as_none() {
+        let dir = tmp_dir("garbage");
+        let db = dir.join("registry-v4.db");
+        std::fs::write(&db, "this is not a database, just some text padding it out").unwrap();
+        assert_eq!(read_user_version(&db).unwrap(), None);
         std::fs::remove_dir_all(&dir).ok();
     }
 

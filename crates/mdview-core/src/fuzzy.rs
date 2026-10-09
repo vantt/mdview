@@ -78,7 +78,7 @@ pub fn rank_items(
         .map(|(score, _, (rel_path, title, _))| FuzzyHit {
             rel_path: rel_path.clone(),
             title: title.clone(),
-            url: format!("/p/{project_id}/{rel_path}"),
+            url: crate::domain::file_url(project_id, rel_path),
             score,
         })
         .collect()

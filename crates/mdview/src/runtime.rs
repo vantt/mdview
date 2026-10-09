@@ -151,7 +151,14 @@ pub fn spawn_daemon_detached() -> Result<()> {
 /// (a failed kill means the process is already gone). Returns `(pid, killed_ok)`
 /// when a lock existed, or `None` when no daemon was recorded.
 pub fn stop_daemon() -> Option<(u32, bool)> {
-    let info = read_lock()?;
+    stop_daemon_pid(read_lock()?.pid)
+}
+
+/// Stop the daemon with `pid`, but only while the lock still names that pid.
+/// A concurrent CLI may already have replaced the daemon; the lock then names a
+/// fresh process that must not be killed on behalf of a stale decision.
+pub fn stop_daemon_pid(pid: u32) -> Option<(u32, bool)> {
+    let info = read_lock().filter(|i| i.pid == pid)?;
     #[cfg(unix)]
     let ok = std::process::Command::new("kill")
         .arg(info.pid.to_string())
@@ -176,14 +183,41 @@ pub fn stop_daemon() -> Option<(u32, bool)> {
     Some((info.pid, ok))
 }
 
-/// A running daemon must be replaced when it was started by a different build
-/// than this binary, or when its version is unknown (a build that predates
-/// version reporting is by definition older).
-pub(crate) fn needs_restart(running: Option<&str>, current: &str) -> bool {
-    running != Some(current)
+/// Parse a numeric `major.minor.patch` (extra suffixes after `-`/`+` ignored).
+fn parse_version(v: &str) -> Option<(u64, u64, u64)> {
+    let core = v.split(['-', '+']).next()?;
+    let mut it = core.split('.');
+    let mut next = || it.next()?.parse::<u64>().ok();
+    let out = (next()?, next()?, next()?);
+    it.next().is_none().then_some(out)
 }
 
-/// Stop a live daemon that was started by another build so the spawn below
+/// A running daemon must be replaced only when it is older than this binary:
+/// its registry schema is unknown or lower, or its version is strictly lower.
+/// A newer daemon (version or schema) is never downgraded, and an unknown
+/// version with an equal schema is left alone.
+pub(crate) fn needs_restart(
+    running_version: Option<&str>,
+    running_schema: Option<i64>,
+    current_version: &str,
+    current_schema: i64,
+) -> bool {
+    match running_schema {
+        None => return true,
+        Some(s) if s < current_schema => return true,
+        Some(s) if s > current_schema => return false,
+        Some(_) => {}
+    }
+    match (
+        running_version.and_then(parse_version),
+        parse_version(current_version),
+    ) {
+        (Some(running), Some(current)) => running < current,
+        _ => false,
+    }
+}
+
+/// Stop a live daemon that was started by an older build so the spawn below
 /// brings up one that matches this binary. A daemon that cannot be stopped is
 /// left running (and reused) rather than raced with a second one.
 fn replace_stale_daemon() {
@@ -195,7 +229,12 @@ fn replace_stale_daemon() {
         .clone()
         .or_else(|| daemon::daemon_version(&info.host, info.port));
     let current = env!("CARGO_PKG_VERSION");
-    if !needs_restart(version.as_deref(), current) {
+    if !needs_restart(
+        version.as_deref(),
+        info.schema,
+        current,
+        mdview_core::repository::SCHEMA_VERSION,
+    ) {
         return;
     }
     eprintln!(
@@ -204,7 +243,7 @@ fn replace_stale_daemon() {
             .map(|v| format!("v{v}"))
             .unwrap_or_else(|| "unknown version".into())
     );
-    stop_daemon();
+    stop_daemon_pid(info.pid);
     for _ in 0..30 {
         if running_daemon().is_none() {
             return;
@@ -296,18 +335,37 @@ mod tests {
     }
 
     #[test]
-    fn matching_daemon_version_is_kept() {
-        assert!(!needs_restart(Some("0.8.0"), "0.8.0"));
+    fn daemon_without_schema_is_restarted_even_at_equal_version() {
+        assert!(needs_restart(Some("0.8.0"), None, "0.8.0", 4));
+        assert!(needs_restart(Some("0.8.0"), Some(3), "0.8.0", 4));
     }
 
     #[test]
-    fn different_daemon_version_is_restarted() {
-        assert!(needs_restart(Some("0.7.8"), "0.8.0"));
-        assert!(needs_restart(Some("0.9.0"), "0.8.0"));
+    fn equal_schema_and_version_is_kept() {
+        assert!(!needs_restart(Some("0.8.0"), Some(4), "0.8.0", 4));
+        assert!(!needs_restart(None, Some(4), "0.8.0", 4));
     }
 
     #[test]
-    fn unknown_daemon_version_is_restarted() {
-        assert!(needs_restart(None, "0.8.0"));
+    fn newer_daemon_version_is_kept() {
+        assert!(!needs_restart(Some("0.9.0"), Some(4), "0.8.0", 4));
+        assert!(!needs_restart(Some("0.10.0"), Some(4), "0.9.0", 4));
+    }
+
+    #[test]
+    fn newer_schema_is_kept() {
+        assert!(!needs_restart(Some("0.7.0"), Some(5), "0.8.0", 4));
+    }
+
+    #[test]
+    fn lower_daemon_version_is_restarted() {
+        assert!(needs_restart(Some("0.7.8"), Some(4), "0.8.0", 4));
+        assert!(needs_restart(Some("0.9.0"), Some(4), "0.10.0", 4));
+    }
+
+    #[test]
+    fn stop_daemon_pid_ignores_a_lock_naming_another_pid() {
+        // Without a lock (or with a different pid) nothing may be killed.
+        assert_eq!(super::stop_daemon_pid(u32::MAX), None);
     }
 }
