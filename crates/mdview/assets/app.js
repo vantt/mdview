@@ -850,7 +850,7 @@
     var baseHash = src.getAttribute("data-hash") || null;
     var original;
     try { original = JSON.parse(src.textContent || '""'); } catch (e) { original = src.textContent || ""; }
-    var open = false, saving = false, force = false;
+    var open = false, saving = false, force = false, conflicted = false;
     var cm = null;          // CodeMirror EditorView once mounted
     var cmTheme = null;     // Compartment holding the light/dark theme
     var cmLoad = null;      // Promise for the bundle, shared across clicks
@@ -932,6 +932,7 @@
       open = true;
       setDirty(false);
       force = false;
+      conflicted = false;
       saveBtn.textContent = "Save";
       setStatus("");
       reading.hidden = true;
@@ -968,6 +969,9 @@
     function cancel() {
       if (editor.dirty && !window.confirm("Discard your unsaved changes?")) return;
       hide();
+      // The file changed on disk while the draft was open: the rendered page
+      // is stale, so show the current version.
+      if (conflicted) location.reload();
     }
     function save() {
       if (saving || !open) return;
@@ -994,6 +998,7 @@
         }
         if (r.status === 409) {
           force = true;
+          conflicted = true;
           saveBtn.textContent = "Overwrite";
           setStatus("This file changed on disk since you opened it. Overwrite it, or Cancel and reload to see the new version.", "warn");
           return;
