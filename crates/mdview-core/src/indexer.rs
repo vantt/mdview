@@ -151,7 +151,7 @@ pub fn scan_markdown_files(root: &Path, exclude: &[String]) -> Vec<PathBuf> {
 ///
 /// Used to locate one already-known-viewable file (short-link resolution),
 /// where none of those must hide a file that the long URL
-/// (`Engine::ensure_indexed`, which consults none of them) would happily
+/// (`Engine::view_page`, which consults none of them) would happily
 /// index — a project's `.git/info/exclude` commonly excludes local-only
 /// paths (e.g. `.claude/worktrees/`) that still hold real, viewable files.
 /// `exclude`'s named directories (`.git`, `node_modules`, `target`, …) still

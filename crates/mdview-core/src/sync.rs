@@ -229,7 +229,10 @@ mod tests {
         write(&dir, "a.md", "# A");
         write(&dir, "notes/scratch.md", "# Scratch");
         let vf = engine.view_file(&dir, "notes/scratch.md").unwrap();
-        assert!(engine.ensure_indexed(&project, "notes/scratch.md").unwrap());
+        assert!(engine
+            .view_page(&project.id, "notes/scratch.md")
+            .unwrap()
+            .is_some());
         assert_eq!(vf.project_id, project.id);
 
         let stats = engine.sync_project_within(&project.id, NO_WINDOW).unwrap();

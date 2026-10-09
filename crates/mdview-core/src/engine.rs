@@ -258,13 +258,6 @@ impl Engine {
         IndexService::remove_file(&self.store, project, abs)
     }
 
-    /// Test-only stand-in for "a visitor opened the page": indexes `rel_path`
-    /// if it is not content-indexed yet.
-    #[cfg(test)]
-    pub(crate) fn ensure_indexed(&self, project: &Project, rel_path: &str) -> Result<bool> {
-        Ok(self.view_page(&project.id, rel_path)?.is_some())
-    }
-
     /// Resolve `/s/<code>` to `(project_id, rel_path)`. Content-indexing the
     /// file, if it isn't already, is the redirect target's job
     /// (`view_page`, called from the `/p/...` handler) — this only needs
