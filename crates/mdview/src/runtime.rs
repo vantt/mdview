@@ -31,6 +31,7 @@ const READY_POLL_INTERVAL: Duration = Duration::from_millis(100);
 /// `mdview_core::daemon::ensure_bind`, so the CLI and the desktop shell agree
 /// on one implementation; only the spawn strategy and error reporting differ.
 fn ensure_bind() -> (String, u16) {
+    replace_stale_daemon();
     let result = daemon::ensure_bind(
         READY_POLL_ATTEMPTS,
         READY_POLL_INTERVAL,
@@ -146,28 +147,75 @@ pub fn spawn_daemon_detached() -> Result<()> {
     Ok(())
 }
 
-/// Spawn `mdview refresh <project_id>` fully detached, so a newly-registered
-/// project's full recursive scan happens off the calling process — `register`/
-/// `open`/the MCP tool return as soon as the project row exists (and, for
-/// `open`, the one requested file is viewable) instead of blocking on the
-/// whole repo. Safe to run alongside an already-running daemon: CLI commands
-/// and the daemon already share the same SQLite registry concurrently.
-pub fn spawn_refresh_detached(project_id: &str) -> Result<()> {
-    let exe = std::env::current_exe()?;
-    let mut cmd = std::process::Command::new(exe);
-    cmd.arg("refresh")
-        .arg(project_id)
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null());
-    apply_detach(&mut cmd);
-    cmd.spawn()?;
-    Ok(())
+/// Stop the daemon named by the lock file, if any. Removes the lock either way
+/// (a failed kill means the process is already gone). Returns `(pid, killed_ok)`
+/// when a lock existed, or `None` when no daemon was recorded.
+pub fn stop_daemon() -> Option<(u32, bool)> {
+    let info = read_lock()?;
+    #[cfg(unix)]
+    let ok = std::process::Command::new("kill")
+        .arg(info.pid.to_string())
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false);
+    #[cfg(not(unix))]
+    let ok = std::process::Command::new("taskkill")
+        .args(["/PID", &info.pid.to_string(), "/F"])
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false);
+    // Clear the lock unless the daemon is genuinely orphaned — a kill that
+    // failed while the daemon still answers on its port. Deleting the lock in
+    // that case would strand a live daemon that `stop`/`status` can no longer
+    // reach and let `restart` spawn a second one. A failed kill on an already
+    // dead process (health check fails) is a stale lock and is cleared.
+    let orphaned = !ok && running_daemon().is_some();
+    if !orphaned {
+        remove_lock();
+    }
+    Some((info.pid, ok))
+}
+
+/// A running daemon must be replaced when it was started by a different build
+/// than this binary, or when its version is unknown (a build that predates
+/// version reporting is by definition older).
+pub(crate) fn needs_restart(running: Option<&str>, current: &str) -> bool {
+    running != Some(current)
+}
+
+/// Stop a live daemon that was started by another build so the spawn below
+/// brings up one that matches this binary. A daemon that cannot be stopped is
+/// left running (and reused) rather than raced with a second one.
+fn replace_stale_daemon() {
+    let Some(info) = running_daemon() else {
+        return;
+    };
+    let version = info
+        .version
+        .clone()
+        .or_else(|| daemon::daemon_version(&info.host, info.port));
+    let current = env!("CARGO_PKG_VERSION");
+    if !needs_restart(version.as_deref(), current) {
+        return;
+    }
+    eprintln!(
+        "mdview: restarting daemon ({} -> v{current})",
+        version
+            .map(|v| format!("v{v}"))
+            .unwrap_or_else(|| "unknown version".into())
+    );
+    stop_daemon();
+    for _ in 0..30 {
+        if running_daemon().is_none() {
+            return;
+        }
+        std::thread::sleep(Duration::from_millis(100));
+    }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{build_display_urls, is_wildcard};
+    use super::{build_display_urls, is_wildcard, needs_restart};
     use std::time::Duration;
 
     // The daemon-detach behavior (setsid) had no automated guard — the function
@@ -245,5 +293,21 @@ mod tests {
         assert!(is_wildcard("[::]"));
         assert!(!is_wildcard("127.0.0.1"));
         assert!(!is_wildcard("192.168.1.1"));
+    }
+
+    #[test]
+    fn matching_daemon_version_is_kept() {
+        assert!(!needs_restart(Some("0.8.0"), "0.8.0"));
+    }
+
+    #[test]
+    fn different_daemon_version_is_restarted() {
+        assert!(needs_restart(Some("0.7.8"), "0.8.0"));
+        assert!(needs_restart(Some("0.9.0"), "0.8.0"));
+    }
+
+    #[test]
+    fn unknown_daemon_version_is_restarted() {
+        assert!(needs_restart(None, "0.8.0"));
     }
 }
