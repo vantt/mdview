@@ -603,6 +603,43 @@ async fn save_file(
 struct SearchQuery {
     #[serde(default)]
     q: String,
+    #[serde(default)]
+    scope: SearchScope,
+    #[serde(default)]
+    dir: String,
+    #[serde(default)]
+    sort: mdview_core::domain::SearchSort,
+}
+
+#[derive(serde::Deserialize, Default, Clone, Copy, PartialEq, Eq, Debug)]
+#[serde(rename_all = "lowercase")]
+enum SearchScope {
+    #[default]
+    Project,
+    Dir,
+}
+
+/// The directory prefix (only for `scope=dir` with a usable `dir`) and the sort.
+/// `dir` is trimmed of `/`; any absolute or `..` component voids the prefix so
+/// the query cannot name anything outside the project.
+fn search_params(q: &SearchQuery) -> (Option<String>, mdview_core::domain::SearchSort) {
+    (
+        search_dir(q).filter(|_| q.scope == SearchScope::Dir),
+        q.sort,
+    )
+}
+
+/// The normalised `dir`, whatever the scope; `None` when empty or unsafe.
+fn search_dir(q: &SearchQuery) -> Option<String> {
+    let dir = q.dir.trim().trim_matches('/');
+    if dir.is_empty()
+        || dir.starts_with('\\')
+        || dir.split(['/', '\\']).any(|c| c == "..")
+        || std::path::Path::new(dir).is_absolute()
+    {
+        return None;
+    }
+    Some(dir.to_string())
 }
 
 async fn search_page(
@@ -614,21 +651,82 @@ async fn search_page(
     let Ok(Some(project)) = st.engine.get_project(&id) else {
         return not_found("project not found");
     };
-    let results = if query.q.trim().is_empty() {
-        Vec::new()
-    } else {
-        st.engine
-            .search_content(
-                &id,
-                &query.q,
-                None,
-                mdview_core::domain::SearchSort::Relevance,
-                30,
-            )
-            .map(|outcome| outcome.results)
-            .unwrap_or_default()
-    };
-    Html(views::search_page(&project, &query.q, &results)).into_response()
+    let (prefix, sort) = search_params(&query);
+    let dir = search_dir(&query).unwrap_or_default();
+    let outcome: std::result::Result<mdview_core::domain::SearchOutcome, String> =
+        if query.q.trim().is_empty() {
+            Ok(Default::default())
+        } else {
+            let engine = st.engine.clone();
+            let q = query.q.clone();
+            let pid = id.clone();
+            match tokio::task::spawn_blocking(move || {
+                engine.search_content(&pid, &q, prefix.as_deref(), sort, 30)
+            })
+            .await
+            {
+                Ok(Ok(outcome)) => Ok(outcome),
+                Ok(Err(e)) => Err(e.to_string()),
+                Err(e) => Err(format!("search task failed: {e}")),
+            }
+        };
+    Html(views::search_page(
+        &project,
+        &query.q,
+        &dir,
+        query.scope == SearchScope::Dir && !dir.is_empty(),
+        sort,
+        outcome.as_ref().map_err(String::as_str),
+    ))
+    .into_response()
+}
+
+#[cfg(test)]
+mod search_page_tests {
+    use super::*;
+    use mdview_core::domain::SearchSort;
+
+    fn query(qs: &str) -> SearchQuery {
+        let uri: axum::http::Uri = format!("/?{qs}").parse().unwrap();
+        Query::<SearchQuery>::try_from_uri(&uri).unwrap().0
+    }
+
+    #[test]
+    fn defaults_are_whole_project_by_relevance() {
+        let q = query("q=hello");
+        assert_eq!(search_params(&q), (None, SearchSort::Relevance));
+    }
+
+    #[test]
+    fn dir_scope_with_empty_dir_has_no_prefix() {
+        assert_eq!(search_params(&query("q=x&scope=dir")).0, None);
+        assert_eq!(search_params(&query("q=x&scope=dir&dir=%2F")).0, None);
+    }
+
+    #[test]
+    fn dir_prefix_is_trimmed_and_needs_dir_scope() {
+        assert_eq!(
+            search_params(&query("q=x&scope=dir&dir=%2Fdocs%2Fapi%2F")).0,
+            Some("docs/api".to_string())
+        );
+        assert_eq!(search_params(&query("q=x&scope=project&dir=docs")).0, None);
+    }
+
+    #[test]
+    fn traversal_and_absolute_dirs_are_rejected() {
+        for dir in ["..", "a%2F..%2Fb", "..%2Fetc", "a%5C..%5Cb", "%5Cetc"] {
+            let q = query(&format!("q=x&scope=dir&dir={dir}"));
+            assert_eq!(search_params(&q).0, None, "dir={dir}");
+        }
+    }
+
+    #[test]
+    fn sort_recent_is_parsed() {
+        assert_eq!(
+            search_params(&query("q=x&sort=recent")).1,
+            SearchSort::Recent
+        );
+    }
 }
 
 #[derive(serde::Deserialize)]

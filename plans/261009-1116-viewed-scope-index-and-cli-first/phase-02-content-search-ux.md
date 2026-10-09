@@ -1,7 +1,7 @@
 ---
 phase: 2
 title: "Content search UX and excerpts"
-status: pending
+status: completed
 priority: P1
 effort: "4h"
 dependencies: [1]
@@ -94,4 +94,4 @@ the search off the async workers.
 
 ## Handoff notes
 
-_(record cross-ownership needs here)_
+None. (`views::search_page` also shows the sync status line only when a query was run; `sync_error` and `skipped_recent` lines are always shown.)
