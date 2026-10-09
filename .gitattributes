@@ -1,0 +1,2 @@
+# Templates embedded with include_str! are parsed on "\n"; keep LF on every OS.
+docs/mdview-*-template.md text eol=lf

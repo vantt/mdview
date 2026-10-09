@@ -553,6 +553,8 @@ mod tests {
                 .as_nanos()
         ));
         fs::create_dir_all(&p).unwrap();
-        TempDir(p)
+        // Canonical, like project roots: on Windows `canonicalize` adds the
+        // `\\?\` prefix, and an uncanonical path would never match a root.
+        TempDir(fs::canonicalize(&p).unwrap())
     }
 }
