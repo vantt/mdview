@@ -1,7 +1,7 @@
 ---
 phase: 5
 title: "Watcher scoped to indexed dirs"
-status: pending
+status: completed
 priority: P2
 effort: "4h"
 dependencies: [1]
@@ -81,4 +81,4 @@ until a file in it is viewed or searched again; reloading the page recovers.
 
 ## Handoff notes
 
-_(record cross-ownership needs here)_
+None. `server.rs` call site compiles unchanged.
