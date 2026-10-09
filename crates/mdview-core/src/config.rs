@@ -170,10 +170,32 @@ impl Config {
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)?;
         }
-        let text =
+        let mut text =
             toml::to_string_pretty(self).map_err(|e| Error::Config(format!("serialize: {e}")))?;
+        if self.server.hostname.is_none() {
+            text = with_hostname_hint(&text);
+        }
         write_atomic(path, text.as_bytes())
     }
+}
+
+/// An unset `hostname` serializes to nothing, so the key is invisible in the
+/// file. Insert it as a TOML comment right after `host` so it is discoverable
+/// yet inert until the operator uncomments it.
+fn with_hostname_hint(text: &str) -> String {
+    let mut out = String::with_capacity(text.len() + 64);
+    let mut in_server = false;
+    for line in text.lines() {
+        out.push_str(line);
+        out.push('\n');
+        let t = line.trim_start();
+        if t.starts_with('[') {
+            in_server = t.trim_end() == "[server]";
+        } else if in_server && t.starts_with("host =") {
+            out.push_str("# hostname = \"my-host.local\"  # optional: name shown in view URLs\n");
+        }
+    }
+    out
 }
 
 /// Atomic file write via temp-in-same-dir + rename. Shared by config & registry snapshots.
@@ -234,6 +256,24 @@ mod tests {
         c.save_to(&p).unwrap();
         let loaded = Config::load_from(&p);
         assert_eq!(loaded.server.hostname.as_deref(), Some("my-machine.local"));
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn unset_hostname_is_written_as_comment_and_ignored_on_load() {
+        let dir = std::env::temp_dir().join(format!("mdview-cfg-hint-{}", std::process::id()));
+        let p = dir.join("config.toml");
+        Config::default().save_to(&p).unwrap();
+        let text = std::fs::read_to_string(&p).unwrap();
+        assert!(text.contains("# hostname = "));
+        assert_eq!(Config::load_from(&p).server.hostname, None);
+
+        let mut c = Config::default();
+        c.server.hostname = Some("box.local".into());
+        c.save_to(&p).unwrap();
+        let text = std::fs::read_to_string(&p).unwrap();
+        assert!(!text.contains("# hostname"));
+        assert_eq!(Config::load_from(&p).server.hostname.as_deref(), Some("box.local"));
         std::fs::remove_dir_all(&dir).ok();
     }
 

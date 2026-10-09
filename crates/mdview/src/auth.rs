@@ -232,16 +232,6 @@ fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
     diff == 0
 }
 
-/// A random 32-character hex token, generated on first start when the
-/// operator has not configured one (D3): `POST /api/login`'s constant-time
-/// compare only needs matching lengths, so 32 hex chars (128 bits) is ample.
-pub fn generate_web_secret() -> String {
-    use rand::RngCore;
-    let mut bytes = [0u8; 16];
-    rand::thread_rng().fill_bytes(&mut bytes);
-    bytes.iter().map(|b| format!("{b:02x}")).collect()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -251,15 +241,6 @@ mod tests {
         assert!(constant_time_eq(b"abc", b"abc"));
         assert!(!constant_time_eq(b"abc", b"abd"));
         assert!(!constant_time_eq(b"abc", b"abcd"));
-    }
-
-    #[test]
-    fn generated_web_secret_is_32_hex_chars_and_varies() {
-        let a = generate_web_secret();
-        let b = generate_web_secret();
-        assert_eq!(a.len(), 32);
-        assert!(a.chars().all(|c| c.is_ascii_hexdigit()));
-        assert_ne!(a, b);
     }
 
     #[test]

@@ -66,19 +66,23 @@ below.
 ### Authentication
 
 The daemon requires a login before it shows anything except the login page
-and `/health`. On first start with no token configured, it generates one,
-saves it to `~/.mdview/config.toml` (`web_secret`), and prints it once:
+and `/health`. On first start with no token configured, it saves the default token `demo`
+to `~/.mdview/config.toml` (`web_secret`) and prints it:
 
 ```
-No login token configured — generated one (saved to ~/.mdview/config.toml):
-  <token>
-Sign in at /login with it, or change it later in Settings.
+No login token configured — using the default (saved to ~/.mdview/config.toml):
+  demo
+Sign in at /login with it; change `web_secret` in config.toml or Settings.
 ```
 
 Open `/login`, enter the token, and the browser stays signed in via a
 session cookie (in-memory on the daemon side — restarting the daemon signs
-everyone out). To change the token, edit `web_secret` in `config.toml` and
-restart.
+everyone out). The default is weak — change `web_secret` in `config.toml` and restart
+before exposing the daemon beyond a trusted network.
+
+The optional display `hostname` (used in the URLs mdview hands out) appears in
+a freshly written `config.toml` as a commented line under `[server]`;
+uncomment and set it to use it.
 
 **Cloudflare Access** (optional): if you tunnel mdview through Cloudflare,
 set the *Team domain* and *Application Audience tag* in Settings (or

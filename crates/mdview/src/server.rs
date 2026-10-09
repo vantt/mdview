@@ -116,18 +116,21 @@ async fn shutdown_signal() {
     let _ = tokio::signal::ctrl_c().await;
 }
 
-/// First-run provisioning (D3): if no login token is configured, generate
-/// one, persist it to `config.toml`, and print it once so the operator can
-/// sign in. Idempotent — a config that already has a secret is untouched.
+/// Login token provisioned on first start when none is configured.
+const DEFAULT_WEB_SECRET: &str = "demo";
+
+/// First-run provisioning (D3): if no login token is configured, persist the
+/// default one (`DEFAULT_WEB_SECRET`) to `config.toml` and print it so the
+/// operator can sign in. Idempotent — a config that already has a secret is
+/// untouched.
 fn ensure_web_secret() -> Result<()> {
     let mut cfg = mdview_core::Config::load();
     if cfg.server.web_secret.as_deref().unwrap_or("").is_empty() {
-        let secret = crate::auth::generate_web_secret();
-        cfg.server.web_secret = Some(secret.clone());
+        cfg.server.web_secret = Some(DEFAULT_WEB_SECRET.to_string());
         cfg.save()?;
-        println!("No login token configured — generated one (saved to ~/.mdview/config.toml):");
-        println!("  {secret}");
-        println!("Sign in at /login with it, or change it later in Settings.");
+        println!("No login token configured — using the default (saved to ~/.mdview/config.toml):");
+        println!("  {DEFAULT_WEB_SECRET}");
+        println!("Sign in at /login with it; change `web_secret` in config.toml or Settings.");
     }
     Ok(())
 }
