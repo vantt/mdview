@@ -1,7 +1,7 @@
 ---
 title: "Viewed-scope index, contentless FTS search, CLI-first agent integration"
 description: "Index only what the user views (plus link targets and siblings), sync the whole project lazily on content search, shrink the registry DB, and make `mdview open --json` the primary agent path."
-status: pending
+status: completed
 priority: P1
 effort: "3d"
 branch: feat/viewed-scope-index
@@ -51,13 +51,13 @@ search, and moves agents to the CLI.
 
 | # | Phase | Depends on | Parallel group | Status |
 |---|---|---|---|---|
-| 1 | [Foundation: schema, store, sync, contracts](./phase-01-foundation-store-and-sync.md) | — | sequential | Pending |
-| 2 | [Content search UX and excerpts](./phase-02-content-search-ux.md) | 1 | wave A | Pending |
-| 3 | [Index on render: one read + neighbours](./phase-03-index-on-render.md) | 1 | wave A | Pending |
-| 4 | [Filesystem listing, sidebar and jump palette](./phase-04-listing-sidebar-jump.md) | 1 | wave A | Pending |
-| 5 | [Watcher scoped to indexed dirs](./phase-05-scoped-watcher.md) | 1 | wave A | Pending |
-| 6 | [CLI-first agent integration](./phase-06-cli-first-agents.md) | 1 | wave A | Pending |
-| 7 | [Integration, docs, end-to-end verification](./phase-07-integration-and-docs.md) | 2–6 | sequential | Pending |
+| 1 | [Foundation: schema, store, sync, contracts](./phase-01-foundation-store-and-sync.md) | — | sequential | Completed |
+| 2 | [Content search UX and excerpts](./phase-02-content-search-ux.md) | 1 | wave A | Completed |
+| 3 | [Index on render: one read + neighbours](./phase-03-index-on-render.md) | 1 | wave A | Completed |
+| 4 | [Filesystem listing, sidebar and jump palette](./phase-04-listing-sidebar-jump.md) | 1 | wave A | Completed |
+| 5 | [Watcher scoped to indexed dirs](./phase-05-scoped-watcher.md) | 1 | wave A | Completed |
+| 6 | [CLI-first agent integration](./phase-06-cli-first-agents.md) | 1 | wave A | Completed |
+| 7 | [Integration, docs, end-to-end verification](./phase-07-integration-and-docs.md) | 2–6 | sequential | Completed |
 
 ### Execution model
 
