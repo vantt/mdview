@@ -1,7 +1,8 @@
 //! File listings served to the sidebar and the jump palette.
 //!
-//! Both read a short-lived cached walk of the project directory, so they show
-//! every markdown file whether or not it has been indexed. Titles come from the
+//! Both read a short-lived cached walk of the project directory, plus every
+//! indexed row whose file still exists (a gitignored folder is invisible to the
+//! walk yet can be viewed, agent-opened and searched). Titles come from the
 //! index when the file's content is indexed, else from the filename.
 
 use crate::domain::IndexedFile;
@@ -9,7 +10,8 @@ use crate::engine::Engine;
 use crate::error::{Error, Result};
 use crate::fuzzy::{self, FuzzyHit};
 use crate::indexer;
-use std::collections::HashMap;
+use crate::repository::FileState;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant, SystemTime};
@@ -62,36 +64,66 @@ fn filename_title(rel_path: &str) -> String {
     rel_path.rsplit('/').next().unwrap_or(rel_path).to_string()
 }
 
+/// Append an entry for every row in `states` that the walk missed, provided the
+/// file still exists inside `root` and is not excluded.
+fn add_indexed_entries(
+    root: &Path,
+    exclude: &[String],
+    entries: &mut Vec<ListingEntry>,
+    states: &HashMap<String, FileState>,
+) {
+    let Ok(canonical_root) = std::fs::canonicalize(root) else {
+        return;
+    };
+    let seen: HashSet<String> = entries.iter().map(|e| e.rel_path.clone()).collect();
+    for rel in states.keys().filter(|rel| !seen.contains(*rel)) {
+        let abs = root.join(rel);
+        let Some(canonical) = indexer::confine_in(&canonical_root, &abs, exclude) else {
+            continue;
+        };
+        if let Ok(modified) = std::fs::metadata(canonical).and_then(|m| m.modified()) {
+            entries.push(ListingEntry {
+                rel_path: rel.clone(),
+                modified,
+            });
+        }
+    }
+}
+
 impl Engine {
-    fn project_listing(&self, project_id: &str) -> Result<(PathBuf, Arc<Vec<ListingEntry>>)> {
+    /// The directory walk united with the project's indexed files, plus the
+    /// state of every indexed row.
+    fn project_listing(
+        &self,
+        project_id: &str,
+    ) -> Result<(PathBuf, Vec<ListingEntry>, HashMap<String, FileState>)> {
         let project = self
             .store
             .get_project(project_id)?
             .ok_or_else(|| Error::ProjectNotFound(project_id.to_string()))?;
-        let entries = listing_with_ttl(
-            &project.root_path,
-            &self.config.indexing.exclude_patterns,
-            LISTING_TTL,
-        );
-        Ok((project.root_path, entries))
+        let exclude = &self.config.indexing.exclude_patterns;
+        let mut entries = listing_with_ttl(&project.root_path, exclude, LISTING_TTL)
+            .as_ref()
+            .clone();
+        let states = self.store.file_states(project_id)?;
+        add_indexed_entries(&project.root_path, exclude, &mut entries, &states);
+        Ok((project.root_path, entries, states))
     }
 
     /// Titles of content-indexed files, keyed by relative path.
-    fn indexed_titles(&self, project_id: &str) -> Result<HashMap<String, String>> {
-        Ok(self
-            .store
-            .file_states(project_id)?
+    fn indexed_titles(states: HashMap<String, FileState>) -> HashMap<String, String> {
+        states
             .into_iter()
             .filter(|(_, s)| s.content_indexed())
             .map(|(rel, s)| (rel, s.title))
-            .collect())
+            .collect()
     }
 
-    /// Files shown in the project sidebar: every markdown file on disk, sorted
+    /// Files shown in the project sidebar: every markdown file on disk or in the index, sorted
     /// by relative path.
     pub fn sidebar_files(&self, project_id: &str) -> Result<Vec<IndexedFile>> {
-        let (root, entries) = self.project_listing(project_id)?;
-        let mut titles = self.indexed_titles(project_id)?;
+        let (root, entries, states) = self.project_listing(project_id)?;
+        let mut titles = Self::indexed_titles(states);
         let mut files: Vec<IndexedFile> = entries
             .iter()
             .map(|e| {
@@ -118,8 +150,8 @@ impl Engine {
     /// `limit` most recently modified files; otherwise files are ranked by a
     /// fuzzy match of `query` against path and title.
     pub fn jump_files(&self, project_id: &str, query: &str, limit: usize) -> Result<Vec<FuzzyHit>> {
-        let (_, entries) = self.project_listing(project_id)?;
-        let mut titles = self.indexed_titles(project_id)?;
+        let (_, entries, states) = self.project_listing(project_id)?;
+        let mut titles = Self::indexed_titles(states);
         let items: Vec<(String, String, SystemTime)> = entries
             .iter()
             .map(|e| {
@@ -235,6 +267,54 @@ mod tests {
         assert_eq!(rels, ["docs/known.md", "docs/unknown.md"]);
         assert_eq!(files[0].title, "Known Title");
         assert_eq!(files[1].title, "unknown.md");
+    }
+
+    #[test]
+    fn sidebar_includes_indexed_files_the_walk_ignores() {
+        let (dir, engine, id) = setup("ignored");
+        write(dir.path(), ".ignore", "plans/\n");
+        write(dir.path(), "plans/p1.md", "# Plan One\nbody");
+        write(dir.path(), "plans/p2.md", "# Plan Two\nbody");
+        write(dir.path(), "readme.md", "# Readme");
+        let project = engine.get_project(&id).unwrap().unwrap();
+        let doc = indexer::IndexService::build_doc(
+            &project,
+            &project.root_path.join("plans/p1.md"),
+            10_000_000,
+            &[],
+        )
+        .unwrap();
+        engine.store.index_docs(&[doc]).unwrap();
+        // A stub row (viewed, content unread) and a row whose file is gone.
+        engine
+            .store
+            .register_known_path(&IndexedFile {
+                project_id: id.clone(),
+                abs_path: project.root_path.join("plans/p2.md"),
+                rel_path: "plans/p2.md".into(),
+                title: "x".into(),
+                size_bytes: 0,
+                modified_at: "1970-01-01T00:00:00Z".into(),
+            })
+            .unwrap();
+        engine
+            .store
+            .register_known_path(&IndexedFile {
+                project_id: id.clone(),
+                abs_path: project.root_path.join("plans/gone.md"),
+                rel_path: "plans/gone.md".into(),
+                title: "x".into(),
+                size_bytes: 0,
+                modified_at: "1970-01-01T00:00:00Z".into(),
+            })
+            .unwrap();
+
+        let files = engine.sidebar_files(&id).unwrap();
+        let rels: Vec<&str> = files.iter().map(|f| f.rel_path.as_str()).collect();
+        assert_eq!(rels, ["plans/p1.md", "plans/p2.md", "readme.md"]);
+        assert_eq!(files[0].title, "Plan One");
+        let jump = engine.jump_files(&id, "plan", 10).unwrap();
+        assert!(jump.iter().any(|h| h.rel_path == "plans/p1.md"));
     }
 
     #[test]

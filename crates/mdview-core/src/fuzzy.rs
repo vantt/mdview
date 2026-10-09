@@ -25,6 +25,23 @@ pub struct FuzzyHit {
     pub score: u32,
 }
 
+/// Minimum nucleo score per non-space query character. Contiguous or
+/// word-boundary matches score roughly 20-28 per character; characters picked
+/// out of the middle of unrelated words score far less, so a hit below this
+/// bar is scattered noise rather than a name or an abbreviation.
+const MIN_SCORE_PER_CHAR: u32 = 18;
+/// Score docked for each hidden (dot-prefixed) path component.
+const HIDDEN_PENALTY: u32 = 24;
+/// Score docked for each directory level, so shallower paths win near-ties.
+const DEPTH_PENALTY: u32 = 4;
+
+/// `(hidden components, directory depth)` of a relative path.
+fn path_shape(rel: &str) -> (u32, u32) {
+    let parts: Vec<&str> = rel.split('/').filter(|p| !p.is_empty()).collect();
+    let hidden = parts.iter().filter(|p| p.starts_with('.')).count() as u32;
+    (hidden, parts.len().saturating_sub(1) as u32)
+}
+
 /// Rank `files` by a fuzzy match of `query` against each file's relative path
 /// and title. See [`rank_items`].
 pub fn rank_files(
@@ -43,7 +60,10 @@ pub fn rank_files(
 /// Rank `(rel_path, title, modified)` items by a fuzzy match of `query`.
 ///
 /// An item's score is the better of its path score and its title score; equal
-/// scores list the more recently modified item first. Returns at most `limit`
+/// scores list the more recently modified item first. Matches too scattered to
+/// be a name or abbreviation (see `MIN_SCORE_PER_CHAR`) are dropped. Hidden and
+/// deeply nested paths are docked a little, so `README.md` outranks
+/// `.grok/skills/x/README.md` when the two match alike. Returns at most `limit`
 /// hits by descending score. A blank query yields an empty result.
 /// Query, path and title all go through [`crate::fold::fold`], so "huong"
 /// finds "Hướng dẫn" the same way content search does.
@@ -67,6 +87,8 @@ pub fn rank_items(
         Normalization::Smart,
     );
     let mut buf = Vec::new();
+    let min_score =
+        MIN_SCORE_PER_CHAR * query.chars().filter(|c| !c.is_whitespace()).count() as u32;
 
     let mut scored: Vec<(u32, SystemTime, &(String, String, SystemTime))> = items
         .iter()
@@ -75,10 +97,17 @@ pub fn rank_items(
             let title = crate::fold::fold(&item.1);
             let by_path = pattern.score(Utf32Str::new(&path, &mut buf), &mut path_matcher);
             let by_title = pattern.score(Utf32Str::new(&title, &mut buf), &mut title_matcher);
-            by_path.max(by_title).map(|score| (score, item.2, item))
+            let score = by_path.max(by_title).filter(|s| *s >= min_score)?;
+            let (hidden, depth) = path_shape(&item.0);
+            let docked = score.saturating_sub(hidden * HIDDEN_PENALTY + depth * DEPTH_PENALTY);
+            Some((docked, item.2, item))
         })
         .collect();
-    scored.sort_by(|a, b| b.0.cmp(&a.0).then(b.1.cmp(&a.1)));
+    scored.sort_by(|a, b| {
+        b.0.cmp(&a.0)
+            .then_with(|| path_shape(&a.2 .0).cmp(&path_shape(&b.2 .0)))
+            .then_with(|| b.1.cmp(&a.1))
+    });
 
     scored
         .into_iter()
@@ -213,5 +242,89 @@ mod tests {
     fn rank_items_blank_query_is_empty() {
         let items = vec![item("a.md", "A", 1)];
         assert!(rank_items(&items, "p1", "  ", 10).is_empty());
+    }
+
+    fn paths(hits: &[FuzzyHit]) -> Vec<&str> {
+        hits.iter().map(|h| h.rel_path.as_str()).collect()
+    }
+
+    #[test]
+    fn root_file_outranks_same_named_copies_in_hidden_dirs() {
+        let items = vec![
+            item(".grok/skills/ops/README.md", "README", 900),
+            item(".omp/skills/ops/README.md", "README", 800),
+            item("docs/guide/README.md", "README", 700),
+            item("README.md", "README", 1),
+        ];
+        let hits = rank_items(&items, "p1", "readme", 10);
+        assert_eq!(
+            paths(&hits),
+            [
+                "README.md",
+                "docs/guide/README.md",
+                ".grok/skills/ops/README.md",
+                ".omp/skills/ops/README.md"
+            ]
+        );
+        assert!(hits.windows(2).all(|w| w[0].score >= w[1].score));
+    }
+
+    #[test]
+    fn shallower_wins_when_neither_path_is_hidden() {
+        let items = vec![
+            item("a/b/c/tasks.md", "Tasks", 99),
+            item("tasks.md", "Tasks", 1),
+        ];
+        let hits = rank_items(&items, "p1", "tasks", 10);
+        assert_eq!(paths(&hits), ["tasks.md", "a/b/c/tasks.md"]);
+    }
+
+    #[test]
+    fn scattered_matches_are_dropped() {
+        let items = vec![
+            item(
+                "docs/seo-yield-conclusion-tailwind-utilities-set.md",
+                "SEO yield",
+                1,
+            ),
+            item(
+                "skills/headline-templates-with-hooks-overview.md",
+                "Headlines",
+                1,
+            ),
+            item("docs/weekly-kanban-heatmap-overview.md", "Kanban", 1),
+        ];
+        assert!(rank_items(&items, "p1", "synclite", 10).is_empty());
+        assert!(rank_items(&items, "p1", "kehoach", 10).is_empty());
+    }
+
+    #[test]
+    fn partial_names_and_abbreviations_still_match() {
+        let items = vec![
+            item("docs/weekly-kanban-heatmap-overview.md", "Kanban", 1),
+            item("proxy/synclite.md", "Sync Lite", 1),
+            item("docs/kế-hoạch.md", "Kế hoạch triển khai", 1),
+            item("docs/api/authentication.md", "Authentication", 1),
+        ];
+        assert_eq!(
+            paths(&rank_items(&items, "p1", "wkh", 10)),
+            ["docs/weekly-kanban-heatmap-overview.md"]
+        );
+        assert_eq!(
+            paths(&rank_items(&items, "p1", "heatmap", 10)),
+            ["docs/weekly-kanban-heatmap-overview.md"]
+        );
+        assert_eq!(
+            paths(&rank_items(&items, "p1", "sync", 10)),
+            ["proxy/synclite.md"]
+        );
+        assert_eq!(
+            paths(&rank_items(&items, "p1", "ke hoach", 10)),
+            ["docs/kế-hoạch.md"]
+        );
+        assert_eq!(
+            paths(&rank_items(&items, "p1", "auth", 10)),
+            ["docs/api/authentication.md"]
+        );
     }
 }
