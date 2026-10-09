@@ -643,6 +643,13 @@ fn default_jump_limit() -> usize {
     20
 }
 
+/// Largest number of palette rows a caller may request.
+const MAX_JUMP_LIMIT: usize = 50;
+
+fn clamp_jump_limit(limit: usize) -> usize {
+    limit.clamp(1, MAX_JUMP_LIMIT)
+}
+
 /// Fuzzy file-jump endpoint: ranks the project's files by a fuzzy match of `q`
 /// against their relative paths (complements the `_search` content search) and
 /// returns the hits as JSON for the client jump palette.
@@ -655,11 +662,27 @@ async fn jump_search(
     if matches!(st.engine.get_project(&id), Ok(None) | Err(_)) {
         return not_found("project not found");
     }
-    let hits = st
-        .engine
-        .jump_files(&id, &query.q, query.limit)
-        .unwrap_or_default();
+    let engine = st.engine.clone();
+    let limit = clamp_jump_limit(query.limit);
+    let hits = tokio::task::spawn_blocking(move || {
+        engine.jump_files(&id, &query.q, limit).unwrap_or_default()
+    })
+    .await
+    .unwrap_or_default();
     Json(hits).into_response()
+}
+
+#[cfg(test)]
+mod jump_tests {
+    use super::*;
+
+    #[test]
+    fn limit_is_clamped_to_one_through_fifty() {
+        assert_eq!(clamp_jump_limit(0), 1);
+        assert_eq!(clamp_jump_limit(20), 20);
+        assert_eq!(clamp_jump_limit(50), 50);
+        assert_eq!(clamp_jump_limit(1_000_000), 50);
+    }
 }
 
 async fn code_root(
