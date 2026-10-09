@@ -1,7 +1,7 @@
 ---
 phase: 4
 title: "Filesystem listing, sidebar and jump palette"
-status: pending
+status: completed
 priority: P1
 effort: "4h"
 dependencies: [1]
