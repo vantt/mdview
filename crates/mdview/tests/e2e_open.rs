@@ -4,6 +4,11 @@
 //! This exercises the D3 happy path (loopback bind, no timeout fallback);
 //! `bound-port-truth-1`'s own unit tests separately cover D2's stale-lock
 //! fallback, which this test does not hit.
+//!
+//! Unix only: each daemon is isolated by pointing `HOME` at a scratch dir, and
+//! on Windows `dirs::home_dir()` ignores `HOME`, so the daemons would share the
+//! real profile's `.mdview` instead.
+#![cfg(unix)]
 
 use mdview_core::daemon::{health_check, DaemonInfo};
 use std::io::{Read, Write};
