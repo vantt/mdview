@@ -29,10 +29,11 @@ Pick the best available method:
 2. **CLI fallback** — otherwise run:
 
    ```sh
-   mdview open <absolute-path-to-file>
+   mdview open --json <absolute-path-to-file>
    ```
 
-   It prints the browser URL(s), auto-starting the daemon if needed.
+   It prints the same JSON fields as the MCP tool (`url`, `urls`, `long_url`,
+   `long_urls`, `code`, `project_id`), auto-starting the daemon if needed.
 
 ## Reporting the URL
 

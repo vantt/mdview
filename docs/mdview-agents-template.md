@@ -26,7 +26,7 @@ rendered the moment its URL is opened.
 ### Using CLI fallback
 
 ```sh
-mdview open <absolute-path-to-file.md>
+mdview open --json <absolute-path-to-file.md>
 ```
 
 ### When to render
