@@ -58,8 +58,7 @@ fn tool_schema() -> Value {
     json!({
         "name": "mdview_view_file",
         "description": "Make a markdown file viewable in the browser and return its URL. \
-    Auto-registers the project on first use. The file is indexed when its URL is opened, \
-    and the project is indexed on its first content search. Pass the project root and the file path relative to that root.",
+    Auto-registers the project on first use. Pass the project root and the file path relative to that root.",
         "inputSchema": {
             "type": "object",
             "properties": {

@@ -5,10 +5,9 @@ description: View a markdown or docs file in the local mdview browser viewer and
 
 # mdview
 
-Render a file in the local mdview viewer and hand the user a browser URL. mdview
-runs a background daemon that resolves cross-folder links, so click-through
-navigation never 404s. Files are indexed when viewed (with their links and
-sibling markdown files); the whole project is indexed on its first search.
+Render a file in the local mdview viewer and hand the user a browser URL. Links
+between markdown files resolve across folders, so click-through navigation
+never 404s.
 
 ## Input
 
@@ -25,16 +24,15 @@ Pick the best available method:
    mdview open --json <absolute-path-to-file>
    ```
 
-   It prints JSON with `url`, `urls`, `long_url`, `long_urls`, `path`, `code`
-   and `project_id`, auto-registering the project and auto-starting the daemon
-   if needed.
+   It prints JSON whose `url` is the link to share (plus a `urls` array when
+   several hosts are reachable), registering the project and starting the
+   daemon if needed.
 
 2. **MCP tool (if you have no shell)** — call `mdview_view_file` with:
    - `project_root`: absolute path to the project root
    - `relative_path`: the file relative to that root
 
-   It returns the same fields (a `urls` array when the daemon is bound to a
-   wildcard host) and auto-registers the project on first use.
+   It returns the same fields.
 
 ## Reporting the URL
 

@@ -12,12 +12,10 @@ no project registration step needed:
 mdview open --json <absolute-path-to-file.md>
 ```
 
-It prints JSON with `url` (the short link to share), `urls` (one per reachable
-IP when the daemon binds a wildcard host), `long_url`, `long_urls`, `path`,
-`code` and `project_id`. Tell the user: "You can view this at: `<url>`".
-The project is auto-registered on first use and the daemon is started if needed.
-The file is indexed when its URL is opened; the rest of the project is indexed
-on the first content search.
+Tell the user: "You can view this at: `<url>`", using the `url` field of the
+JSON it prints. When `urls` holds more than one link, list them all so the user
+can pick the one reachable from their browser. The project is registered and
+the daemon started automatically.
 
 ### If you have no shell
 

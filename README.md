@@ -32,7 +32,7 @@ AI coding agents generate docs like a firehose: nested folders, `../src/api/READ
 links, Mermaid diagrams, tables, long code blocks. Open that in a typical single-folder
 viewer and half the links 404, there's no search, and every edit means a manual refresh.
 
-mdview indexes the **whole project** — at any folder depth — rewrites every internal link
+mdview serves the **whole project** — at any folder depth — rewrites every internal link
 into its own URL namespace, and live-reloads on save. The docs your agent generates just… work.
 
 | | |
