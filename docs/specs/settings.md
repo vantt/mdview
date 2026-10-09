@@ -45,9 +45,9 @@ authentication — anyone who can reach the settings page can change it.
 | 4 | Open browser on start | Whether a browser tab opens automatically when the server starts | on / off | no | off |
 | 5 | Theme | Overall light/dark appearance of rendered pages | `system` — follows the OS/browser preference · `light` · `dark` | no (an unrecognized value is ignored, keeping the previous theme) | `system` |
 | 6 | Syntax highlight theme | Color theme used for fenced code blocks | any theme name known to the renderer | no (blank is ignored, keeping the previous value) | `github-dark` |
-| 7 | Debounce (ms) | How long the indexer waits after a file change before re-indexing it | milliseconds, ≥0 | no | 200 |
-| 8 | Max file size (MB) | Files larger than this are skipped by the indexer | megabytes, ≥1 | no (a value below 1 is ignored, keeping the previous size) | 10 |
-| 9 | Exclude patterns | Folder/file name patterns the indexer never scans | one pattern per line; blank lines and surrounding whitespace are dropped | no | `.git`, `node_modules`, `.venv`, `target`, `dist` |
+| 7 | Debounce (ms) | How long the live-reload watcher waits after a file change before re-indexing it | milliseconds, ≥0 | no | 200 |
+| 8 | Max file size (MB) | Files larger than this are skipped by indexing | megabytes, ≥1 | no (a value below 1 is ignored, keeping the previous size) | 10 |
+| 9 | Exclude patterns | Folder/file name patterns that are never indexed, searched, or rendered | one pattern per line; blank lines and surrounding whitespace are dropped | no | `.git`, `node_modules`, `.venv`, `target`, `dist` |
 | 10 | MCP enabled | Whether the agent-integration tool is available | on / off | no | on |
 | 11 | MCP transport | How an agent's MCP client talks to mdview | `stdio` · `http` | no (an unrecognized value is ignored, keeping the previous value) | `stdio` |
 

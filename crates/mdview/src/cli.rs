@@ -29,7 +29,7 @@ pub enum Command {
         #[arg(long)]
         host: Option<String>,
     },
-    /// Register a project (recursive scan + index).
+    /// Register a project (files are indexed when viewed or searched).
     Register {
         path: PathBuf,
         #[arg(long)]
@@ -63,7 +63,7 @@ pub enum Command {
         #[arg(long)]
         json: bool,
     },
-    /// Re-scan a project (or all) to reconcile the index.
+    /// Fully re-scan a project (or all) to reconcile the index.
     Refresh { project: Option<String> },
     /// Remove a project from the registry (files are not deleted).
     Unregister { project_id: String },
@@ -80,6 +80,10 @@ pub enum Command {
         dry_run: bool,
         #[arg(long)]
         fix: bool,
+        /// Also check/register the MCP server in Claude Code, Codex and
+        /// Antigravity (off by default; the CLI is the primary agent path).
+        #[arg(long)]
+        mcp: bool,
     },
     /// Run the MCP server over stdio (used by Claude Code).
     Mcp,
@@ -115,7 +119,12 @@ pub fn run(cli: Cli) -> Result<()> {
         Command::Unregister { project_id } => cmd_unregister(&project_id),
         Command::Stop => cmd_stop(),
         Command::Restart => cmd_restart(),
-        Command::Doctor { json, dry_run, fix } => crate::doctor::run(json, dry_run, fix),
+        Command::Doctor {
+            json,
+            dry_run,
+            fix,
+            mcp,
+        } => crate::doctor::run(json, dry_run, fix, mcp),
         Command::Mcp => crate::mcp::run(),
         Command::Config { action } => match action {
             ConfigAction::Edit => cmd_config_edit(),
@@ -225,13 +234,6 @@ fn cmd_serve(port: Option<u16>, host: Option<String>) -> Result<()> {
 fn cmd_register(path: &Path, name: Option<&str>, json: bool) -> Result<()> {
     let engine = runtime::build_engine()?;
     let (project, is_new) = engine.register(path, name)?;
-    if is_new {
-        // Don't block this command on a full recursive scan of the project —
-        // hand it to a detached child process and return immediately.
-        if let Err(e) = runtime::spawn_refresh_detached(&project.id) {
-            eprintln!("mdview: failed to spawn background indexing: {e}");
-        }
-    }
     let count = engine.file_count(&project.id)?;
     if json {
         println!(
@@ -240,18 +242,18 @@ fn cmd_register(path: &Path, name: Option<&str>, json: bool) -> Result<()> {
                 "project_id": project.id, "name": project.name,
                 "root_path": project.root_path, "file_count": count,
                 "url": format!("/p/{}/", project.id),
-                "indexing": if is_new { "background" } else { "up-to-date" }
+                "indexing": "on-demand"
             })
         );
     } else if is_new {
         println!(
-            "Registered '{}' ({}) — indexing in the background",
+            "Registered '{}' ({}) — files are indexed when viewed or searched",
             project.name, project.id
         );
         println!("  {}", project.root_path.display());
     } else {
         println!(
-            "Registered '{}' ({}) — {} markdown files",
+            "Registered '{}' ({}) — {} indexed files",
             project.name, project.id, count
         );
         println!("  {}", project.root_path.display());
@@ -266,14 +268,6 @@ fn cmd_open(path: &Path, json: bool) -> Result<()> {
     let root = find_project_root(&engine, &abs);
     let rel = indexer::rel_path_str(&root, &abs);
     let vf = engine.view_file(&root, &rel)?;
-    if vf.is_new_project {
-        // Don't block this command on a full recursive scan — the daemon
-        // will index the requested file on demand when the URL is opened;
-        // a detached child process backfills the rest of the project.
-        if let Err(e) = runtime::spawn_refresh_detached(&vf.project_id) {
-            eprintln!("mdview: failed to spawn background indexing: {e}");
-        }
-    }
     // Short form, same as the MCP tool emits (D9): a deep path pushes the full
     // URL past a terminal's width, where it wraps and stops being clickable.
     let bases = runtime::ensure_daemon_bases();
@@ -286,7 +280,10 @@ fn cmd_open(path: &Path, json: bool) -> Result<()> {
         .map(|base| format!("{base}{}", vf.url))
         .collect();
     if json {
-        println!("{}", open_json(&urls, &long_urls, &vf.code, &vf.project_id));
+        println!(
+            "{}",
+            open_json(&urls, &long_urls, &vf.code, &vf.project_id, &vf.url)
+        );
     } else if urls.len() > 1 {
         println!("{}", format_url_choices(&urls));
     } else {
@@ -304,6 +301,7 @@ fn open_json(
     long_urls: &[String],
     code: &str,
     project_id: &str,
+    path: &str,
 ) -> serde_json::Value {
     let primary = urls.first().cloned().unwrap_or_default();
     serde_json::json!({
@@ -311,6 +309,7 @@ fn open_json(
         "urls": urls,
         "long_url": long_urls.first().cloned().unwrap_or_default(),
         "long_urls": long_urls,
+        "path": path,
         "code": code,
         "project_id": project_id
     })
@@ -368,7 +367,12 @@ fn cmd_list(json: bool) -> Result<()> {
     } else {
         for p in &projects {
             let c = engine.file_count(&p.id).unwrap_or(0);
-            println!("{:<20} {:>5} files  {}", p.id, c, p.root_path.display());
+            println!(
+                "{:<20} {:>5} indexed files  {}",
+                p.id,
+                c,
+                p.root_path.display()
+            );
         }
     }
     Ok(())
@@ -376,7 +380,22 @@ fn cmd_list(json: bool) -> Result<()> {
 
 fn cmd_search(query: &str, project: Option<&str>, limit: usize, json: bool) -> Result<()> {
     let engine = runtime::build_engine()?;
-    let results = engine.search(query, project, limit)?;
+    let results = match project {
+        Some(id) => {
+            let outcome = engine.search_content(
+                id,
+                query,
+                None,
+                mdview_core::domain::SearchSort::Relevance,
+                limit,
+            )?;
+            if let Some(err) = &outcome.sync_error {
+                eprintln!("mdview: project sync failed, searching what is indexed: {err}");
+            }
+            outcome.results
+        }
+        None => engine.search_indexed(query, limit)?,
+    };
     if json {
         println!("{}", serde_json::json!({ "results": results }));
     } else if results.is_empty() {
@@ -419,17 +438,26 @@ fn cmd_refresh(project: Option<&str>) -> Result<()> {
     let engine = runtime::build_engine()?;
     match project {
         Some(id) => {
-            let n = engine.refresh(id)?;
-            println!("Reindexed {n} files in '{id}'.");
+            let stats = engine.sync_project(id)?;
+            println!("{id}: {}", describe_sync(&stats));
         }
         None => {
             for p in engine.list_projects()? {
-                let n = engine.refresh(&p.id)?;
-                println!("{}: {n} files", p.id);
+                match engine.sync_project(&p.id) {
+                    Ok(stats) => println!("{}: {}", p.id, describe_sync(&stats)),
+                    Err(e) => eprintln!("{}: sync failed: {e}", p.id),
+                }
             }
         }
     }
     Ok(())
+}
+
+fn describe_sync(stats: &mdview_core::domain::SyncStats) -> String {
+    format!(
+        "{} files seen, {} read, {} removed ({} ms)",
+        stats.files_seen, stats.files_read, stats.files_removed, stats.elapsed_ms
+    )
 }
 
 fn cmd_unregister(id: &str) -> Result<()> {
@@ -439,33 +467,9 @@ fn cmd_unregister(id: &str) -> Result<()> {
     Ok(())
 }
 
-/// Stop the daemon named by the lock file, if any. Removes the lock either way
-/// (a failed kill means the process is already gone). Returns `(pid, killed_ok)`
-/// when a lock existed, or `None` when no daemon was recorded.
+/// Stop the daemon named by the lock file, if any (see `runtime::stop_daemon`).
 fn stop_daemon() -> Option<(u32, bool)> {
-    let info = runtime::read_lock()?;
-    #[cfg(unix)]
-    let ok = std::process::Command::new("kill")
-        .arg(info.pid.to_string())
-        .status()
-        .map(|s| s.success())
-        .unwrap_or(false);
-    #[cfg(not(unix))]
-    let ok = std::process::Command::new("taskkill")
-        .args(["/PID", &info.pid.to_string(), "/F"])
-        .status()
-        .map(|s| s.success())
-        .unwrap_or(false);
-    // Clear the lock unless the daemon is genuinely orphaned — a kill that
-    // failed while the daemon still answers on its port. Deleting the lock in
-    // that case would strand a live daemon that `stop`/`status` can no longer
-    // reach and let `restart` spawn a second one. A failed kill on an already
-    // dead process (health check fails) is a stale lock and is cleared.
-    let orphaned = !ok && runtime::running_daemon().is_some();
-    if !orphaned {
-        runtime::remove_lock();
-    }
-    Some((info.pid, ok))
+    runtime::stop_daemon()
 }
 
 /// Map `stop_daemon()`'s outcome to `cmd_stop`'s exact printed message: a
@@ -635,7 +639,7 @@ mod open_url_shape_tests {
     fn open_json_single_url_sets_url_and_urls_consistently() {
         let u = urls(&["http://127.0.0.1:7700/s/a3f9c1d20b74"]);
         let long = urls(&["http://127.0.0.1:7700/p/proj1/docs/a.md"]);
-        let v = open_json(&u, &long, "a3f9c1d20b74", "proj1");
+        let v = open_json(&u, &long, "a3f9c1d20b74", "proj1", "/p/proj1/docs/a.md");
         assert_eq!(v["url"], "http://127.0.0.1:7700/s/a3f9c1d20b74");
         assert_eq!(
             v["urls"],
@@ -654,7 +658,7 @@ mod open_url_shape_tests {
             "http://192.168.1.5:7700/p/proj1/docs/a.md",
             "http://10.0.0.2:7700/p/proj1/docs/a.md",
         ]);
-        let v = open_json(&u, &long, "a3f9c1d20b74", "proj1");
+        let v = open_json(&u, &long, "a3f9c1d20b74", "proj1", "/p/proj1/docs/a.md");
         assert_eq!(v["url"], "http://192.168.1.5:7700/s/a3f9c1d20b74");
         assert_eq!(v["urls"], serde_json::json!(u));
         assert_eq!(v["url"], v["urls"][0]);
@@ -662,7 +666,7 @@ mod open_url_shape_tests {
 
     #[test]
     fn open_json_empty_urls_defaults_primary_to_empty_string() {
-        let v = open_json(&[], &[], "", "proj1");
+        let v = open_json(&[], &[], "", "proj1", "");
         assert_eq!(v["url"], "");
         assert_eq!(v["urls"], serde_json::json!(Vec::<String>::new()));
     }
@@ -673,9 +677,17 @@ mod open_url_shape_tests {
     fn open_json_still_carries_the_long_url() {
         let u = urls(&["http://127.0.0.1:7700/s/a3f9c1d20b74"]);
         let long = urls(&["http://127.0.0.1:7700/p/proj1/docs/a.md"]);
-        let v = open_json(&u, &long, "a3f9c1d20b74", "proj1");
+        let v = open_json(&u, &long, "a3f9c1d20b74", "proj1", "/p/proj1/docs/a.md");
         assert_eq!(v["long_url"], "http://127.0.0.1:7700/p/proj1/docs/a.md");
         assert_eq!(v["code"], "a3f9c1d20b74");
+    }
+
+    /// CLI JSON carries the same `path` field as the MCP `structuredContent`.
+    #[test]
+    fn open_json_carries_the_viewer_path() {
+        let u = urls(&["http://127.0.0.1:7700/s/a3f9c1d20b74"]);
+        let v = open_json(&u, &u, "a3f9c1d20b74", "proj1", "/p/proj1/docs/a.md");
+        assert_eq!(v["path"], "/p/proj1/docs/a.md");
     }
 
     #[test]

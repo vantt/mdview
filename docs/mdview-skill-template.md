@@ -6,8 +6,9 @@ description: View a markdown or docs file in the local mdview browser viewer and
 # mdview
 
 Render a file in the local mdview viewer and hand the user a browser URL. mdview
-runs a background daemon that indexes markdown across a whole project and
-resolves cross-folder links, so click-through navigation never 404s.
+runs a background daemon that resolves cross-folder links, so click-through
+navigation never 404s. Files are indexed when viewed (with their links and
+sibling markdown files); the whole project is indexed on its first search.
 
 ## Input
 
@@ -18,21 +19,22 @@ resolves cross-folder links, so click-through navigation never 404s.
 
 Pick the best available method:
 
-1. **MCP tool (preferred)** — if `mdview_view_file` is available, call it with:
+1. **CLI (preferred)** — run:
+
+   ```sh
+   mdview open --json <absolute-path-to-file>
+   ```
+
+   It prints JSON with `url`, `urls`, `long_url`, `long_urls`, `path`, `code`
+   and `project_id`, auto-registering the project and auto-starting the daemon
+   if needed.
+
+2. **MCP tool (if you have no shell)** — call `mdview_view_file` with:
    - `project_root`: absolute path to the project root
    - `relative_path`: the file relative to that root
 
-   It returns a `url` (and a `urls` array when the daemon is bound to a wildcard
-   host). It auto-registers the project on first use — no separate registration
-   step — and indexes it in the background so the call returns immediately.
-
-2. **CLI fallback** — otherwise run:
-
-   ```sh
-   mdview open <absolute-path-to-file>
-   ```
-
-   It prints the browser URL(s), auto-starting the daemon if needed.
+   It returns the same fields (a `urls` array when the daemon is bound to a
+   wildcard host) and auto-registers the project on first use.
 
 ## Reporting the URL
 

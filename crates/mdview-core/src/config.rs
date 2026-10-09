@@ -137,8 +137,19 @@ pub fn config_path() -> PathBuf {
     data_dir().join("config.toml")
 }
 
+/// The registry for the current schema generation. A new file per generation
+/// keeps older binaries, daemons and `mdview mcp` processes on their own
+/// database instead of failing every write against a reshaped one.
 pub fn registry_db_path() -> PathBuf {
-    data_dir().join("registry.db")
+    data_dir().join("registry-v4.db")
+}
+
+/// Files the pre-v4 registry left behind (database, WAL and shared-memory).
+pub fn legacy_registry_paths() -> Vec<PathBuf> {
+    ["registry.db", "registry.db-wal", "registry.db-shm"]
+        .iter()
+        .map(|n| data_dir().join(n))
+        .collect()
 }
 
 pub fn daemon_lock_path() -> PathBuf {
@@ -273,7 +284,10 @@ mod tests {
         c.save_to(&p).unwrap();
         let text = std::fs::read_to_string(&p).unwrap();
         assert!(!text.contains("# hostname"));
-        assert_eq!(Config::load_from(&p).server.hostname.as_deref(), Some("box.local"));
+        assert_eq!(
+            Config::load_from(&p).server.hostname.as_deref(),
+            Some("box.local")
+        );
         std::fs::remove_dir_all(&dir).ok();
     }
 

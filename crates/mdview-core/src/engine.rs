@@ -4,18 +4,52 @@
 
 use crate::code_source::{self, DirListing, SourceContent};
 use crate::config::Config;
-use crate::domain::{IndexedFile, Project, RenderedPage, SearchResult};
+use crate::domain::{IndexedFile, Project, RenderedPage};
 use crate::error::{Error, Result};
-use crate::fuzzy::{self, FuzzyHit};
-use crate::indexer::{self, IndexService};
-use crate::render::{self, HighlightedSource, RenderService};
+use crate::indexer::{self, IndexService, IndexedDoc};
+use crate::link_resolver::ProjectFs;
+use crate::render::{HighlightedSource, RenderService};
 use crate::repository::SqliteStore;
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
+use std::sync::mpsc::Sender;
+use std::sync::Mutex;
+
+/// Most neighbours indexed per page view, and the write batch size.
+const NEIGHBOUR_CAP: usize = 200;
 
 pub struct Engine {
     pub store: SqliteStore,
     pub config: Config,
     render: RenderService,
+    /// Where `hint_dir` reports directories that gained an indexed row; set
+    /// once by the filesystem watcher, absent in the CLI and in tests.
+    dir_hint: Mutex<Option<Sender<PathBuf>>>,
+    /// Projects with an `index_neighbours` call in flight.
+    neighbours_running: Mutex<HashSet<String>>,
+}
+
+/// A page opened by `Engine::view_page`.
+#[derive(Debug, Clone)]
+pub struct ViewedPage {
+    pub file: IndexedFile,
+    pub page: RenderedPage,
+    /// Absolute paths worth indexing next (see `Engine::index_neighbours`).
+    pub neighbours: Vec<PathBuf>,
+}
+
+/// Clears a project's in-flight mark when `index_neighbours` ends, on any path.
+struct NeighbourGuard<'a> {
+    running: &'a Mutex<HashSet<String>>,
+    project_id: &'a str,
+}
+
+impl Drop for NeighbourGuard<'_> {
+    fn drop(&mut self) {
+        if let Ok(mut running) = self.running.lock() {
+            running.remove(self.project_id);
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -26,8 +60,7 @@ pub struct ViewFile {
     /// Short code for this file — the `<code>` in `/s/<code>`.
     pub code: String,
     /// Whether this call just created the project (as opposed to reusing an
-    /// existing one). Callers use this to decide whether a background index
-    /// needs kicking off — see `view_file`'s doc comment.
+    /// existing one).
     pub is_new_project: bool,
 }
 
@@ -37,10 +70,25 @@ impl Engine {
             store,
             config,
             render: RenderService::new(),
+            dir_hint: Mutex::new(None),
+            neighbours_running: Mutex::new(HashSet::new()),
         }
     }
 
-    fn max_bytes(&self) -> u64 {
+    /// Install the watcher's directory-hint sender (called once at startup).
+    pub fn set_dir_hint_sender(&self, tx: Sender<PathBuf>) {
+        *self.dir_hint.lock().unwrap() = Some(tx);
+    }
+
+    /// Best-effort, non-blocking notify that `dir` now holds an indexed row,
+    /// so the watcher covers it without waiting for its periodic reconcile.
+    pub fn hint_dir(&self, dir: &Path) {
+        if let Some(tx) = self.dir_hint.lock().unwrap().as_ref() {
+            let _ = tx.send(dir.to_path_buf());
+        }
+    }
+
+    pub(crate) fn max_bytes(&self) -> u64 {
         self.config
             .indexing
             .max_file_size_mb
@@ -54,12 +102,9 @@ impl Engine {
 
     /// Find the project owning `root`, or create it (implicit registration).
     /// Never scans — a brand-new project's row is created empty and its
-    /// second return value is `true`. Indexing is deliberately the caller's
-    /// job: `view_file`/`register` return fast so an MCP/CLI response never
-    /// blocks on a full recursive scan, while the actual file content gets
-    /// indexed on demand (`ensure_indexed`, called synchronously from the
-    /// HTTP path when a visitor really opens a page) or via a background
-    /// `refresh` the app layer kicks off for a `true` return here.
+    /// second return value is `true`. File content is indexed on demand
+    /// (`view_page`, from the HTTP path when a visitor opens a page) or
+    /// by `sync_project` when a content search needs the whole project.
     pub fn ensure_project(&self, root: &Path, name: Option<&str>) -> Result<(Project, bool)> {
         let root = Self::canonical(root);
         if let Some(mut p) = self.store.find_project_by_root(&root)? {
@@ -100,13 +145,11 @@ impl Engine {
     }
 
     /// The core `mdview_view_file` use case: ensure the project exists and
-    /// hand back its app URL. Deliberately does *not* content-index the file
-    /// — that would make every first-view of a large project block the
-    /// MCP/CLI response on a full scan. The URL is computable from the
-    /// project id + rel path alone; the actual content gets indexed either
-    /// by the caller's background refresh (`is_new_project`) or, at the
-    /// latest, synchronously when a browser really requests the page
-    /// (`ensure_indexed` in the HTTP handler).
+    /// hand back its app URL. Deliberately does *not* content-index the file;
+    /// the URL is computable from the project id + rel path alone, and the
+    /// content gets indexed when a browser really requests the page
+    /// (`view_page` in the HTTP handler). Only markdown files can be
+    /// viewed.
     ///
     /// It does register the path (`register_known_path`, a stat + one cheap
     /// insert — no content read) so `/s/<code>` resolves in O(1) via
@@ -122,8 +165,11 @@ impl Engine {
         if rel.is_empty() {
             return Err(Error::PathOutsideProject(abs));
         }
+        if !indexer::is_markdown(&abs) {
+            return Err(Error::InvalidPath(format!("not a markdown file: {rel}")));
+        }
         let code = crate::short_link::short_code(&crate::short_link::path_hash(&project.id, &rel));
-        self.register_known_path_stub(&project.id, &abs, &rel);
+        self.register_known_path_stub(&project, &abs, &rel);
         Ok(ViewFile {
             url: format!("/p/{}/{}", project.id, rel),
             project_id: project.id,
@@ -134,16 +180,27 @@ impl Engine {
     }
 
     /// `stat` + `register_known_path`, best-effort: a failure (file vanished,
-    /// permission denied) must never fail the caller, since the URL/redirect
-    /// stays valid either way — real content-indexing is `ensure_indexed`'s
-    /// job, this only ever needs to make `path_hash` resolvable. Shared by
-    /// `view_file` and `resolve_short_code`'s scan fallback.
-    fn register_known_path_stub(&self, project_id: &str, abs: &Path, rel: &str) {
+    /// permission denied, path outside the project) must never fail the
+    /// caller, since the URL/redirect stays valid either way — real
+    /// content-indexing is `view_page`'s job, this only ever needs to
+    /// make `path_hash` resolvable. Shared by `view_file` and
+    /// `resolve_short_code`'s scan fallback. A path `confine` rejects (symlink
+    /// out of the root, excluded directory) never gets a row.
+    fn register_known_path_stub(&self, project: &Project, abs: &Path, rel: &str) {
+        if indexer::confine(
+            &project.root_path,
+            abs,
+            &self.config.indexing.exclude_patterns,
+        )
+        .is_none()
+        {
+            return;
+        }
         let Ok(meta) = std::fs::metadata(abs) else {
             return;
         };
         let stub = IndexedFile {
-            project_id: project_id.to_string(),
+            project_id: project.id.clone(),
             abs_path: abs.to_path_buf(),
             rel_path: rel.to_string(),
             title: indexer::filename(abs),
@@ -158,7 +215,11 @@ impl Engine {
                 })
                 .unwrap_or_default(),
         };
-        let _ = self.store.register_known_path(&stub);
+        if self.store.register_known_path(&stub).is_ok() {
+            if let Some(dir) = abs.parent() {
+                self.hint_dir(dir);
+            }
+        }
     }
 
     /// Register a project explicitly (CLI). Same as ensure_project + optional
@@ -172,32 +233,24 @@ impl Engine {
         self.store.delete_project(project_id)
     }
 
-    /// Full re-scan of a project to reconcile drift (FR-09b).
-    pub fn refresh(&self, project_id: &str) -> Result<usize> {
-        let project = self
-            .store
-            .get_project(project_id)?
-            .ok_or_else(|| Error::ProjectNotFound(project_id.to_string()))?;
-        let n = IndexService::index_project(
-            &self.store,
-            &project,
-            &self.config.indexing.exclude_patterns,
-            self.max_bytes(),
-        )?;
-        self.reindex_links(&project)?;
-        Ok(n)
-    }
-
-    /// Index a single file and (re)compute its outgoing links. Used by view_file
-    /// and the filesystem watcher. Returns whether the file's *content* actually
-    /// changed (see `IndexService::index_file`) — the watcher uses this to skip
-    /// a live-reload broadcast for a touch that left bytes identical.
+    /// Read a file once and index it (row, FTS, outgoing links). Used by the
+    /// filesystem watcher, and `save_file`. Returns whether
+    /// the file's *content* actually changed (`false` for a file `confine`
+    /// rejects or one that could not be read).
     pub fn index_file_incremental(&self, project: &Project, abs: &Path) -> Result<bool> {
-        let changed = IndexService::index_file(&self.store, project, abs, self.max_bytes())?
-            .map(|(_, changed)| changed)
-            .unwrap_or(false);
-        self.compute_file_links(project, abs)?;
-        Ok(changed)
+        let Some(doc) = IndexService::build_doc(
+            project,
+            abs,
+            self.max_bytes(),
+            &self.config.indexing.exclude_patterns,
+        ) else {
+            return Ok(false);
+        };
+        let changed = self.store.index_docs(std::slice::from_ref(&doc))?;
+        if let Some(dir) = doc.file.abs_path.parent() {
+            self.hint_dir(dir);
+        }
+        Ok(changed.first().copied().unwrap_or(false))
     }
 
     /// Drop a file from the index (and its outgoing links).
@@ -205,34 +258,9 @@ impl Engine {
         IndexService::remove_file(&self.store, project, abs)
     }
 
-    /// If `rel_path` isn't in the index yet but exists on disk under the
-    /// project root, index it now. Closes the race between the filesystem
-    /// watcher noticing a new/renamed file and a request for its URL arriving
-    /// first — the watcher's debounce, or a file written by something it
-    /// isn't watching, would otherwise 404 a file that is really there.
-    /// Returns whether the file is indexed after the call (already indexed,
-    /// or newly indexed).
-    ///
-    /// Checks `is_content_indexed`, not just row existence: `view_file` now
-    /// leaves a `register_known_path` stub (path known, content unread)
-    /// behind for every file it hands a URL out for, and that stub must still
-    /// get a real index here on first view — otherwise its title/search/
-    /// backlinks would stay stuck on the placeholder forever.
-    pub fn ensure_indexed(&self, project: &Project, rel_path: &str) -> Result<bool> {
-        if self.store.is_content_indexed(&project.id, rel_path)? {
-            return Ok(true);
-        }
-        let abs = crate::link_resolver::normalize(&project.root_path.join(rel_path));
-        if indexer::rel_path_str(&project.root_path, &abs).is_empty() {
-            return Ok(false);
-        }
-        self.index_file_incremental(project, &abs)?;
-        Ok(self.store.get_file(&project.id, rel_path)?.is_some())
-    }
-
     /// Resolve `/s/<code>` to `(project_id, rel_path)`. Content-indexing the
     /// file, if it isn't already, is the redirect target's job
-    /// (`ensure_indexed`, called from the `/p/...` handler) — this only needs
+    /// (`view_page`, called from the `/p/...` handler) — this only needs
     /// to answer "which file".
     ///
     /// `find_by_hash_prefix` reads the `path_hash` column, which is now set
@@ -246,7 +274,7 @@ impl Engine {
     /// redirect target can index it.
     ///
     /// The scan ignores `.gitignore` (unlike a full project scan) so it stays
-    /// in parity with the long URL: `ensure_indexed` indexes whatever file is
+    /// in parity with the long URL: `view_page` indexes whatever file is
     /// named regardless of `.gitignore`, and a link handed out by `view_file`
     /// for such a file must resolve here too, not 404 forever.
     pub fn resolve_short_code(&self, code: &str) -> Result<Option<(String, String)>> {
@@ -264,7 +292,7 @@ impl Engine {
                 }
                 let hash = crate::short_link::path_hash(&project.id, &rel);
                 if hash.starts_with(code) {
-                    self.register_known_path_stub(&project.id, &abs, &rel);
+                    self.register_known_path_stub(&project, &abs, &rel);
                     return Ok(Some((project.id, rel)));
                 }
             }
@@ -272,58 +300,178 @@ impl Engine {
         Ok(None)
     }
 
-    /// Resolve and store the internal links a single file points to.
-    fn compute_file_links(&self, project: &Project, abs: &Path) -> Result<()> {
-        let rel = indexer::rel_path_str(&project.root_path, abs);
-        if rel.is_empty() {
-            return Ok(());
-        }
-        let content = std::fs::read_to_string(abs).unwrap_or_default();
-        let index = self.store.file_abs_paths(&project.id)?;
-        let targets = render::extract_internal_links(&content, abs, &project.root_path, &index);
-        self.store.set_file_links(&project.id, &rel, &targets)
-    }
-
-    /// Recompute links for every file in a project (after a full scan).
-    fn reindex_links(&self, project: &Project) -> Result<()> {
-        let files = self.store.list_files(&project.id)?;
-        let index = self.store.file_abs_paths(&project.id)?;
-        for f in files {
-            let content = std::fs::read_to_string(&f.abs_path).unwrap_or_default();
-            let targets =
-                render::extract_internal_links(&content, &f.abs_path, &project.root_path, &index);
-            self.store
-                .set_file_links(&project.id, &f.rel_path, &targets)?;
-        }
-        Ok(())
-    }
-
     /// Files that link to `rel_path` → (source_rel, title). FR-18 backlinks.
     pub fn backlinks(&self, project_id: &str, rel_path: &str) -> Result<Vec<(String, String)>> {
         self.store.backlinks(project_id, rel_path)
     }
 
-    /// Render a file for the viewer, rewriting internal links against the index.
-    pub fn render_file(&self, project_id: &str, rel_path: &str) -> Result<RenderedPage> {
+    /// Open a markdown page: read the file once, render it, and index it when
+    /// its content is new or changed (row, FTS, outgoing links). `Ok(None)`
+    /// means the path is not a markdown file inside the project (missing,
+    /// non-markdown, excluded, or a symlink out of the root) — the caller falls
+    /// through to asset / folder / 404 handling. `Err` is a real failure.
+    ///
+    /// `neighbours` lists the page's link targets and sibling markdown files
+    /// that are not indexed yet (or changed on disk); pass them to
+    /// [`Engine::index_neighbours`] off the request path.
+    pub fn view_page(&self, project_id: &str, rel_path: &str) -> Result<Option<ViewedPage>> {
         let project = self
             .store
             .get_project(project_id)?
             .ok_or_else(|| Error::ProjectNotFound(project_id.to_string()))?;
-        let file = self
-            .store
-            .get_file(project_id, rel_path)?
-            .ok_or_else(|| Error::FileNotFound(rel_path.to_string()))?;
-        let content = std::fs::read_to_string(&file.abs_path)?;
-        let index = self.store.file_abs_paths(project_id)?;
+        let exclude = &self.config.indexing.exclude_patterns;
+        let abs = crate::link_resolver::normalize(&project.root_path.join(rel_path));
+        let Some((file, content)) =
+            IndexService::read_file(&project, &abs, self.max_bytes(), exclude)
+        else {
+            return Ok(None);
+        };
+        let fs = ProjectFs::new(&project.root_path, exclude);
         let page = self.render.render(
             &content,
             &file.abs_path,
-            project_id,
+            &project.id,
             &project.root_path,
-            &index,
+            &fs,
         );
-        self.record_access(project_id, rel_path);
-        Ok(page)
+
+        let state = self.store.file_state(&project.id, &file.rel_path)?;
+        let hash = indexer::content_hash(&content);
+        let up_to_date = state
+            .as_ref()
+            .is_some_and(|s| s.content_indexed() && s.content_hash == hash);
+        if !up_to_date {
+            let doc = IndexedDoc {
+                file: file.clone(),
+                content,
+                links: page.links.clone(),
+            };
+            self.store.index_docs(std::slice::from_ref(&doc))?;
+        }
+        self.record_access(&project.id);
+        if let Some(dir) = file.abs_path.parent() {
+            self.hint_dir(dir);
+        }
+        let neighbours = self.pending_neighbours(&project, &file, &page.links)?;
+        Ok(Some(ViewedPage {
+            file,
+            page,
+            neighbours,
+        }))
+    }
+
+    /// Link targets and same-directory markdown siblings of `file` that still
+    /// need indexing: missing, a stub, or whose size/mtime differ from the row.
+    /// Every candidate passes `confine`; at most `NEIGHBOUR_CAP` are returned.
+    fn pending_neighbours(
+        &self,
+        project: &Project,
+        file: &IndexedFile,
+        links: &[String],
+    ) -> Result<Vec<PathBuf>> {
+        let exclude = &self.config.indexing.exclude_patterns;
+        let mut candidates: Vec<PathBuf> = links
+            .iter()
+            .map(|rel| project.root_path.join(rel))
+            .collect();
+        if let Some(dir) = file.abs_path.parent() {
+            let mut siblings: Vec<PathBuf> = std::fs::read_dir(dir)
+                .map(|rd| {
+                    rd.flatten()
+                        .map(|e| e.path())
+                        .filter(|p| indexer::is_markdown(p))
+                        .collect()
+                })
+                .unwrap_or_default();
+            siblings.sort();
+            candidates.extend(siblings);
+        }
+
+        // Dedupe and cap on cheap string work first, so a directory with
+        // thousands of siblings never pays a canonicalize + stat per file.
+        let mut seen = std::collections::HashSet::new();
+        let mut capped: Vec<(String, PathBuf)> = Vec::new();
+        for abs in candidates {
+            if capped.len() >= NEIGHBOUR_CAP {
+                break;
+            }
+            let rel = indexer::rel_path_str(&project.root_path, &abs);
+            if rel.is_empty() || rel == file.rel_path || !seen.insert(rel.clone()) {
+                continue;
+            }
+            capped.push((rel, abs));
+        }
+        let Ok(canonical_root) = std::fs::canonicalize(&project.root_path) else {
+            return Ok(Vec::new());
+        };
+        let mut cands: Vec<(String, PathBuf, std::fs::Metadata)> = Vec::new();
+        for (rel, abs) in capped {
+            if indexer::confine_in(&canonical_root, &abs, exclude).is_none() {
+                continue;
+            }
+            let Ok(meta) = std::fs::metadata(&abs) else {
+                continue;
+            };
+            cands.push((rel, abs, meta));
+        }
+
+        let rels: Vec<String> = cands.iter().map(|(rel, _, _)| rel.clone()).collect();
+        let states = self.store.file_states_for(&project.id, &rels)?;
+        Ok(cands
+            .into_iter()
+            .filter(|(rel, _, meta)| match states.get(rel) {
+                Some(s) => {
+                    !s.content_indexed()
+                        || s.size_bytes != meta.len()
+                        || s.modified_at != indexer::modified_rfc3339(meta)
+                }
+                None => true,
+            })
+            .map(|(_, abs, _)| abs)
+            .take(NEIGHBOUR_CAP)
+            .collect())
+    }
+
+    /// Index `paths` (a viewed page's neighbours) in batches. Single-flight per
+    /// project: a call made while another is running for the same project does
+    /// nothing and returns `Ok(0)`. Returns how many files were indexed.
+    pub fn index_neighbours(&self, project_id: &str, paths: &[PathBuf]) -> Result<usize> {
+        let _guard = {
+            let mut running = self.neighbours_running.lock().unwrap();
+            if !running.insert(project_id.to_string()) {
+                return Ok(0);
+            }
+            NeighbourGuard {
+                running: &self.neighbours_running,
+                project_id,
+            }
+        };
+        let project = self
+            .store
+            .get_project(project_id)?
+            .ok_or_else(|| Error::ProjectNotFound(project_id.to_string()))?;
+        let docs: Vec<IndexedDoc> = paths
+            .iter()
+            .filter_map(|abs| {
+                IndexService::build_doc(
+                    &project,
+                    abs,
+                    self.max_bytes(),
+                    &self.config.indexing.exclude_patterns,
+                )
+            })
+            .collect();
+        for batch in docs.chunks(NEIGHBOUR_CAP) {
+            self.store.index_docs(batch)?;
+        }
+        let dirs: std::collections::HashSet<&Path> = docs
+            .iter()
+            .filter_map(|d| d.file.abs_path.parent())
+            .collect();
+        for dir in dirs {
+            self.hint_dir(dir);
+        }
+        Ok(docs.len())
     }
 
     /// Overwrite the markdown file `rel_path` in `project_id` with `content`
@@ -373,12 +521,11 @@ impl Engine {
         Ok(indexer::content_hash(content))
     }
 
-    /// Record that `rel_path` in `project_id` was actually viewed — the
-    /// signal the periodic cleanup sweep checks (see
-    /// `repository::cleanup_stale`, called from the daemon). Best-effort:
-    /// bookkeeping must never fail the view itself.
-    fn record_access(&self, project_id: &str, rel_path: &str) {
-        let _ = self.store.touch_file_access(project_id, rel_path);
+    /// Record that `project_id` was actually viewed — the signal the
+    /// periodic cleanup sweep checks (see `repository::cleanup_stale`, called
+    /// from the daemon). Best-effort: bookkeeping must never fail the view
+    /// itself.
+    fn record_access(&self, project_id: &str) {
         let _ = self.store.touch_project_access(project_id);
     }
 
@@ -390,34 +537,8 @@ impl Engine {
         self.store.get_project(id)
     }
 
-    pub fn list_files(&self, project_id: &str) -> Result<Vec<IndexedFile>> {
-        self.store.list_files(project_id)
-    }
-
     pub fn file_count(&self, project_id: &str) -> Result<usize> {
         self.store.file_count(project_id)
-    }
-
-    pub fn search(
-        &self,
-        query: &str,
-        project_id: Option<&str>,
-        limit: usize,
-    ) -> Result<Vec<SearchResult>> {
-        self.store.search(query, project_id, limit)
-    }
-
-    /// Fuzzy file-jump: rank a project's files by a fuzzy match of `query`
-    /// against their relative paths (name/path jump, complementing the
-    /// content-based `search`). Ordered by descending match score.
-    pub fn fuzzy_files(
-        &self,
-        project_id: &str,
-        query: &str,
-        limit: usize,
-    ) -> Result<Vec<FuzzyHit>> {
-        let files = self.store.list_files(project_id)?;
-        Ok(fuzzy::rank_files(&files, project_id, query, limit))
     }
 
     /// Resolve an on-disk absolute path for an asset/image request, guarding
@@ -448,7 +569,7 @@ impl Engine {
         // (which would false-positive-exclude a project root that happens to
         // sit under a directory literally named one of the patterns).
         let rel = indexer::rel_path_str(&project.root_path, &canonical);
-        if is_excluded_path(&rel, &self.config.indexing.exclude_patterns) {
+        if indexer::is_excluded(&rel, &self.config.indexing.exclude_patterns) {
             return Err(Error::PathOutsideProject(canonical));
         }
         Ok(canonical)
@@ -477,10 +598,7 @@ impl Engine {
             SourceContent::Text { text, truncated } => {
                 let size = text.len() as u64;
                 let highlighted = self.render.highlight_source(&abs, &text);
-                // A no-op for non-markdown source (not a `files` row); for a
-                // markdown file viewed via the raw Code section, this counts
-                // the same as viewing its rendered page.
-                self.record_access(project_id, rel_path);
+                self.record_access(project_id);
                 Ok(CodeView::File {
                     highlighted,
                     truncated,
@@ -520,18 +638,6 @@ fn has_allowed_asset_extension(path: &Path) -> bool {
         .unwrap_or(false)
 }
 
-/// True if any path component (by exact name equality) matches an exclude
-/// pattern, mirroring `indexer::scan_markdown_files`'s filter semantics.
-fn is_excluded_path(rel: &str, exclude_patterns: &[String]) -> bool {
-    Path::new(rel)
-        .components()
-        .filter_map(|c| match c {
-            std::path::Component::Normal(s) => s.to_str(),
-            _ => None,
-        })
-        .any(|name| exclude_patterns.iter().any(|ex| ex == name))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -559,20 +665,17 @@ mod tests {
         assert!(vf.url.ends_with("/docs/architecture.md"));
         assert!(vf.is_new_project);
 
-        // view_file deliberately doesn't content-index (that would make the
-        // MCP call block on a full recursive read+FTS+links pipeline for a
-        // large project) — but it does register the viewed file's path as a
-        // stub, so it already counts as a row...
+        // view_file deliberately doesn't content-index — but it does
+        // register the viewed file's path as a stub, so it already counts as
+        // a row...
         assert_eq!(engine.file_count(&vf.project_id).unwrap(), 1);
         assert!(!engine
             .store
             .is_content_indexed(&vf.project_id, "docs/architecture.md")
             .unwrap());
 
-        // Stand in for the background refresh a real caller kicks off on
-        // `is_new_project`, or the on-demand `ensure_indexed` a browser visit
-        // triggers.
-        engine.refresh(&vf.project_id).unwrap();
+        // Stand in for the project-wide sync a content search triggers.
+        engine.sync_project(&vf.project_id).unwrap();
         assert_eq!(engine.file_count(&vf.project_id).unwrap(), 2);
         assert!(engine
             .store
@@ -581,8 +684,10 @@ mod tests {
 
         // rendering rewrites the cross-folder link
         let page = engine
-            .render_file(&vf.project_id, "docs/architecture.md")
-            .unwrap();
+            .view_page(&vf.project_id, "docs/architecture.md")
+            .unwrap()
+            .unwrap()
+            .page;
         assert!(page
             .html
             .contains(&format!("/p/{}/src/api/README.md", vf.project_id)));
@@ -647,12 +752,12 @@ mod tests {
         std::fs::remove_dir_all(&dir).ok();
     }
 
-    /// `ensure_indexed` must not mistake a `view_file` stub (path known,
+    /// `view_page` must not mistake a `view_file` stub (path known,
     /// content unread — title still the filename placeholder) for a real
     /// index and skip indexing: the file's title, FTS content, and links must
     /// all still get filled in on first real view.
     #[test]
-    fn ensure_indexed_upgrades_a_view_file_stub_to_a_real_index() {
+    fn view_page_upgrades_a_view_file_stub_to_a_real_index() {
         let dir = std::env::temp_dir().join(format!("mdview-eng-stub-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         write(&dir, "docs/guide.md", "# Real Title\nbody");
@@ -666,8 +771,10 @@ mod tests {
             .unwrap();
         assert_eq!(stub.title, "guide.md"); // placeholder: filename, not the real H1
 
-        let project = engine.get_project(&vf.project_id).unwrap().unwrap();
-        assert!(engine.ensure_indexed(&project, "docs/guide.md").unwrap());
+        assert!(engine
+            .view_page(&vf.project_id, "docs/guide.md")
+            .unwrap()
+            .is_some());
         assert!(engine
             .store
             .is_content_indexed(&vf.project_id, "docs/guide.md")
@@ -680,7 +787,16 @@ mod tests {
             .unwrap();
         assert_eq!(indexed.title, "Real Title");
 
-        let hits = engine.search("body", Some(&vf.project_id), 10).unwrap();
+        let hits = engine
+            .store
+            .search(
+                "body",
+                Some(&vf.project_id),
+                None,
+                crate::domain::SearchSort::Relevance,
+                10,
+            )
+            .unwrap();
         assert!(
             hits.iter().any(|h| h.rel_path == "docs/guide.md"),
             "expected docs/guide.md in FTS search results: {hits:?}"
@@ -691,7 +807,7 @@ mod tests {
 
     /// A file matched by the project's own `.gitignore` still resolves via its
     /// short code, the same way it is still viewable via the long `/p/...`
-    /// URL (`ensure_indexed` never consults `.gitignore`). Before this fix the
+    /// URL (`view_page` never consults `.gitignore`). Before this fix the
     /// fallback scan respected `.gitignore` and such a link 404'd forever.
     ///
     /// Registers the project directly (`register`, no stub) rather than going
@@ -767,8 +883,10 @@ mod tests {
 
         let engine = Engine::new(SqliteStore::open_in_memory().unwrap(), Config::default());
         let vf = engine.view_file(&dir, "docs/guide.md").unwrap();
-        let project = engine.get_project(&vf.project_id).unwrap().unwrap();
-        assert!(engine.ensure_indexed(&project, "docs/guide.md").unwrap());
+        assert!(engine
+            .view_page(&vf.project_id, "docs/guide.md")
+            .unwrap()
+            .is_some());
         let base = indexer::content_hash("# Old title\n");
 
         let new_hash = engine
@@ -821,78 +939,80 @@ mod tests {
         std::fs::remove_dir_all(&dir).ok();
     }
 
-    /// Viewing a file's rendered page must reset its "unaccessed" clock —
-    /// otherwise the cleanup sweep would drop a file's index record while
-    /// someone is actively reading it.
+    /// Viewing a page (or a file's raw source via the Code section) must
+    /// reset the project's idle clock — otherwise the cleanup sweep would drop
+    /// a project while someone is actively reading it.
     #[test]
-    fn render_file_touches_last_accessed_and_project_last_seen() {
+    fn view_page_and_code_path_touch_the_project_last_seen() {
         let dir = std::env::temp_dir().join(format!("mdview-access-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         write(&dir, "docs/a.md", "# A");
 
         let engine = Engine::new(SqliteStore::open_in_memory().unwrap(), Config::default());
         let vf = engine.view_file(&dir, "docs/a.md").unwrap();
-        engine.refresh(&vf.project_id).unwrap();
+        assert!(engine
+            .view_page(&vf.project_id, "docs/a.md")
+            .unwrap()
+            .is_some());
 
-        // Simulate a file/project that hasn't been viewed in a while.
-        engine.store.backdate_file_access_for_test(
-            &vf.project_id,
-            "docs/a.md",
-            "2000-01-01T00:00:00Z",
-        );
+        let stale = "2000-01-01T00:00:00Z";
+        let last_seen = |e: &Engine| e.get_project(&vf.project_id).unwrap().unwrap().last_seen_at;
+
         engine
             .store
-            .backdate_project_for_test(&vf.project_id, "2000-01-01T00:00:00Z");
-
-        engine.render_file(&vf.project_id, "docs/a.md").unwrap();
-
+            .backdate_project_for_test(&vf.project_id, stale);
+        engine.view_page(&vf.project_id, "docs/a.md").unwrap();
         assert_ne!(
-            engine
-                .store
-                .file_last_accessed(&vf.project_id, "docs/a.md")
-                .unwrap(),
-            "2000-01-01T00:00:00Z",
-            "render_file must bump last_accessed_at"
+            last_seen(&engine),
+            stale,
+            "view_page must bump last_seen_at"
         );
+
+        engine
+            .store
+            .backdate_project_for_test(&vf.project_id, stale);
+        engine.code_path(&vf.project_id, "docs/a.md").unwrap();
         assert_ne!(
-            engine
-                .get_project(&vf.project_id)
-                .unwrap()
-                .unwrap()
-                .last_seen_at,
-            "2000-01-01T00:00:00Z",
-            "render_file must bump the project's last_seen_at too"
+            last_seen(&engine),
+            stale,
+            "code_path must bump last_seen_at"
         );
 
         std::fs::remove_dir_all(&dir).ok();
     }
 
-    /// Viewing a markdown file's raw source via the Code section counts as
-    /// an access too, same as its rendered page.
     #[test]
-    fn code_path_touches_last_accessed_for_an_indexed_markdown_file() {
-        let dir = std::env::temp_dir().join(format!("mdview-code-access-{}", std::process::id()));
+    fn view_file_refuses_non_markdown_and_never_stubs_symlinked_escapes() {
+        let dir = std::env::temp_dir().join(format!("mdview-eng-nonmd-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
-        write(&dir, "docs/a.md", "# A");
+        write(&dir, "Cargo.toml", "[package]");
+        write(&dir, "ok.md", "# ok");
 
         let engine = Engine::new(SqliteStore::open_in_memory().unwrap(), Config::default());
-        let vf = engine.view_file(&dir, "docs/a.md").unwrap();
-        engine.refresh(&vf.project_id).unwrap();
-        engine.store.backdate_file_access_for_test(
-            &vf.project_id,
-            "docs/a.md",
-            "2000-01-01T00:00:00Z",
-        );
+        let err = engine.view_file(&dir, "Cargo.toml").unwrap_err();
+        assert!(matches!(err, Error::InvalidPath(_)), "got {err:?}");
 
-        engine.code_path(&vf.project_id, "docs/a.md").unwrap();
-
-        assert_ne!(
-            engine
+        #[cfg(unix)]
+        {
+            let outside =
+                std::env::temp_dir().join(format!("mdview-eng-outside-{}.md", std::process::id()));
+            std::fs::write(&outside, "# outside").unwrap();
+            std::os::unix::fs::symlink(&outside, dir.join("link.md")).unwrap();
+            let vf = engine.view_file(&dir, "link.md").unwrap();
+            assert!(engine
                 .store
-                .file_last_accessed(&vf.project_id, "docs/a.md")
-                .unwrap(),
-            "2000-01-01T00:00:00Z"
-        );
+                .get_file(&vf.project_id, "link.md")
+                .unwrap()
+                .is_none());
+            std::fs::remove_file(&outside).ok();
+        }
+
+        let vf = engine.view_file(&dir, "ok.md").unwrap();
+        assert!(engine
+            .store
+            .get_file(&vf.project_id, "ok.md")
+            .unwrap()
+            .is_some());
 
         std::fs::remove_dir_all(&dir).ok();
     }
@@ -954,6 +1074,228 @@ mod tests {
             std::fs::remove_file(&outside).ok();
         }
 
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    fn view_engine(tag: &str) -> (Engine, Project, PathBuf) {
+        let dir = std::env::temp_dir().join(format!("mdview-eng-vp-{tag}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let engine = Engine::new(SqliteStore::open_in_memory().unwrap(), Config::default());
+        let (project, _) = engine.ensure_project(&dir, None).unwrap();
+        (engine, project, dir)
+    }
+
+    fn hit_paths(engine: &Engine, project: &Project, query: &str) -> Vec<String> {
+        engine
+            .store
+            .search(
+                query,
+                Some(&project.id),
+                None,
+                crate::domain::SearchSort::Relevance,
+                20,
+            )
+            .unwrap()
+            .into_iter()
+            .map(|h| h.rel_path)
+            .collect()
+    }
+
+    fn neighbour_rels(viewed: &ViewedPage, dir: &Path) -> Vec<String> {
+        let root = std::fs::canonicalize(dir).unwrap();
+        let mut rels: Vec<String> = viewed
+            .neighbours
+            .iter()
+            .map(|p| indexer::rel_path_str(&root, p))
+            .collect();
+        rels.sort();
+        rels
+    }
+
+    #[test]
+    fn view_page_indexes_the_file_and_reports_links_and_siblings_as_neighbours() {
+        let (engine, project, dir) = view_engine("fresh");
+        write(&dir, "docs/a.md", "# A\nuniquealpha [b](../ref/b.md)");
+        write(&dir, "docs/sib.md", "# Sibling");
+        write(&dir, "ref/b.md", "# B");
+        write(&dir, "docs/notes.txt", "not markdown");
+
+        let viewed = engine.view_page(&project.id, "docs/a.md").unwrap().unwrap();
+        assert_eq!(viewed.file.rel_path, "docs/a.md");
+        assert_eq!(viewed.file.title, "A");
+        assert_eq!(viewed.page.links, vec!["ref/b.md"]);
+        assert_eq!(hit_paths(&engine, &project, "uniquealpha"), ["docs/a.md"]);
+        assert_eq!(
+            neighbour_rels(&viewed, &dir),
+            ["docs/sib.md", "ref/b.md"],
+            "link target and markdown sibling, not the viewed file or non-markdown"
+        );
+
+        assert_eq!(
+            engine
+                .index_neighbours(&project.id, &viewed.neighbours)
+                .unwrap(),
+            2
+        );
+        let b = engine.store.file_state(&project.id, "ref/b.md").unwrap();
+        assert!(b.unwrap().content_indexed());
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn unchanged_second_view_has_no_neighbours_and_keeps_its_fts_row() {
+        let (engine, project, dir) = view_engine("again");
+        write(&dir, "a.md", "# A\n[b](b.md)");
+        write(&dir, "b.md", "# B");
+
+        let first = engine.view_page(&project.id, "a.md").unwrap().unwrap();
+        engine
+            .index_neighbours(&project.id, &first.neighbours)
+            .unwrap();
+        let before = engine
+            .store
+            .file_state(&project.id, "a.md")
+            .unwrap()
+            .unwrap();
+
+        let second = engine.view_page(&project.id, "a.md").unwrap().unwrap();
+        assert!(second.neighbours.is_empty(), "{:?}", second.neighbours);
+        let after = engine
+            .store
+            .file_state(&project.id, "a.md")
+            .unwrap()
+            .unwrap();
+        assert_eq!(before.fts_rowid, after.fts_rowid);
+        assert_eq!(before.content_hash, after.content_hash);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn editing_a_file_then_viewing_reindexes_it() {
+        let (engine, project, dir) = view_engine("edit");
+        write(&dir, "a.md", "# A\nfirstword");
+        engine.view_page(&project.id, "a.md").unwrap().unwrap();
+        assert_eq!(hit_paths(&engine, &project, "firstword"), ["a.md"]);
+
+        write(&dir, "a.md", "# A\nsecondword");
+        engine.view_page(&project.id, "a.md").unwrap().unwrap();
+        assert_eq!(hit_paths(&engine, &project, "secondword"), ["a.md"]);
+        assert!(hit_paths(&engine, &project, "firstword").is_empty());
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn a_link_to_an_unindexed_markdown_file_is_not_marked_broken() {
+        let (engine, project, dir) = view_engine("unbroken");
+        write(&dir, "a.md", "[b](b.md)");
+        write(&dir, "b.md", "# B");
+
+        let viewed = engine.view_page(&project.id, "a.md").unwrap().unwrap();
+        assert!(
+            !viewed.page.html.contains("broken-link"),
+            "{}",
+            viewed.page.html
+        );
+        assert!(viewed
+            .page
+            .html
+            .contains(&format!("/p/{}/b.md", project.id)));
+        assert!(engine
+            .store
+            .file_state(&project.id, "b.md")
+            .unwrap()
+            .is_none());
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn non_markdown_paths_are_never_viewed_indexed_or_offered_as_neighbours() {
+        let (engine, project, dir) = view_engine("nonmd");
+        write(&dir, ".env", "SECRET=1");
+        write(&dir, ".git/config", "[core]");
+        write(&dir, "Cargo.toml", "[package]");
+        write(
+            &dir,
+            "a.md",
+            "[e](.env) [c](Cargo.toml) [g](.git/config) [x](node_modules/x.md)",
+        );
+        write(&dir, "node_modules/x.md", "# vendored");
+
+        for rel in [".env", ".git/config", "Cargo.toml", "missing.md"] {
+            assert!(
+                engine.view_page(&project.id, rel).unwrap().is_none(),
+                "{rel}"
+            );
+            assert!(engine.store.file_state(&project.id, rel).unwrap().is_none());
+        }
+        assert!(engine
+            .view_page(&project.id, "node_modules/x.md")
+            .unwrap()
+            .is_none());
+
+        let viewed = engine.view_page(&project.id, "a.md").unwrap().unwrap();
+        assert!(viewed.page.links.is_empty(), "{:?}", viewed.page.links);
+        assert!(viewed.neighbours.is_empty(), "{:?}", viewed.neighbours);
+        assert_eq!(engine.file_count(&project.id).unwrap(), 1);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_symlink_to_a_file_outside_the_root_is_not_a_page_or_neighbour() {
+        let (engine, project, dir) = view_engine("symlink");
+        let outside =
+            std::env::temp_dir().join(format!("mdview-eng-vp-out-{}.md", std::process::id()));
+        std::fs::write(&outside, "# outside").unwrap();
+        write(&dir, "a.md", "# A");
+        std::os::unix::fs::symlink(&outside, dir.join("link.md")).unwrap();
+
+        assert!(engine.view_page(&project.id, "link.md").unwrap().is_none());
+        let viewed = engine.view_page(&project.id, "a.md").unwrap().unwrap();
+        assert!(viewed.neighbours.is_empty(), "{:?}", viewed.neighbours);
+        std::fs::remove_file(&outside).ok();
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn neighbours_are_capped_and_a_concurrent_call_for_the_project_is_a_no_op() {
+        let (engine, project, dir) = view_engine("cap");
+        write(&dir, "a.md", "# A");
+        for i in 0..250 {
+            write(&dir, &format!("s{i:03}.md"), "# S");
+        }
+
+        let viewed = engine.view_page(&project.id, "a.md").unwrap().unwrap();
+        assert_eq!(viewed.neighbours.len(), NEIGHBOUR_CAP);
+
+        engine
+            .neighbours_running
+            .lock()
+            .unwrap()
+            .insert(project.id.clone());
+        assert_eq!(
+            engine
+                .index_neighbours(&project.id, &viewed.neighbours)
+                .unwrap(),
+            0
+        );
+        engine
+            .neighbours_running
+            .lock()
+            .unwrap()
+            .remove(&project.id);
+
+        assert_eq!(
+            engine
+                .index_neighbours(&project.id, &viewed.neighbours)
+                .unwrap(),
+            NEIGHBOUR_CAP
+        );
+        assert!(
+            engine.neighbours_running.lock().unwrap().is_empty(),
+            "the in-flight mark must be cleared afterwards"
+        );
         std::fs::remove_dir_all(&dir).ok();
     }
 }

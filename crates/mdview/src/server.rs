@@ -79,6 +79,7 @@ pub async fn serve() -> Result<()> {
         port: addr.port(),
         started_at: now_rfc3339(),
         version: Some(env!("CARGO_PKG_VERSION").to_string()),
+        schema: Some(mdview_core::repository::SCHEMA_VERSION),
     })?;
     tracing::info!("mdview serving on http://{addr}");
     // A wildcard bind (`0.0.0.0`) makes `http://0.0.0.0:PORT` a dead link, so
@@ -437,7 +438,14 @@ async fn project_home(
     State(st): State<AppState>,
     Path(id): Path<String>,
 ) -> Response {
-    match st.engine.list_files(&id) {
+    let engine = st.engine.clone();
+    let project_id = id.clone();
+    let listed = tokio::task::spawn_blocking(move || engine.sidebar_files(&project_id)).await;
+    let listed = match listed {
+        Ok(r) => r,
+        Err(e) => return internal_error(&format!("listing task failed: {e}")),
+    };
+    match listed {
         Ok(files) if !files.is_empty() => {
             let entry = pick_entry_file(&files).unwrap_or(&files[0]);
             Redirect::to(&format!("/p/{}/{}", id, entry.rel_path)).into_response()
@@ -517,39 +525,69 @@ async fn project_path(
     State(st): State<AppState>,
     Path((id, path)): Path<(String, String)>,
 ) -> Response {
-    // Markdown file in the index → render it. A miss gets one on-demand
-    // index attempt (`ensure_indexed`) before falling to the asset lookup and
-    // then 404 — closes the race where the file exists on disk but the
-    // watcher hasn't caught up yet.
-    if let Ok(Some(project)) = st.engine.get_project(&id) {
-        if st.engine.ensure_indexed(&project, &path).unwrap_or(false) {
-            return match st.engine.render_file(&id, &path) {
-                Ok(page) => {
-                    let file = st.engine.store.get_file(&id, &path).unwrap().unwrap();
-                    let files = st.engine.list_files(&id).unwrap_or_default();
-                    let backlinks = st.engine.backlinks(&id, &path).unwrap_or_default();
-                    Html(views::file_page(&project, &file, &page, &files, &backlinks))
-                        .into_response()
-                }
-                Err(e) => internal_error(&e.to_string()),
-            };
-        }
-        // Otherwise serve as a static asset (image, etc.) with traversal guard.
-        if let Ok(abs) = st.engine.asset_path(&id, &path) {
-            if let Ok(bytes) = std::fs::read(&abs) {
-                return asset_response(&abs, bytes);
+    // Markdown file inside the project → index (if new/changed) and render it.
+    // Anything else (assets, folders, non-markdown) falls through below.
+    // Read, render and index work is blocking, so it runs off the async workers.
+    let Ok(Some(project)) = st.engine.get_project(&id) else {
+        return not_found("file not found");
+    };
+    let engine = st.engine.clone();
+    let (view_id, view_path) = (id.clone(), path.clone());
+    let viewed = tokio::task::spawn_blocking(move || {
+        let Some(viewed) = engine.view_page(&view_id, &view_path)? else {
+            return Ok(None);
+        };
+        let files = engine.sidebar_files(&view_id).unwrap_or_default();
+        let backlinks = engine.backlinks(&view_id, &view_path).unwrap_or_default();
+        Ok::<_, mdview_core::Error>(Some((viewed, files, backlinks)))
+    })
+    .await;
+    match viewed {
+        Ok(Ok(Some((viewed, files, backlinks)))) => {
+            if !viewed.neighbours.is_empty() {
+                let engine = st.engine.clone();
+                let (nid, neighbours) = (id.clone(), viewed.neighbours.clone());
+                tokio::task::spawn_blocking(move || {
+                    if let Err(e) = engine.index_neighbours(&nid, &neighbours) {
+                        tracing::warn!("indexing neighbours of {nid} failed: {e}");
+                    }
+                });
             }
+            return Html(views::file_page(
+                &project,
+                &viewed.file,
+                &viewed.page,
+                &files,
+                &backlinks,
+            ))
+            .into_response();
         }
-        // Neither a file nor an asset — if it names a folder with a README
-        // (or index) among its direct children, redirect there instead of
-        // 404ing, the same landing-page convention project_home uses at the
-        // project root.
-        let files = st.engine.list_files(&id).unwrap_or_default();
-        if let Some(entry) = pick_folder_landing(&files, path.trim_end_matches('/')) {
-            return Redirect::to(&format!("/p/{id}/{}", entry.rel_path)).into_response();
+        Ok(Ok(None)) => {}
+        Ok(Err(e)) => return internal_error(&e.to_string()),
+        Err(e) => return internal_error(&format!("render task failed: {e}")),
+    }
+    // Otherwise serve as a static asset (image, etc.) with traversal guard.
+    if let Ok(abs) = st.engine.asset_path(&id, &path) {
+        if let Ok(bytes) = std::fs::read(&abs) {
+            return asset_response(&abs, bytes);
         }
     }
-    not_found("file not found")
+    // Neither a file nor an asset — if it names a folder with a README
+    // (or index) among its direct children, redirect there instead of
+    // 404ing, the same landing-page convention project_home uses at the
+    // project root.
+    let engine = st.engine.clone();
+    let (land_id, folder) = (id.clone(), path.trim_end_matches('/').to_string());
+    let landing = tokio::task::spawn_blocking(move || {
+        let files = engine.sidebar_files(&land_id).unwrap_or_default();
+        pick_folder_landing(&files, &folder).map(|f| f.rel_path.clone())
+    })
+    .await;
+    match landing {
+        Ok(Some(rel)) => Redirect::to(&format!("/p/{id}/{rel}")).into_response(),
+        Ok(None) => not_found("file not found"),
+        Err(e) => internal_error(&format!("listing task failed: {e}")),
+    }
 }
 
 #[derive(serde::Deserialize)]
@@ -603,6 +641,43 @@ async fn save_file(
 struct SearchQuery {
     #[serde(default)]
     q: String,
+    #[serde(default)]
+    scope: SearchScope,
+    #[serde(default)]
+    dir: String,
+    #[serde(default)]
+    sort: mdview_core::domain::SearchSort,
+}
+
+#[derive(serde::Deserialize, Default, Clone, Copy, PartialEq, Eq, Debug)]
+#[serde(rename_all = "lowercase")]
+enum SearchScope {
+    #[default]
+    Project,
+    Dir,
+}
+
+/// The directory prefix (only for `scope=dir` with a usable `dir`) and the sort.
+/// `dir` is trimmed of `/`; any absolute or `..` component voids the prefix so
+/// the query cannot name anything outside the project.
+fn search_params(q: &SearchQuery) -> (Option<String>, mdview_core::domain::SearchSort) {
+    (
+        search_dir(q).filter(|_| q.scope == SearchScope::Dir),
+        q.sort,
+    )
+}
+
+/// The normalised `dir`, whatever the scope; `None` when empty or unsafe.
+fn search_dir(q: &SearchQuery) -> Option<String> {
+    let dir = q.dir.trim().trim_matches('/');
+    if dir.is_empty()
+        || dir.starts_with('\\')
+        || dir.split(['/', '\\']).any(|c| c == "..")
+        || std::path::Path::new(dir).is_absolute()
+    {
+        return None;
+    }
+    Some(dir.to_string())
 }
 
 async fn search_page(
@@ -614,14 +689,82 @@ async fn search_page(
     let Ok(Some(project)) = st.engine.get_project(&id) else {
         return not_found("project not found");
     };
-    let results = if query.q.trim().is_empty() {
-        Vec::new()
-    } else {
-        st.engine
-            .search(&query.q, Some(&id), 30)
-            .unwrap_or_default()
-    };
-    Html(views::search_page(&project, &query.q, &results)).into_response()
+    let (prefix, sort) = search_params(&query);
+    let dir = search_dir(&query).unwrap_or_default();
+    let outcome: std::result::Result<mdview_core::domain::SearchOutcome, String> =
+        if query.q.trim().is_empty() {
+            Ok(Default::default())
+        } else {
+            let engine = st.engine.clone();
+            let q = query.q.clone();
+            let pid = id.clone();
+            match tokio::task::spawn_blocking(move || {
+                engine.search_content(&pid, &q, prefix.as_deref(), sort, 30)
+            })
+            .await
+            {
+                Ok(Ok(outcome)) => Ok(outcome),
+                Ok(Err(e)) => Err(e.to_string()),
+                Err(e) => Err(format!("search task failed: {e}")),
+            }
+        };
+    Html(views::search_page(
+        &project,
+        &query.q,
+        &dir,
+        query.scope == SearchScope::Dir && !dir.is_empty(),
+        sort,
+        outcome.as_ref().map_err(String::as_str),
+    ))
+    .into_response()
+}
+
+#[cfg(test)]
+mod search_page_tests {
+    use super::*;
+    use mdview_core::domain::SearchSort;
+
+    fn query(qs: &str) -> SearchQuery {
+        let uri: axum::http::Uri = format!("/?{qs}").parse().unwrap();
+        Query::<SearchQuery>::try_from_uri(&uri).unwrap().0
+    }
+
+    #[test]
+    fn defaults_are_whole_project_by_relevance() {
+        let q = query("q=hello");
+        assert_eq!(search_params(&q), (None, SearchSort::Relevance));
+    }
+
+    #[test]
+    fn dir_scope_with_empty_dir_has_no_prefix() {
+        assert_eq!(search_params(&query("q=x&scope=dir")).0, None);
+        assert_eq!(search_params(&query("q=x&scope=dir&dir=%2F")).0, None);
+    }
+
+    #[test]
+    fn dir_prefix_is_trimmed_and_needs_dir_scope() {
+        assert_eq!(
+            search_params(&query("q=x&scope=dir&dir=%2Fdocs%2Fapi%2F")).0,
+            Some("docs/api".to_string())
+        );
+        assert_eq!(search_params(&query("q=x&scope=project&dir=docs")).0, None);
+    }
+
+    #[test]
+    fn traversal_and_absolute_dirs_are_rejected() {
+        for dir in ["..", "a%2F..%2Fb", "..%2Fetc", "a%5C..%5Cb", "%5Cetc"] {
+            let q = query(&format!("q=x&scope=dir&dir={dir}"));
+            assert_eq!(search_params(&q).0, None, "dir={dir}");
+        }
+    }
+
+    #[test]
+    fn sort_recent_is_parsed() {
+        assert_eq!(
+            search_params(&query("q=x&sort=recent")).1,
+            SearchSort::Recent
+        );
+    }
 }
 
 #[derive(serde::Deserialize)]
@@ -636,6 +779,13 @@ fn default_jump_limit() -> usize {
     20
 }
 
+/// Largest number of palette rows a caller may request.
+const MAX_JUMP_LIMIT: usize = 50;
+
+fn clamp_jump_limit(limit: usize) -> usize {
+    limit.clamp(1, MAX_JUMP_LIMIT)
+}
+
 /// Fuzzy file-jump endpoint: ranks the project's files by a fuzzy match of `q`
 /// against their relative paths (complements the `_search` content search) and
 /// returns the hits as JSON for the client jump palette.
@@ -648,11 +798,27 @@ async fn jump_search(
     if matches!(st.engine.get_project(&id), Ok(None) | Err(_)) {
         return not_found("project not found");
     }
-    let hits = st
-        .engine
-        .fuzzy_files(&id, &query.q, query.limit)
-        .unwrap_or_default();
+    let engine = st.engine.clone();
+    let limit = clamp_jump_limit(query.limit);
+    let hits = tokio::task::spawn_blocking(move || {
+        engine.jump_files(&id, &query.q, limit).unwrap_or_default()
+    })
+    .await
+    .unwrap_or_default();
     Json(hits).into_response()
+}
+
+#[cfg(test)]
+mod jump_tests {
+    use super::*;
+
+    #[test]
+    fn limit_is_clamped_to_one_through_fifty() {
+        assert_eq!(clamp_jump_limit(0), 1);
+        assert_eq!(clamp_jump_limit(20), 20);
+        assert_eq!(clamp_jump_limit(50), 50);
+        assert_eq!(clamp_jump_limit(1_000_000), 50);
+    }
 }
 
 async fn code_root(

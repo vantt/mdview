@@ -4,10 +4,12 @@
 
 use mdview_core::code_source::DirListing;
 use mdview_core::config::Config;
-use mdview_core::domain::{IndexedFile, Project, RenderedPage, SearchResult};
+use mdview_core::domain::{IndexedFile, Project, RenderedPage, SearchOutcome, SearchSort};
 use mdview_core::render::HighlightedSource;
+use mdview_core::snippet;
 
 pub fn layout(title: &str, head_extra: &str, body: &str) -> String {
+    let title = esc(title);
     format!(
         r#"<!doctype html>
 <html lang="en" data-theme="atelier" class="fg-root">
@@ -51,7 +53,7 @@ pub fn project_list_page(projects: &[(Project, usize)]) -> String {
                 r#"<div class="proj-card">
   <a class="fg-card proj-card__link" href="/p/{id}/">
     <div class="fg-card__title">{name}</div>
-    <div class="fg-card__sub">{count} markdown files · <time class="proj-card__time" datetime="{seen}">{seen}</time></div>
+    <div class="fg-card__sub">{count} indexed files · <time class="proj-card__time" datetime="{seen}">{seen}</time></div>
   </a>
   <form class="proj-card__delete" method="post" action="/api/projects/{id}/unregister" data-project="{name}">
     <button type="submit" class="proj-card__del" aria-label="Remove {name} from mdview" title="Remove from mdview">✕</button>
@@ -712,33 +714,143 @@ fn topbar_full(lead: &str, center: &str, actions: &str) -> String {
     )
 }
 
-pub fn search_page(project: &Project, query: &str, results: &[SearchResult]) -> String {
-    let mut items = String::new();
-    if query.trim().is_empty() {
-        items.push_str("<p class=\"fg-empty\">Type a query to search this project.</p>");
-    } else if results.is_empty() {
-        items.push_str(&format!(
-            "<p class=\"fg-empty\">No matches for “{}”.</p>",
-            esc(query)
+/// Percent-encode everything outside the RFC 3986 unreserved set, so a value
+/// such as `a&sort=recent#x` stays one query value.
+fn pct_encode(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for b in s.bytes() {
+        if b.is_ascii_alphanumeric() || matches!(b, b'-' | b'.' | b'_' | b'~') {
+            out.push(b as char);
+        } else {
+            out.push_str(&format!("%{b:02X}"));
+        }
+    }
+    out
+}
+
+/// A search URL with every value percent-encoded, then HTML-escaped for use
+/// inside an attribute.
+fn search_href(pid: &str, q: &str, scope: &str, dir: &str, sort: &str) -> String {
+    esc(&format!(
+        "/p/{}/_search?q={}&scope={}&dir={}&sort={}",
+        pct_encode(pid),
+        pct_encode(q),
+        pct_encode(scope),
+        pct_encode(dir),
+        pct_encode(sort),
+    ))
+}
+
+fn toggle_link(label: &str, href: &str, active: bool) -> String {
+    let current = if active { " aria-current=\"true\"" } else { "" };
+    format!("<a class=\"fg-toggle__opt\" href=\"{href}\"{current}>{label}</a>")
+}
+
+pub fn search_page(
+    project: &Project,
+    query: &str,
+    dir: &str,
+    scope_is_dir: bool,
+    sort: SearchSort,
+    outcome: Result<&SearchOutcome, &str>,
+) -> String {
+    let scope = if scope_is_dir { "dir" } else { "project" };
+    let sort_name = match sort {
+        SearchSort::Relevance => "relevance",
+        SearchSort::Recent => "recent",
+    };
+    let pid = project.id.as_str();
+
+    let mut toggles = String::from("<div class=\"fg-toggles\">");
+    if !dir.is_empty() {
+        toggles.push_str("<span class=\"fg-toggle\">");
+        toggles.push_str(&toggle_link(
+            "Whole project",
+            &search_href(pid, query, "project", dir, sort_name),
+            !scope_is_dir,
         ));
-    } else {
-        for r in results {
+        toggles.push_str(&toggle_link(
+            "This folder",
+            &search_href(pid, query, "dir", dir, sort_name),
+            scope_is_dir,
+        ));
+        toggles.push_str("</span>");
+    }
+    toggles.push_str("<span class=\"fg-toggle\">");
+    toggles.push_str(&toggle_link(
+        "Relevance",
+        &search_href(pid, query, scope, dir, "relevance"),
+        sort == SearchSort::Relevance,
+    ));
+    toggles.push_str(&toggle_link(
+        "Newest",
+        &search_href(pid, query, scope, dir, "recent"),
+        sort == SearchSort::Recent,
+    ));
+    toggles.push_str("</span></div>");
+
+    let mut status = String::new();
+    let mut items = String::new();
+    match outcome {
+        Err(msg) => {
             items.push_str(&format!(
-                "<a class=\"fg-card\" href=\"{url}\"><div class=\"fg-card__title\">{title}</div>\
-                 <div class=\"fg-card__sub\">{rel}</div><div class=\"fg-card__sub\">{excerpt}</div></a>",
-                url = esc(&r.url),
-                title = esc(&r.title),
-                rel = esc(&r.rel_path),
-                excerpt = highlight_excerpt(&r.excerpt),
+                "<p class=\"fg-empty fg-search-error\" role=\"alert\">Search failed: {}</p>",
+                esc(msg)
             ));
+        }
+        Ok(out) => {
+            let line = if let Some(err) = &out.sync_error {
+                Some(format!(
+                    "Sync failed: {} — showing indexed results",
+                    esc(err)
+                ))
+            } else if out.sync.skipped_recent {
+                Some("Index reused (synced moments ago)".to_string())
+            } else if !query.trim().is_empty() {
+                Some(format!(
+                    "Synced {} files ({} read) in {:.2} s",
+                    out.sync.files_seen,
+                    out.sync.files_read,
+                    out.sync.elapsed_ms as f64 / 1000.0
+                ))
+            } else {
+                None
+            };
+            if let Some(line) = line {
+                status = format!("<p class=\"fg-search-status\">{line}</p>");
+            }
+            if query.trim().is_empty() {
+                items.push_str("<p class=\"fg-empty\">Type a query to search this project.</p>");
+            } else if out.results.is_empty() {
+                items.push_str(&format!(
+                    "<p class=\"fg-empty\">No matches for “{}”.</p>",
+                    esc(query)
+                ));
+            } else {
+                for r in &out.results {
+                    items.push_str(&format!(
+                        "<a class=\"fg-card\" href=\"{url}\"><div class=\"fg-card__title\">{title}</div>\
+                         <div class=\"fg-card__sub\">{rel}</div><div class=\"fg-card__sub\">{excerpt}</div></a>",
+                        url = esc(&r.url),
+                        title = esc(&r.title),
+                        rel = esc(&r.rel_path),
+                        excerpt = highlight_excerpt(&r.excerpt),
+                    ));
+                }
+            }
         }
     }
     let body = format!(
         r#"{topbar}
 <main class="fg-page">
   <form action="/p/{pid}/_search" method="get">
+    <input type="hidden" name="scope" value="{scope}">
+    <input type="hidden" name="dir" value="{dir}">
+    <input type="hidden" name="sort" value="{sort_name}">
     <input class="fg-input" name="q" value="{q}" placeholder="Search…" autofocus autocomplete="off">
   </form>
+  {toggles}
+  {status}
   {items}
 </main>"#,
         topbar = topbar(&format!(
@@ -746,17 +858,19 @@ pub fn search_page(project: &Project, query: &str, results: &[SearchResult]) -> 
             name = esc(&project.name)
         )),
         pid = esc(&project.id),
+        dir = esc(dir),
         q = esc(query),
-        items = items,
     );
     layout(&format!("search: {query}"), "", &body)
 }
 
-/// FTS snippets contain `<mark>…</mark>`. Escape everything, then restore marks.
+/// The excerpt is raw document text with private-use sentinels around
+/// matches. Escape everything first, so literal markup in a document stays
+/// text, then turn the sentinels into the highlight tags.
 fn highlight_excerpt(excerpt: &str) -> String {
     esc(excerpt)
-        .replace("&lt;mark&gt;", "<mark class=\"fg-mark\">")
-        .replace("&lt;/mark&gt;", "</mark>")
+        .replace(snippet::MARK_OPEN, "<mark class=\"fg-mark\">")
+        .replace(snippet::MARK_CLOSE, "</mark>")
 }
 
 pub fn settings_page(cfg: &Config, saved: bool) -> String {
@@ -965,5 +1079,123 @@ mod tests {
         let round_tripped: String =
             serde_json::from_str(&escaped).expect("escaped blob must still be valid JSON");
         assert_eq!(round_tripped, source);
+    }
+
+    fn project() -> Project {
+        Project {
+            id: "p1".into(),
+            name: "Proj".into(),
+            root_path: std::path::PathBuf::from("/tmp/x"),
+            created_at: String::new(),
+            last_seen_at: String::new(),
+        }
+    }
+
+    fn outcome(excerpt: &str) -> SearchOutcome {
+        SearchOutcome {
+            results: vec![mdview_core::domain::SearchResult {
+                project_id: "p1".into(),
+                rel_path: "a.md".into(),
+                title: "A".into(),
+                excerpt: excerpt.into(),
+                url: "/p/p1/a.md".into(),
+                score: 1.0,
+                modified_at: String::new(),
+            }],
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn search_query_in_title_cannot_inject_markup_into_head() {
+        let out = outcome("");
+        let html = search_page(
+            &project(),
+            "</title><script>alert(1)</script>",
+            "",
+            false,
+            SearchSort::Relevance,
+            Ok(&out),
+        );
+        let head = &html[..html.find("</head>").unwrap()];
+        assert!(!head.contains("<script>alert"), "{head}");
+        assert!(head.contains("&lt;/title&gt;&lt;script&gt;"));
+    }
+
+    #[test]
+    fn excerpt_sentinels_become_marks_and_literal_markup_stays_text() {
+        let out = outcome("see \u{E000}<mark>x</mark>\u{E001} <b>");
+        let html = search_page(&project(), "x", "", false, SearchSort::Relevance, Ok(&out));
+        assert!(
+            html.contains("<mark class=\"fg-mark\">&lt;mark&gt;x&lt;/mark&gt;</mark>"),
+            "{html}"
+        );
+        assert!(html.contains("&lt;b&gt;"));
+        assert!(!html.contains("<b>"));
+    }
+
+    #[test]
+    fn toggles_show_folder_option_only_with_a_dir_and_mark_the_active_one() {
+        let out = outcome("");
+        let html = search_page(&project(), "q", "", false, SearchSort::Relevance, Ok(&out));
+        assert!(!html.contains("This folder"));
+        assert!(html.contains("Newest"));
+        let html = search_page(&project(), "q", "docs", true, SearchSort::Recent, Ok(&out));
+        assert!(html.contains("This folder"));
+        assert!(
+            html.contains("sort=recent\" aria-current=\"true\">Newest"),
+            "{html}"
+        );
+        assert!(html.contains("sort=recent\" aria-current=\"true\">Newest"));
+        assert_eq!(html.matches("aria-current").count(), 2);
+    }
+
+    #[test]
+    fn toggle_hrefs_percent_encode_every_value() {
+        let out = outcome("");
+        let html = search_page(
+            &project(),
+            "a b&c",
+            "a&sort=recent#x",
+            true,
+            SearchSort::Relevance,
+            Ok(&out),
+        );
+        assert!(html.contains("dir=a%26sort%3Drecent%23x"), "{html}");
+        assert!(html.contains("q=a%20b%26c"));
+        assert!(!html.contains("dir=a&amp;sort=recent"));
+    }
+
+    #[test]
+    fn status_lines_cover_synced_reused_and_failed() {
+        let mut out = outcome("");
+        out.sync.files_seen = 5;
+        out.sync.files_read = 2;
+        out.sync.elapsed_ms = 1500;
+        let html = search_page(&project(), "q", "", false, SearchSort::Relevance, Ok(&out));
+        assert!(html.contains("Synced 5 files (2 read) in 1.50 s"), "{html}");
+        out.sync.skipped_recent = true;
+        let html = search_page(&project(), "q", "", false, SearchSort::Relevance, Ok(&out));
+        assert!(html.contains("Index reused (synced moments ago)"));
+        out.sync_error = Some("disk <full>".into());
+        let html = search_page(&project(), "q", "", false, SearchSort::Relevance, Ok(&out));
+        assert!(
+            html.contains("Sync failed: disk &lt;full&gt; — showing indexed results"),
+            "{html}"
+        );
+    }
+
+    #[test]
+    fn engine_error_renders_a_message_not_an_empty_list() {
+        let html = search_page(
+            &project(),
+            "q",
+            "",
+            false,
+            SearchSort::Relevance,
+            Err("boom"),
+        );
+        assert!(html.contains("Search failed: boom"));
+        assert!(!html.contains("No matches"));
     }
 }

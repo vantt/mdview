@@ -66,6 +66,7 @@ impl RenderService {
         let mut headings = Vec::new();
         let mut has_mermaid = false;
         let mut title = String::new();
+        let mut links = Vec::new();
 
         self.walk(
             root,
@@ -76,7 +77,10 @@ impl RenderService {
             &mut headings,
             &mut has_mermaid,
             &mut title,
+            &mut links,
         );
+        links.sort();
+        links.dedup();
 
         let mut html_bytes = Vec::new();
         comrak::format_html(root, &opts, &mut html_bytes).ok();
@@ -95,6 +99,7 @@ impl RenderService {
             headings,
             has_mermaid,
             source: source.to_string(),
+            links,
         }
     }
 
@@ -109,6 +114,7 @@ impl RenderService {
         headings: &mut Vec<Heading>,
         has_mermaid: &mut bool,
         title: &mut String,
+        links: &mut Vec<String>,
     ) {
         // Phase 1: read the value kind without holding the borrow across the
         // work below (collect_text re-borrows descendants).
@@ -144,6 +150,11 @@ impl RenderService {
                 if link_resolver::is_external(&url) {
                     Action::None
                 } else {
+                    if let Some(rel) =
+                        link_resolver::resolve_to_rel(source_abs, &url, project_root, index)
+                    {
+                        links.push(rel);
+                    }
                     let r = link_resolver::resolve_link(
                         source_abs,
                         &url,
@@ -216,6 +227,7 @@ impl RenderService {
                 headings,
                 has_mermaid,
                 title,
+                links,
             );
         }
     }
@@ -600,6 +612,20 @@ mod tests {
         assert!(links.contains(&"api/README.md".to_string()));
         assert!(links.contains(&"docs/other.md".to_string()));
         assert_eq!(links.len(), 2); // external excluded
+    }
+
+    #[test]
+    fn rendered_page_collects_resolved_internal_links_only() {
+        let root = PathBuf::from("/proj");
+        let index = idx(&root, &["api/README.md", "docs/other.md"]);
+        let page = svc().render(
+            "[a](../api/README.md) [b](./other.md) [dup](./other.md) [ext](https://x.com) [gone](./missing.md)",
+            &root.join("docs/x.md"),
+            "p1",
+            &root,
+            &index,
+        );
+        assert_eq!(page.links, vec!["api/README.md", "docs/other.md"]);
     }
 
     fn span_open_close_counts(line: &str) -> (usize, usize) {

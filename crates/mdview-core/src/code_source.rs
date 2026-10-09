@@ -181,7 +181,7 @@ fn denylist_matches(name_lower: &str) -> bool {
 }
 
 /// True if any path component (by exact name equality, mirroring
-/// `engine::is_excluded_path`) is denylisted or matches a configured exclude
+/// `indexer::is_excluded`) is denylisted or matches a configured exclude
 /// pattern.
 fn is_denied_component(rel: &str, exclude_patterns: &[String]) -> bool {
     Path::new(rel)

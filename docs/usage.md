@@ -31,7 +31,7 @@ The CLI/daemon does **not** need any GUI system libraries.
 ## 2. Web mode (recommended)
 
 ```bash
-mdview register /path/to/project     # recursive scan + index
+mdview register /path/to/project     # register (files are indexed on view/search)
 mdview open README.md                # print a URL — auto-starts the daemon if needed
 mdview status                        # is it running?
 ```
@@ -94,15 +94,29 @@ off.
 
 ---
 
-## 3. Agent integration (MCP)
+## 3. Agent integration (CLI first)
 
 ```bash
-mdview doctor --fix     # register the MCP server for every agent tool present
-mdview doctor           # re-check: PATH, config, daemon, MCP per tool, skill
+mdview doctor --fix         # permission + skill + instruction block (no MCP)
+mdview doctor --fix --mcp   # additionally register the MCP server
+mdview doctor               # re-check: PATH, config, daemon, index schema, permission, skill
 ```
 
-`doctor --fix` sets up the MCP server for **whichever agent tools it detects** on
-your machine — and never touches one you don't have (reported `SKIP`):
+Agents run `mdview open --json <absolute-path-to-file.md>`, which prints `url`,
+`urls`, `long_url`, `long_urls`, `path`, `code` and `project_id` (the project is
+auto-registered and the daemon auto-started).
+
+`doctor --fix` ensures `Bash(mdview open:*)` is in `permissions.allow` of
+`~/.claude/settings.json` (created if missing; backed up first as
+`settings.json.mdview-<unix-time>.bak`; a file that is not a JSON object is left
+untouched and reported `MANUAL`; other keys, including `permissions.deny`, are
+preserved). It also removes the legacy `~/.mdview/registry.db*` files. `doctor`
+itself never creates or modifies the index database.
+
+With `--mcp`, `doctor` sets up the MCP server for **whichever agent tools it
+detects** on your machine — and never touches one you don't have (reported
+`SKIP`). Without `--mcp` those checks are skipped and existing registrations are
+left alone.
 
 | Tool | Detected by | MCP config it writes (backed up first) |
 |---|---|---|
@@ -110,13 +124,23 @@ your machine — and never touches one you don't have (reported `SKIP`):
 | Codex | `~/.codex/` / `codex` on PATH | `~/.codex/config.toml` (`[mcp_servers.mdview]`, format-preserving) |
 | Antigravity | `~/.gemini/config/` / `antigravity` on PATH | `~/.gemini/config/mcp_config.json` (`mcpServers`) |
 
-After that, an agent calls the single tool
-**`mdview_view_file(project_root, relative_path)`** and gets a browser URL back.
-The project is auto-registered on first use — no separate registration step.
+For agents without a shell, the MCP tool
+**`mdview_view_file(project_root, relative_path)`** returns the same fields.
 
 Drop the snippet from [`mdview-agents-template.md`](mdview-agents-template.md)
 into your project's `AGENTS.md` / `CLAUDE.md` so agents surface a viewable URL
 after writing docs.
+
+**Indexing.** Nothing scans the whole repo in the background. A file is indexed
+when its URL is opened (with its link targets and sibling markdown files); a
+project is fully indexed on its first content search. `mdview refresh` runs a
+full sync on demand. Projects idle for 14 days are removed from the registry.
+
+**Upgrading.** The registry is rebuilt as `~/.mdview/registry-v4.db`; it is a
+disposable cache and no data is migrated. Restart agent sessions so old
+`mdview mcp` processes exit. A running daemon from an older build is restarted
+automatically the next time the CLI needs it; older builds keep using
+`registry.db`.
 
 ---
 
@@ -124,17 +148,17 @@ after writing docs.
 
 ```bash
 mdview serve [--port 7700] [--host 0.0.0.0]     # optional: pre-start the daemon (auto-starts otherwise)
-mdview register <dir> [--name "My App"]         # index a project
-mdview open <file.md>                           # print the browser URL for a file
+mdview register <dir> [--name "My App"]         # register a project
+mdview open <file.md> [--json]                  # print the browser URL for a file
 mdview list                                     # list projects
 mdview search "query" [--project <id>]          # full-text search
-mdview refresh [<project-id>]                   # re-scan to reconcile the index
+mdview refresh [<project-id>]                   # full re-scan to reconcile the index
 mdview status                                   # daemon status
 mdview config edit                              # edit ~/.mdview/config.toml in $EDITOR
 mdview unregister <project-id>                  # remove a project (files kept)
 mdview stop                                     # stop the daemon
 mdview restart                                  # restart the daemon (apply config changes)
-mdview doctor [--fix] [--json] [--dry-run]      # diagnose & repair integration
+mdview doctor [--fix] [--mcp] [--json] [--dry-run]  # diagnose & repair integration
 ```
 Most commands accept `--json` for scripting.
 
@@ -185,7 +209,7 @@ from the tray to stop it.
 
 ## 7. Where things live
 
-- `~/.mdview/registry.db` — project registry + file index (SQLite)
+- `~/.mdview/registry-v4.db` — project registry + file index (SQLite, rebuildable)
 - `~/.mdview/config.toml` — configuration
 - `~/.mdview/daemon.lock` — the single-daemon coordination file
 

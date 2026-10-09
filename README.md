@@ -43,7 +43,7 @@ into its own URL namespace, and live-reloads on save. The docs your agent genera
 | 📊 **Diagrams that move** | Mermaid renders client-side with pan / zoom / fullscreen — and pinch-to-zoom on mobile. |
 | 📋 **Copy-ready code** | Syntax-highlighted code blocks with a one-tap copy button. |
 | ✏️ **Edit in place** | Hit Edit on any doc, fix it in a CodeMirror editor with markdown highlighting, Ctrl+S saves straight to disk and re-renders. Refuses to clobber a file your agent changed meanwhile. |
-| 🤖 **Agent-native** | A single MCP tool, `mdview_view_file`, hands your agent a clickable URL the moment it writes a doc. |
+| 🤖 **Agent-native** | `mdview open --json <file>` (or the `mdview_view_file` MCP tool when there is no shell) hands your agent a clickable URL the moment it writes a doc. |
 | 📱 **Read anywhere** | Responsive layout, mobile sidebar drawer, light & dark. Browse from your phone over the LAN or an SSH tunnel. |
 | 🦀 **One binary** | Written in Rust. No runtime, no Node, no Docker. Install and go. |
 
@@ -69,14 +69,14 @@ into its own URL namespace, and live-reloads on save. The docs your agent genera
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/vantt/mdview/main/install.sh | sh
-mdview doctor --fix     # wire up Claude Code MCP integration
+mdview doctor --fix     # let agents run `mdview open` and install the /mdview skill
 ```
 
 Windows (PowerShell):
 
 ```powershell
 irm https://raw.githubusercontent.com/vantt/mdview/main/install.ps1 | iex
-mdview doctor --fix     # wire up Claude Code MCP integration
+mdview doctor --fix     # let agents run `mdview open` and install the /mdview skill
 ```
 
 Or from source (needs Rust):
@@ -87,22 +87,42 @@ cargo install --git https://github.com/vantt/mdview mdview
 
 ---
 
-## Agent integration (MCP)
+## Agent integration (CLI first)
 
 ```
 mdview doctor --fix
-``` 
+```
 
-Registers an MCP server — with **Claude Code, Codex, and Antigravity**,
-for whichever of them it detects on your machine (it never writes config for a tool you
-don't have) — exposing a single tool:
+Agents call the CLI: `mdview open --json <absolute-path-to-file.md>` prints a JSON object
+with `url`, `urls`, `long_url`, `long_urls`, `path`, `code` and `project_id`, auto-registering
+the project and starting the daemon. `doctor --fix` adds the Claude Code permission
+`Bash(mdview open:*)` to `~/.claude/settings.json` (after a timestamped backup; a settings
+file that is not valid JSON is never touched), installs the `/mdview` skill, and syncs the
+agent instruction block. It no longer registers the MCP server by default.
 
-- **`mdview_view_file(project_root, relative_path)`** → returns a clickable `url` to the
-  rendered markdown, **auto-registering** the project and indexing the file on first use.
+For agents with no shell, opt in to MCP:
+
+```
+mdview doctor --fix --mcp
+```
+
+This registers an MCP server with **Claude Code, Codex, and Antigravity** (for whichever it
+detects) exposing **`mdview_view_file(project_root, relative_path)`**, which returns the same
+fields.
 
 Drop the snippet from [`docs/mdview-agents-template.md`](docs/mdview-agents-template.md)
 into your project's `AGENTS.md` / `CLAUDE.md`, and your agent will surface a viewable URL
 the moment it finishes writing docs.
+
+**Indexing is on demand.** Nothing scans the whole repo in the background: a file is
+indexed when its URL is opened (together with its link targets and sibling markdown files),
+and a project is fully indexed on its first content search. `mdview refresh` forces a full
+sync. Projects idle for 14 days are cleaned up automatically.
+
+**Upgrading.** The registry is rebuilt as `~/.mdview/registry-v4.db` (it is a disposable
+cache); `doctor --fix` removes the old `registry.db`. A running daemon from an older build is
+restarted automatically the next time the CLI needs it. Restart your agent sessions so old
+`mdview mcp` processes exit; older builds keep using `registry.db`.
 
 <!-- ▶ OPTIONAL VIDEO — agent → view_file → browser. See "Media checklist". -->
 
@@ -114,7 +134,7 @@ the moment it finishes writing docs.
 mdview open docs/architecture.md
 ```
 
-That's it. The daemon **auto-starts**, indexes the project, resolves the links, and prints
+That's it. The daemon **auto-starts**, indexes the file and its neighbours, resolves the links, and prints
 a browser URL. Open <http://localhost:7700> to browse every project; edits on disk
 live-reload the page.
 
@@ -122,8 +142,9 @@ live-reload the page.
 `docs/spec/prd.md`. Two ways to see it:
 
 - **Skill:** run `/mdview docs/spec/prd.md` in the agent's terminal — it replies with a URL to open.
-- **MCP already wired up?** No need to ask — the agent calls `mdview_view_file` itself
-  and hands you the URL right after it finishes writing the file.
+- **Agent wired up (`doctor --fix`)?** No need to ask — the agent runs `mdview open --json`
+  itself (or calls `mdview_view_file` over MCP) and hands you the URL right after it
+  finishes writing the file.
 
 **Reading from a remote server over SSH?** Forward the port and browse locally:
 
@@ -142,12 +163,12 @@ ssh -L 7700:localhost:7700 user@host   # then open http://localhost:7700
 
 ```sh
 mdview open <file.md>                # print the browser URL (auto-starts the daemon)
-mdview register <dir> [--name ...]   # recursive scan + index a project
+mdview register <dir> [--name ...]   # register a project (indexed on view/search)
 mdview search "query"                # full-text search (FTS5)
 mdview status                        # is the daemon up?
 mdview config edit                   # edit ~/.mdview/config.toml in $EDITOR
 mdview restart                       # restart the daemon (apply config changes)
-mdview doctor [--fix]                # diagnose & repair the integration
+mdview doctor [--fix] [--mcp]        # diagnose & repair the integration
 mdview serve [--host H] [--port P]   # optional: pre-start / bind a custom address
 ```
 
@@ -158,9 +179,10 @@ the desktop app live in the **[usage guide](docs/usage.md)**.
 
 ## How it works
 
-One daemon owns the registry (`~/.mdview/registry.db`); browser tabs are just clients. On a
-`view_file` call the server auto-creates the project, scans it recursively, indexes the target
-file, resolves its links, and returns the URL. A filesystem watcher keeps the index current
+One daemon owns the registry (`~/.mdview/registry-v4.db`); browser tabs are just clients. On an
+`open` / `view_file` call the server auto-creates the project, indexes the target file (plus its
+link targets and sibling markdown files), and returns the URL; the whole project is indexed on
+its first content search. A filesystem watcher keeps the index current
 and pushes a reload signal over WebSocket.
 
 - **Rendering:** comrak (GFM) → server-side syntect highlight → ammonia sanitize. Mermaid renders client-side.

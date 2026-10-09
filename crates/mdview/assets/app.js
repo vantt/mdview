@@ -209,8 +209,9 @@
   })();
 
   // Fuzzy file-jump palette (Cmd/Ctrl+K): fetch nucleo-ranked files from the
-  // server /p/:id/_jump endpoint and navigate. Complements full-text search —
-  // this jumps by file name/path, that searches content.
+  // server /p/:id/_jump endpoint (recent files when the box is empty, fuzzy
+  // path/title matches otherwise) and navigate. Enter on the first row runs a
+  // whole-project content search.
   (function () {
     var chapter = document.getElementById("chapter");
     var pid = chapter && chapter.getAttribute("data-pid");
@@ -257,6 +258,7 @@
       sel = 0;
       render();
       input.focus();
+      fetchHits();
     }
 
     function close() {
@@ -264,13 +266,38 @@
     }
 
     function onInput() {
+      sel = 0;
+      render(); // the content-search row reflects the text immediately
       if (timer) clearTimeout(timer);
       timer = setTimeout(fetchHits, 120);
     }
 
+    // Folder of the page being viewed, derived from the URL: a markdown file
+    // maps to its directory, a folder page to itself, anything else to the root.
+    function currentDir() {
+      var prefix = "/p/" + encodeURIComponent(pid) + "/";
+      var path = window.location.pathname;
+      if (path.indexOf(prefix) !== 0) return "";
+      var parts = path.slice(prefix.length).split("/").filter(Boolean).map(function (seg) {
+        try { return decodeURIComponent(seg); } catch (e) { return seg; }
+      });
+      if (!parts.length || parts[0].charAt(0) === "_") return "";
+      if (/\.(md|markdown)$/i.test(parts[parts.length - 1])) parts.pop();
+      return parts.join("/");
+    }
+
+    // The query that the content-search row would run ("" = no such row).
+    function searchQuery() { return input.value.trim(); }
+
+    // Rows are the optional content-search row followed by the file hits.
+    function rows() {
+      var q = searchQuery();
+      var out = q ? [{ search: true, q: q }] : [];
+      return out.concat(hits);
+    }
+
     function fetchHits() {
       var q = input.value.trim();
-      if (!q) { hits = []; sel = 0; render(); return; }
       var mine = ++seq;
       fetch("/p/" + encodeURIComponent(pid) + "/_jump?q=" + encodeURIComponent(q))
         .then(function (r) { return r.ok ? r.json() : []; })
@@ -280,20 +307,25 @@
           sel = 0;
           render();
         })
-        .catch(function () { if (mine === seq) { hits = []; render(); } });
+        .catch(function () { if (mine === seq) { hits = []; sel = 0; render(); } });
     }
 
     function render() {
       list.textContent = "";
-      hits.forEach(function (h, i) {
+      rows().forEach(function (h, i) {
         var li = document.createElement("li");
         li.className = "jump-item" + (i === sel ? " active" : "");
         var t = document.createElement("span");
         t.className = "jump-title";
-        t.textContent = h.title && h.title.length ? h.title : h.rel_path;
         var p = document.createElement("span");
         p.className = "jump-path";
-        p.textContent = h.rel_path;
+        if (h.search) {
+          t.textContent = "Search content for \u201c" + h.q + "\u201d";
+          p.textContent = "Enter";
+        } else {
+          t.textContent = h.title && h.title.length ? h.title : h.rel_path;
+          p.textContent = h.rel_path;
+        }
         li.appendChild(t);
         li.appendChild(p);
         li.addEventListener("mousedown", function (e) { e.preventDefault(); go(i); });
@@ -302,14 +334,21 @@
     }
 
     function go(i) {
-      var h = hits[i];
-      if (h) window.location.href = h.url;
+      var h = rows()[i];
+      if (!h) return;
+      if (h.search) {
+        window.location.href = "/p/" + encodeURIComponent(pid) + "/_search?q=" +
+          encodeURIComponent(h.q) + "&dir=" + encodeURIComponent(currentDir());
+      } else if (h.url) {
+        window.location.href = h.url;
+      }
     }
 
     function onKey(e) {
+      var n = rows().length;
       if (e.key === "Escape") { e.preventDefault(); close(); }
-      else if (e.key === "ArrowDown") { e.preventDefault(); if (hits.length) { sel = (sel + 1) % hits.length; render(); } }
-      else if (e.key === "ArrowUp") { e.preventDefault(); if (hits.length) { sel = (sel - 1 + hits.length) % hits.length; render(); } }
+      else if (e.key === "ArrowDown") { e.preventDefault(); if (n) { sel = (sel + 1) % n; render(); } }
+      else if (e.key === "ArrowUp") { e.preventDefault(); if (n) { sel = (sel - 1 + n) % n; render(); } }
       else if (e.key === "Enter") { e.preventDefault(); go(sel); }
     }
 

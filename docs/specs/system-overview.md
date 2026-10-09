@@ -13,7 +13,7 @@ tabs (and, later, a desktop window) are clients of it.
 
 ## Core invariant
 
-**At most one daemon** owns the registry (`~/.mdview/registry.db`). Every
+**At most one daemon** owns the registry (`~/.mdview/registry-v4.db`). Every
 launcher — CLI, MCP, future desktop — coordinates through `~/.mdview/daemon.lock`
 (pid + port). No second server ever writes the same registry.
 
@@ -22,11 +22,24 @@ launcher — CLI, MCP, future desktop — coordinates through `~/.mdview/daemon.
 - **Registry** — the set of registered projects (id, name, root path,
   timestamps). Projects are created explicitly (`register`) or **implicitly** the
   first time a file under a new root is viewed. Persisted; survives restart.
-- **Indexer** — recursively scans a project root (respecting `.gitignore` and
-  exclude patterns), recording each markdown file's relative path, title (first
-  H1 or filename), size, and modified time, plus its full text for search.
-  Steady state is **incremental** (per file-change event); a full re-scan
-  reconciles drift.
+  The registry file is a disposable cache: its name carries the schema
+  generation, and when the schema version differs it is rebuilt from scratch
+  (no migrations) while older `registry.db*` files are left to `doctor --fix`.
+  A project nobody has used for 14 days is dropped from the registry (files on
+  disk untouched), and the database is compacted after large deletes; there is
+  no per-file expiry.
+- **Indexer** — records each markdown file's relative path, title (first H1 or
+  filename), size, and modified time, plus its full text for search. Indexing is
+  **viewed-scope**: registering a project or handing out a URL (`open`,
+  `view_file`) scans nothing. Opening a page reads and indexes that file once
+  and, off the request path, indexes the markdown files it links to and its
+  sibling markdown files. A **content search** lazily syncs the whole project
+  first (hidden directories included; `.gitignore` and exclude patterns
+  respected), one sync at a time per project and skipped when the last one
+  finished under 10 seconds ago; unchanged files are not re-read.
+  `mdview refresh` is the explicit full sync. Only markdown files inside the
+  canonical project root and outside excluded directories are ever indexed or
+  rendered — a symlink out of the root is refused.
 - **Link resolution** — the defining feature. When rendering a file, every
   internal link is rewritten into the app's URL namespace by resolving it
   (including `../` across folders) against the project's index. Unresolved links
@@ -53,14 +66,24 @@ launcher — CLI, MCP, future desktop — coordinates through `~/.mdview/daemon.
   extensionless files, and files in an excluded directory — is refused. This
   is on top of the existing path-traversal guard (a request can never resolve
   outside the project root, symlinks included).
-- **Live reload** — a filesystem watcher (debounced) updates the index on change
-  and pushes a reload signal over WebSocket; the browser reloads the page.
-- **Search** — full-text (keyword) across a project or all projects.
+- **Live reload** — a filesystem watcher (debounced) watches the directories
+  that hold indexed files (non-recursively, picking up new ones as pages are
+  indexed), updates the index on change, and pushes a reload signal over
+  WebSocket only when the file's content hash actually changed.
+- **Search** — full-text (keyword) over the indexed content of a project,
+  diacritic-insensitive (including `đ` matching `d`), with excerpts taken from
+  the file on disk. The CLI `search --project` syncs first like the web page;
+  without `--project` it searches only what is already indexed. File lists for
+  the sidebar and the jump palette come from a short-lived cached filesystem
+  listing, not the index, so they show every markdown file whether or not it
+  has been indexed.
 - **Agent integration (MCP)** — a single tool, `mdview_view_file(project_root,
   relative_path)`, that ensures the project exists, ensures the daemon is up, and
-  returns a viewable URL. A brand-new project's full index runs in a detached
-  background process rather than blocking the call; the file itself is indexed
-  and rendered synchronously the moment its URL is actually opened.
+  returns a viewable URL; no scan runs, and the file is indexed the moment its
+  URL is opened. For agents with a shell the **CLI is the primary path**:
+  `mdview open --json <file>` auto-registers the project, auto-starts the
+  daemon, and prints the same fields as the MCP tool (including `path`). MCP
+  registration is opt-in (`doctor --mcp`).
 - **CLI** — `serve` (daemon), plus `register / open / list / search / status /
   refresh / unregister / stop`, `doctor`, and `version` (prints the single-source
   app version, same as `--version`).
@@ -79,9 +102,11 @@ launcher — CLI, MCP, future desktop — coordinates through `~/.mdview/daemon.
   into Agent integration and CLI `open`, both of which build their returned
   URL through this substitution.
 - **Doctor** — diagnoses and safely repairs setup: config presence, daemon
-  health, Claude Code MCP registration, and an AGENTS.md/CLAUDE.md mention of
-  mdview's agent tool (all merged idempotently, with a backup where content
-  already existed).
+  health and version, a read-only index-schema check (reporting and, with
+  `--fix`, removing legacy registry files), the Claude Code permission
+  `Bash(mdview open:*)`, an AGENTS.md/CLAUDE.md mention of mdview's agent tool,
+  and the skill (all merged idempotently, with a backup where content already
+  existed). MCP registration is checked only with `--mcp`.
 
 ## Boundaries (non-goals)
 
