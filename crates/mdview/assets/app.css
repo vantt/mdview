@@ -723,6 +723,7 @@ main.fg-page {
      wraps inside its own box. `pre` keeps its own horizontal scroll. */
   .fg-reading,
   main.fg-page {
+    box-sizing: border-box;
     padding-left: var(--space-4);
     padding-right: var(--space-4);
   }
