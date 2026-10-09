@@ -600,6 +600,7 @@ main.fg-page {
   margin: var(--space-5) auto var(--space-8);
   padding: 0 var(--space-6);
 }
+.md-editor[hidden] { display: none; }
 .md-editor__bar {
   display: flex;
   align-items: center;

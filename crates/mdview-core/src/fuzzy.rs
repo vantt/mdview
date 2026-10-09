@@ -45,6 +45,8 @@ pub fn rank_files(
 /// An item's score is the better of its path score and its title score; equal
 /// scores list the more recently modified item first. Returns at most `limit`
 /// hits by descending score. A blank query yields an empty result.
+/// Query, path and title all go through [`crate::fold::fold`], so "huong"
+/// finds "Hướng dẫn" the same way content search does.
 /// `project_id` is used only to build the click-through URL.
 pub fn rank_items(
     items: &[(String, String, SystemTime)],
@@ -59,14 +61,20 @@ pub fn rank_items(
 
     let mut path_matcher = Matcher::new(Config::DEFAULT.match_paths());
     let mut title_matcher = Matcher::new(Config::DEFAULT);
-    let pattern = Pattern::parse(query, CaseMatching::Smart, Normalization::Smart);
+    let pattern = Pattern::parse(
+        &crate::fold::fold(query),
+        CaseMatching::Smart,
+        Normalization::Smart,
+    );
     let mut buf = Vec::new();
 
     let mut scored: Vec<(u32, SystemTime, &(String, String, SystemTime))> = items
         .iter()
         .filter_map(|item| {
-            let by_path = pattern.score(Utf32Str::new(&item.0, &mut buf), &mut path_matcher);
-            let by_title = pattern.score(Utf32Str::new(&item.1, &mut buf), &mut title_matcher);
+            let path = crate::fold::fold(&item.0);
+            let title = crate::fold::fold(&item.1);
+            let by_path = pattern.score(Utf32Str::new(&path, &mut buf), &mut path_matcher);
+            let by_title = pattern.score(Utf32Str::new(&title, &mut buf), &mut title_matcher);
             by_path.max(by_title).map(|score| (score, item.2, item))
         })
         .collect();
@@ -182,6 +190,23 @@ mod tests {
         let hits = rank_items(&items, "p1", "guide", 10);
         assert_eq!(hits[0].score, hits[1].score);
         assert_eq!(hits[0].rel_path, "new/guide.md");
+    }
+
+    #[test]
+    fn rank_items_matches_titles_without_diacritics() {
+        let items = vec![
+            item("docs/guide.md", "Hướng dẫn sử dụng", 1),
+            item("b.md", "B", 2),
+        ];
+        let hits = rank_items(&items, "p1", "huong dan", 10);
+        assert_eq!(
+            hits.first().map(|h| h.rel_path.as_str()),
+            Some("docs/guide.md")
+        );
+        assert_eq!(
+            hits[0].title, "Hướng dẫn sử dụng",
+            "display title keeps its accents"
+        );
     }
 
     #[test]
