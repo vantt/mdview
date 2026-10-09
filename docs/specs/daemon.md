@@ -42,7 +42,8 @@ serves (see the web-interface and agent-integration areas for that).
 ### Automatic start (on first use)
 
 - **Triggers:** a `mdview open` or an agent `view_file` when no daemon is
-  running.
+  running. Neither starts a background scan of the project: indexing is
+  driven by viewing and searching (see system-overview.md, Indexer).
 - **What changes:** a daemon is launched in the background and, once it answers,
   becomes the single live daemon.
 - **Side effects:** the new daemon is fully detached into its **own session** —
@@ -74,6 +75,10 @@ serves (see the web-interface and agent-integration areas for that).
 - **What it guarantees:** at most one daemon owns the registry at a time; every
   launcher (CLI, agent integration, desktop shell) checks the daemon record and
   reuses a live daemon instead of starting another (per R2).
+- **Daemon from a different build:** when the CLI needs a daemon and the live
+  one reports a different version than the running binary (or no version at
+  all), the CLI stops it and starts one matching the binary. A daemon that
+  cannot be stopped is left running and reused rather than raced with a second.
 - **On a stale record:** if the record names a process that is no longer
   answering, it is treated as "not running" and a fresh daemon may be started;
   the stale record does not block startup.
@@ -159,7 +164,8 @@ Not applicable — background process, no screen.
 ## Pointers (implementation)
 
 - `crates/mdview/src/runtime.rs` — `ensure_bind`/`ensure_daemon_bases`
-  (auto-start + readiness wait; `bind_fallback` is the pure function deciding
+  (auto-start + readiness wait; `replace_stale_daemon` restarts a daemon of a
+  different version; `bind_fallback` is the pure function deciding
   real-record-port vs. configured-port on a readiness timeout, per D 1c8473f4);
   re-exports the shared `apply_detach` (below) as its own `spawn_daemon_detached`
   detach step.

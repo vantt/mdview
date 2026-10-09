@@ -39,7 +39,7 @@ content itself.
 | 5 | Chapter focus (file pages) | Which single folder the sidebar is currently showing | a folder within the project; starts at the viewed file's folder |
 | 6 | Chapter breadcrumb | The ancestor path of the focused folder, each segment selectable | project root → … → focused folder |
 | 7 | File label | How a file is named in the sidebar | its title (first H1); the file name when it has no title |
-| 8 | Project card (project list) | One registered project | a card linking to the project — its name, indexed markdown file count, and when it was last seen (never the filesystem path, per R5) — with a delete control that unregisters it |
+| 8 | Project card (project list) | One registered project | a card linking to the project — its name, indexed file count (files indexed so far, not every markdown file on disk), and when it was last seen (never the filesystem path, per R5) — with a delete control that unregisters it |
 | 9 | Reading breadcrumb (file pages) | Orientation trail above the article, distinct from the chapter sidebar's zoom breadcrumb | project name → each path segment of the file, in order; segments are not independently clickable (orientation only) |
 | 10 | "On this page" (TOC) | Right-hand list of the current file's headings (levels 1-4) | one entry per heading, indented by level, linking to that heading |
 | 11 | "Linked from" (backlinks) | Right-hand list of other files that link to the one being viewed | empty when nothing links here; hidden entirely when both this and the TOC are empty |
@@ -57,7 +57,8 @@ content itself.
 - **Delete / unregister:** activating a card's delete control asks the operator
   to confirm, then removes the project from the registry and returns to the
   list. This removes only the registry entry and its index — **the files on
-  disk are untouched**, and re-registering re-scans them. The endpoint is
+  disk are untouched**, and the project is indexed again as its files are
+  viewed or searched. The endpoint is
   unauthenticated like the rest of the server, so anyone who can reach it can
   unregister a project (reversible; no data loss).
 - **Which file a project opens to:** a fixed, predictable rule (never "whatever
@@ -95,8 +96,8 @@ content itself.
 - **Triggers:** typing in the search box above the chapter sidebar's file
   tree, then submitting.
 - **What it does:** navigates to the current project's full-text search
-  results page for that query (see the search results page, not covered by
-  this spec).
+  results page for that query (see "Content search page" below;
+  the page opens with the whole-project scope).
 - **Afterwards:** the search box sits with clear spacing above the file
   tree, so the two are not read as one continuous block.
 
@@ -134,14 +135,39 @@ content itself.
 - **Triggers:** pressing the jump shortcut (Cmd+K on macOS, Ctrl+K elsewhere)
   on any file page opens a centered overlay with a single text input; pressing
   it again, or Escape, or clicking outside the box, closes it.
-- **What it does:** as the operator types, the project's files are ranked by a
-  fuzzy match of the query against each file's **name and path** (not its
-  content) and the top matches are listed live, each showing its title and its
-  path. This is distinct from full-text search, which matches file *content*.
-- **Navigation:** Arrow keys move the highlighted match; Enter opens the
-  highlighted file; clicking a match opens it. An empty query shows no matches.
+- **What it does:** with an empty box, the project's most recently modified
+  files are listed. As the operator types, files are ranked by a fuzzy match of
+  the query against each file's **path and title** (not its content) and the top
+  matches are listed live, each showing its title and its path. The list comes
+  from a cached filesystem listing, so files not yet indexed appear too. The
+  **first row** is always "Search content for <query>" once something is typed;
+  Enter on it opens the content search page for the whole project, carrying the
+  folder of the page being viewed so "This folder" is available there.
+- **Navigation:** Arrow keys move the highlighted row; Enter opens it; clicking
+  a row opens it.
 - **Afterwards:** the operator jumps directly to a file by approximate name
   without browsing the sidebar or running a content search.
+
+### Content search page
+
+- **Triggers:** submitting the sidebar search box, or Enter on the palette's
+  first row.
+- **What it does:** searches the content of the current project. Before
+  ranking, the project is lazily synced into the index (see system-overview.md,
+  Indexer), so files never opened before are found. A status line under the
+  toggles says what happened: files seen and read with the elapsed time, "Index
+  reused (synced moments ago)" when a sync finished under 10 seconds ago, or a
+  sync failure — in which case results from what is already indexed are still
+  shown.
+- **Scope toggle:** "Whole project" / "This folder". "This folder" appears only
+  when the search carries a folder (from the palette), and restricts results to
+  that folder and below; a folder value that is absolute or contains `..` is
+  ignored.
+- **Sort toggle:** "Relevance" (default) / "Newest" (most recently modified
+  first).
+- **Results:** each shows title, path, and an excerpt built from the file on
+  disk with the matches highlighted. Matching ignores case and diacritics,
+  including `đ` as `d`, and treats the query terms as prefixes.
 
 ### Copy as markdown (file pages)
 
@@ -214,9 +240,10 @@ file list (paths + titles); no other actor consumes it.
   time (breadcrumb-zoom), never the project's full flat file list; files are
   labelled by title, and moving between folders is done by zooming the
   breadcrumb in and out, not by scrolling one long list.
-- **R3.** The fuzzy file-jump palette ranks files by name/path, never by
+- **R3.** The fuzzy file-jump palette ranks files by path/title, never by
   content; it is the "jump to a file I can half-name" affordance and is kept
-  distinct from full-text (content) search, which stays a separate results page.
+  distinct from full-text (content) search, which stays a separate results page
+  that the palette's first row leads to.
 - **R4.** Copying a selection from a rendered file yields the raw markdown of the
   spanned source lines, not the rendered output; the mapping is by source line
   range (block granularity), and a selection that maps to nothing copies normally.
@@ -264,7 +291,8 @@ snapshot under `docs/specs/visuals/web-interface/` is an open item.
 
 ## Pointers (implementation)
 
-- `crates/mdview/src/views.rs` — `topbar()` (shared header), `file_tree`
+- `crates/mdview/src/views.rs` — `search_page` (content search page: toggles,
+  status line, excerpts); `topbar()` (shared header), `file_tree`
   (chapter sidebar: ships the file list as JSON + focus data), `project_list_page`,
   `breadcrumb()` (reading breadcrumb), `right_panel()` (TOC + backlinks), page
   functions.
@@ -276,6 +304,9 @@ snapshot under `docs/specs/visuals/web-interface/` is an open item.
 - `crates/mdview/assets/codemirror.min.js` — vendored CodeMirror 6 bundle,
   built from `tools/codemirror-bundle/` (`npm install && npm run build`);
   `entry.js` there lists the extensions and the `mdviewCodeMirror` global.
+- `crates/mdview-core/src/listing.rs` (cached listing behind the sidebar and
+  `jump_files`), `search.rs` (`search_content`), `sync.rs` (lazy project sync),
+  `snippet.rs` / `fold.rs` (excerpts and diacritic folding).
 - `crates/mdview/src/server.rs` — `save_file` (the editor's PUT route);
   `crates/mdview-core/src/engine.rs` — `Engine::save_file` (atomic write +
   re-index, `Error::Conflict` on a stale base hash).

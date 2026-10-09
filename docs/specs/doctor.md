@@ -14,7 +14,7 @@ automatically instead of by hand.
 
 ## Entry Points & Triggers
 
-- CLI: `mdview doctor [--json] [--dry-run] [--fix]`, run from any directory.
+- CLI: `mdview doctor [--json] [--dry-run] [--fix] [--mcp]`, run from any directory.
   File-based checks (Config, Agent instruction) act on the directory the
   command is run from and the operator's home directory — not on any
   registered project.
@@ -28,6 +28,7 @@ Flags:
 | 1 | `--json` | Emit the check results as a JSON array instead of a human-readable list | on / off | no | off |
 | 2 | `--dry-run` | Report only — no check performs any write, even if `--fix` is also given | on / off | no | off |
 | 3 | `--fix` | Apply every safe, automatic repair for a check that is not already fine | on / off | no | off |
+| 4 | `--mcp` | Also check (and, with `--fix`, register) the MCP server in each detected agent tool. Without it the three MCP checks report SKIP and existing registrations are left alone — the CLI (`mdview open --json`) is the primary agent path, MCP is for agents without a shell | on / off | no | off |
 
 Checks (each produces one result row: OK / FIXED / MANUAL / WARN / SKIP, plus a
 one-line detail). SKIP means the target agent tool is not installed on this
@@ -37,12 +38,14 @@ machine, so nothing was written for it — mdview never registers blindly.
 |---|---|---|---|
 | 1 | Binary in PATH | The `mdview` executable can be found on the operator's PATH | No — reported WARN with the current executable's actual location; the operator edits PATH by hand |
 | 2 | Config | The configuration file exists and loads | Yes — see Rule R2 below (not gated by `--fix`) |
-| 3 | Daemon | A viewer server is currently running and answers its health check | No — reported WARN; the operator starts one with `mdview serve` |
-| 4 | MCP · Claude Code | If Claude Code is present, mdview is registered as an MCP server in `~/.claude.json` (`mcpServers`, JSON) | Yes, with `--fix`; SKIP when Claude Code isn't detected |
-| 5 | MCP · Codex | If Codex is present, mdview is registered in `~/.codex/config.toml` (`[mcp_servers.mdview]`, TOML) | Yes, with `--fix`; SKIP when Codex isn't detected |
-| 6 | MCP · Antigravity | If Antigravity is present, mdview is registered in `~/.gemini/config/mcp_config.json` (`mcpServers`, JSON — shared by the IDE/CLI/2.0) | Yes, with `--fix`; SKIP when Antigravity isn't detected |
-| 7 | Agent instruction | AGENTS.md and CLAUDE.md, in the current directory, carry mdview's current instruction block (marker-delimited). AGENTS.md is the shared instruction file every agent tool (Claude Code, Codex, Antigravity CLI) reads | Yes, with `--fix` |
-| 8 | Skill | The global Claude Code skill `~/.claude/skills/mdview/SKILL.md` (the `/mdview <path>` command) is installed and matches the shipped template | Yes, with `--fix`; SKIP when Claude Code isn't detected |
+| 3 | Daemon | A viewer server is currently running and answers its health check, and was started by this binary's version | No — WARN when not running (the operator starts one with `mdview serve`); MANUAL when it is a different version (`mdview restart`) |
+| 4 | Index schema | The registry database (`registry-v4.db`) matches the current schema version, read from the file header without opening it — a diagnostic never creates or resets the index. A mismatch only warns: the database is rebuilt on next start. Also reports legacy `registry.db*` files | Only the legacy-file removal, with `--fix` (never under `--dry-run`); the index itself is a disposable cache and is never modified |
+| 5 | Claude permission | If Claude Code is present, `Bash(mdview open:*)` is in `permissions.allow` of `~/.claude/settings.json`, so agents can run `mdview open` without a prompt | Yes, with `--fix`; SKIP when Claude Code isn't detected — see Rule R3 |
+| 6 | MCP · Claude Code | With `--mcp`: if Claude Code is present, mdview is registered as an MCP server in `~/.claude.json` (`mcpServers`, JSON) | Yes, with `--fix --mcp`; SKIP without `--mcp` or when Claude Code isn't detected |
+| 7 | MCP · Codex | With `--mcp`: if Codex is present, mdview is registered in `~/.codex/config.toml` (`[mcp_servers.mdview]`, TOML) | Yes, with `--fix --mcp`; SKIP without `--mcp` or when Codex isn't detected |
+| 8 | MCP · Antigravity | With `--mcp`: if Antigravity is present, mdview is registered in `~/.gemini/config/mcp_config.json` (`mcpServers`, JSON — shared by the IDE/CLI/2.0) | Yes, with `--fix --mcp`; SKIP without `--mcp` or when Antigravity isn't detected |
+| 9 | Agent instruction | AGENTS.md and CLAUDE.md, in the current directory, carry mdview's current instruction block (marker-delimited). AGENTS.md is the shared instruction file every agent tool (Claude Code, Codex, Antigravity CLI) reads | Yes, with `--fix` |
+| 10 | Skill | The global Claude Code skill `~/.claude/skills/mdview/SKILL.md` (the `/mdview <path>` command) is installed and matches the shipped template | Yes, with `--fix`; SKIP when Claude Code isn't detected |
 
 **Detection** (a tool counts as installed when either signal is present):
 Claude Code — `~/.claude.json`, a `~/.claude/` directory, or `claude` on PATH.
@@ -54,8 +57,9 @@ Codex — a `~/.codex/` directory or `codex` on PATH. Antigravity — a
 ### Run diagnostics (`mdview doctor`)
 
 - **Triggers:** the CLI command, with or without `--json`.
-- **What happens:** the checks run in order (PATH, Config, Daemon, MCP · Claude
-  Code, MCP · Codex, MCP · Antigravity, Agent instruction, Skill) and each
+- **What happens:** the checks run in order (PATH, Config, Daemon, Index
+  schema, Claude permission, MCP · Claude Code, MCP · Codex, MCP · Antigravity,
+  Agent instruction, Skill) and each
   reports OK / FIXED / MANUAL / WARN / SKIP with a one-line detail.
 - **Side effects:** the Config check writes a default configuration file the
   moment one is missing, **whenever `--dry-run` is not given** — see Rule R2;
@@ -67,7 +71,17 @@ Codex — a `~/.codex/` directory or `codex` on PATH. Antigravity — a
 
 - **Triggers:** the CLI command with `--fix` (and without `--dry-run`).
 - **What changes:**
-  - MCP registration, per detected tool, if not already registered: mdview is
+  - Claude Code permission: `Bash(mdview open:*)` is added to
+    `permissions.allow` in `~/.claude/settings.json` (the file is created if
+    missing). An existing file is backed up first as
+    `settings.json.mdview-<unix-time>.bak`, and the write is aborted if the
+    backup fails. Every other key, including `permissions.deny`, is preserved;
+    a file that is not a JSON object (or has a wrongly typed `permissions`) is
+    never written and is reported MANUAL.
+  - Legacy index files: `registry.db`, `registry.db-wal` and `registry.db-shm`
+    left by an older build are removed. Without `--fix` they are reported (WARN)
+    only.
+  - MCP registration (only with `--mcp`), per detected tool, if not already registered: mdview is
     added to that tool's MCP server list (Claude Code, Codex, Antigravity),
     leaving every other registered server untouched. A tool that isn't installed
     is skipped entirely — no config file is created for it. The JSON targets
@@ -116,6 +130,10 @@ remote caller and no distinct roles.
   the command is run without `--dry-run`, a missing configuration file is
   always replaced with a fresh default one, whether or not `--fix` was passed.
   `--dry-run` is what prevents this write, not the absence of `--fix`.
+- **R3.** The Claude permission fix is additive and conservative: it never
+  edits or removes `permissions.deny`, never rewrites a settings file it cannot
+  parse as a JSON object, and always keeps a timestamped backup of an existing
+  file, so it cannot loosen anything the operator restricted.
 
 ## Edge Cases Settled
 
@@ -145,7 +163,8 @@ Not applicable — CLI output only, no screen.
 
 ## Pointers (implementation)
 
-- `crates/mdview/src/doctor.rs` — all checks + `run()`; detection helpers
+- `crates/mdview/src/doctor.rs` — all checks + `run()` (including
+  `check_index_schema` and `ensure_claude_permission`); detection helpers
   (`claude_present`/`codex_present`/`antigravity_present`, `bin_on_path`) and the
   two registrars (`register_json_mcp`, `register_toml_mcp`).
 - `crates/mdview/src/cli.rs` — `Command::Doctor { json, dry_run, fix }` flag
