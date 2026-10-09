@@ -23,4 +23,5 @@ ignore.workspace = true
 notify.workspace = true
 notify-debouncer-full.workspace = true
 nucleo-matcher.workspace = true
+unicode-normalization.workspace = true
 libc.workspace = true

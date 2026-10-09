@@ -24,7 +24,7 @@ pub type WatchHandle = Debouncer<notify::RecommendedWatcher, FileIdMap>;
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "lowercase")]
 enum ReloadKind {
-    /// The file's content actually changed (`upsert_file` reported so).
+    /// The file's content actually changed (`index_docs` reported so).
     Changed,
     /// The file left the index. Always reported regardless of content-hash —
     /// there is no new content to hash, and a browser viewing this exact file

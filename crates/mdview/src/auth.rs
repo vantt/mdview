@@ -245,7 +245,10 @@ mod tests {
 
     #[test]
     fn safe_redirect_target_rejects_open_redirects() {
-        assert_eq!(safe_redirect_target("/p/abc/docs/architect"), Some("/p/abc/docs/architect"));
+        assert_eq!(
+            safe_redirect_target("/p/abc/docs/architect"),
+            Some("/p/abc/docs/architect")
+        );
         assert_eq!(safe_redirect_target("/"), Some("/"));
         assert_eq!(safe_redirect_target("//evil.example"), None);
         assert_eq!(safe_redirect_target("/\\evil.example"), None);

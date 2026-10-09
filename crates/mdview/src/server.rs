@@ -437,7 +437,7 @@ async fn project_home(
     State(st): State<AppState>,
     Path(id): Path<String>,
 ) -> Response {
-    match st.engine.list_files(&id) {
+    match st.engine.sidebar_files(&id) {
         Ok(files) if !files.is_empty() => {
             let entry = pick_entry_file(&files).unwrap_or(&files[0]);
             Redirect::to(&format!("/p/{}/{}", id, entry.rel_path)).into_response()
@@ -526,7 +526,7 @@ async fn project_path(
             return match st.engine.render_file(&id, &path) {
                 Ok(page) => {
                     let file = st.engine.store.get_file(&id, &path).unwrap().unwrap();
-                    let files = st.engine.list_files(&id).unwrap_or_default();
+                    let files = st.engine.sidebar_files(&id).unwrap_or_default();
                     let backlinks = st.engine.backlinks(&id, &path).unwrap_or_default();
                     Html(views::file_page(&project, &file, &page, &files, &backlinks))
                         .into_response()
@@ -544,7 +544,7 @@ async fn project_path(
         // (or index) among its direct children, redirect there instead of
         // 404ing, the same landing-page convention project_home uses at the
         // project root.
-        let files = st.engine.list_files(&id).unwrap_or_default();
+        let files = st.engine.sidebar_files(&id).unwrap_or_default();
         if let Some(entry) = pick_folder_landing(&files, path.trim_end_matches('/')) {
             return Redirect::to(&format!("/p/{id}/{}", entry.rel_path)).into_response();
         }
@@ -618,7 +618,14 @@ async fn search_page(
         Vec::new()
     } else {
         st.engine
-            .search(&query.q, Some(&id), 30)
+            .search_content(
+                &id,
+                &query.q,
+                None,
+                mdview_core::domain::SearchSort::Relevance,
+                30,
+            )
+            .map(|outcome| outcome.results)
             .unwrap_or_default()
     };
     Html(views::search_page(&project, &query.q, &results)).into_response()
@@ -650,7 +657,7 @@ async fn jump_search(
     }
     let hits = st
         .engine
-        .fuzzy_files(&id, &query.q, query.limit)
+        .jump_files(&id, &query.q, query.limit)
         .unwrap_or_default();
     Json(hits).into_response()
 }

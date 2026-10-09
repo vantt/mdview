@@ -251,7 +251,7 @@ fn cmd_register(path: &Path, name: Option<&str>, json: bool) -> Result<()> {
         println!("  {}", project.root_path.display());
     } else {
         println!(
-            "Registered '{}' ({}) — {} markdown files",
+            "Registered '{}' ({}) — {} indexed files",
             project.name, project.id, count
         );
         println!("  {}", project.root_path.display());
@@ -368,7 +368,12 @@ fn cmd_list(json: bool) -> Result<()> {
     } else {
         for p in &projects {
             let c = engine.file_count(&p.id).unwrap_or(0);
-            println!("{:<20} {:>5} files  {}", p.id, c, p.root_path.display());
+            println!(
+                "{:<20} {:>5} indexed files  {}",
+                p.id,
+                c,
+                p.root_path.display()
+            );
         }
     }
     Ok(())
@@ -376,7 +381,22 @@ fn cmd_list(json: bool) -> Result<()> {
 
 fn cmd_search(query: &str, project: Option<&str>, limit: usize, json: bool) -> Result<()> {
     let engine = runtime::build_engine()?;
-    let results = engine.search(query, project, limit)?;
+    let results = match project {
+        Some(id) => {
+            let outcome = engine.search_content(
+                id,
+                query,
+                None,
+                mdview_core::domain::SearchSort::Relevance,
+                limit,
+            )?;
+            if let Some(err) = &outcome.sync_error {
+                eprintln!("mdview: project sync failed, searching what is indexed: {err}");
+            }
+            outcome.results
+        }
+        None => engine.search_indexed(query, limit)?,
+    };
     if json {
         println!("{}", serde_json::json!({ "results": results }));
     } else if results.is_empty() {
@@ -419,17 +439,26 @@ fn cmd_refresh(project: Option<&str>) -> Result<()> {
     let engine = runtime::build_engine()?;
     match project {
         Some(id) => {
-            let n = engine.refresh(id)?;
-            println!("Reindexed {n} files in '{id}'.");
+            let stats = engine.sync_project(id)?;
+            println!("{id}: {}", describe_sync(&stats));
         }
         None => {
             for p in engine.list_projects()? {
-                let n = engine.refresh(&p.id)?;
-                println!("{}: {n} files", p.id);
+                match engine.sync_project(&p.id) {
+                    Ok(stats) => println!("{}: {}", p.id, describe_sync(&stats)),
+                    Err(e) => eprintln!("{}: sync failed: {e}", p.id),
+                }
             }
         }
     }
     Ok(())
+}
+
+fn describe_sync(stats: &mdview_core::domain::SyncStats) -> String {
+    format!(
+        "{} files seen, {} read, {} removed ({} ms)",
+        stats.files_seen, stats.files_read, stats.files_removed, stats.elapsed_ms
+    )
 }
 
 fn cmd_unregister(id: &str) -> Result<()> {

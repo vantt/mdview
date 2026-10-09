@@ -51,7 +51,7 @@ pub fn project_list_page(projects: &[(Project, usize)]) -> String {
                 r#"<div class="proj-card">
   <a class="fg-card proj-card__link" href="/p/{id}/">
     <div class="fg-card__title">{name}</div>
-    <div class="fg-card__sub">{count} markdown files · <time class="proj-card__time" datetime="{seen}">{seen}</time></div>
+    <div class="fg-card__sub">{count} indexed files · <time class="proj-card__time" datetime="{seen}">{seen}</time></div>
   </a>
   <form class="proj-card__delete" method="post" action="/api/projects/{id}/unregister" data-project="{name}">
     <button type="submit" class="proj-card__del" aria-label="Remove {name} from mdview" title="Remove from mdview">✕</button>

@@ -1,20 +1,52 @@
 //! SQLite adapter: project registry + file index + FTS5 search.
 //! Behind a `Mutex<Connection>` so it is Send+Sync for the async daemon.
+//!
+//! The registry is a disposable cache: a database of another schema version is
+//! dropped and rebuilt rather than migrated. Full text lives in a contentless
+//! FTS5 table (`files_fts`) linked to `files` by rowid (`files.fts_rowid`), so
+//! every FTS delete/update is a rowid lookup, never a scan.
 
-use crate::domain::{IndexedFile, Project, SearchResult};
+use crate::domain::{IndexedFile, Project, SearchResult, SearchSort};
 use crate::error::Result;
+use crate::fold::fold;
+use crate::indexer::{self, IndexedDoc};
 use crate::short_link;
 use rusqlite::{params, Connection, OptionalExtension};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
+
+/// Schema version this build expects. A database stamped with any other
+/// version is dropped and recreated on open.
+pub const SCHEMA_VERSION: i64 = 4;
+
+/// What the index knows about one file — enough for a caller to decide whether
+/// re-reading it from disk is worth it.
+#[derive(Debug, Clone)]
+pub struct FileState {
+    pub rel_path: String,
+    pub abs_path: PathBuf,
+    pub title: String,
+    pub size_bytes: u64,
+    pub modified_at: String,
+    pub content_hash: String,
+    pub fts_rowid: i64,
+}
+
+impl FileState {
+    /// `false` for a `register_known_path` stub (path known, content unread).
+    pub fn content_indexed(&self) -> bool {
+        !self.content_hash.is_empty()
+    }
+}
 
 pub struct SqliteStore {
     conn: Mutex<Connection>,
 }
 
 impl SqliteStore {
-    /// Open (creating if needed) the registry DB and run migrations.
+    /// Open (creating if needed) the registry DB, rebuilding it when its
+    /// schema version differs from [`SCHEMA_VERSION`].
     pub fn open(path: &Path) -> Result<Self> {
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)?;
@@ -29,18 +61,31 @@ impl SqliteStore {
     }
 
     fn from_conn(conn: Connection) -> Result<Self> {
+        // Multiple processes share this DB (daemon + CLI + MCP) — without a
+        // busy timeout a writer that loses the race gets an immediate
+        // "database is locked" error instead of waiting the brief moment WAL
+        // contention actually needs. Set first so the pragmas below wait too.
+        conn.busy_timeout(std::time::Duration::from_secs(15)).ok();
         conn.pragma_update(None, "journal_mode", "WAL").ok();
         conn.pragma_update(None, "foreign_keys", "ON").ok();
-        // Multiple processes share this DB (daemon + CLI + MCP, and now a
-        // detached background `refresh`) — without a busy timeout a writer
-        // that loses the race gets an immediate "database is locked" error
-        // instead of waiting the brief moment WAL contention actually needs.
-        conn.busy_timeout(std::time::Duration::from_secs(15)).ok();
-        conn.execute_batch(SCHEMA)?;
-        migrate(&conn)?;
+        init_schema(&conn)?;
         Ok(Self {
             conn: Mutex::new(conn),
         })
+    }
+
+    /// Run `f` inside one `BEGIN IMMEDIATE` transaction. IMMEDIATE takes the
+    /// write lock up front, so the busy timeout applies across processes
+    /// instead of a deferred transaction failing instantly with
+    /// `SQLITE_BUSY_SNAPSHOT` when it tries to upgrade.
+    fn write_txn<T>(&self, f: impl FnOnce(&Connection) -> Result<T>) -> Result<T> {
+        let c = self.conn.lock().unwrap();
+        c.execute_batch("BEGIN IMMEDIATE")?;
+        let out = f(&c).and_then(|v| c.execute_batch("COMMIT").map(|_| v).map_err(Into::into));
+        if out.is_err() {
+            let _ = c.execute_batch("ROLLBACK");
+        }
+        out
     }
 
     // ---- projects ----
@@ -87,77 +132,48 @@ impl SqliteStore {
         Ok(rows.filter_map(|r| r.ok()).collect())
     }
 
+    /// Drop a project and every row it owns. Deletes only registry rows —
+    /// never anything on disk.
     pub fn delete_project(&self, id: &str) -> Result<()> {
-        let c = self.conn.lock().unwrap();
-        c.execute("DELETE FROM files WHERE project_id=?1", params![id])?;
-        c.execute("DELETE FROM files_fts WHERE project_id=?1", params![id])?;
-        c.execute("DELETE FROM links WHERE project_id=?1", params![id])?;
-        c.execute("DELETE FROM projects WHERE id=?1", params![id])?;
-        Ok(())
+        self.write_txn(|c| delete_project_in(c, id))
     }
 
     // ---- files ----
 
-    /// Upsert a file's index row. Returns whether its *content* actually
-    /// changed from what was stored before (a brand-new row counts as
-    /// changed) — the filesystem watcher uses this to skip a live-reload
-    /// broadcast for a touch that left bytes identical (see D2,
-    /// `docs/history/scoped-live-reload/CONTEXT.md`).
-    pub fn upsert_file(&self, f: &IndexedFile, content: &str) -> Result<bool> {
-        let c = self.conn.lock().unwrap();
-        let new_content_hash = crate::indexer::content_hash(content);
-        let old_content_hash: Option<String> = c
-            .query_row(
-                "SELECT content_hash FROM files WHERE project_id=?1 AND rel_path=?2",
-                params![f.project_id, f.rel_path],
-                |r| r.get(0),
-            )
-            .optional()?;
-        c.execute(
-            "INSERT INTO files(project_id,rel_path,abs_path,title,size_bytes,modified_at,path_hash,content_hash,last_accessed_at)
-             VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9)
-             ON CONFLICT(project_id,rel_path) DO UPDATE SET
-               abs_path=?3, title=?4, size_bytes=?5, modified_at=?6, path_hash=?7, content_hash=?8",
-            params![
-                f.project_id,
-                f.rel_path,
-                f.abs_path.to_string_lossy(),
-                f.title,
-                f.size_bytes as i64,
-                f.modified_at,
-                short_link::path_hash(&f.project_id, &f.rel_path),
-                new_content_hash,
-                crate::indexer::now_rfc3339(),
-            ],
-        )?;
-        c.execute(
-            "DELETE FROM files_fts WHERE project_id=?1 AND rel_path=?2",
-            params![f.project_id, f.rel_path],
-        )?;
-        c.execute(
-            "INSERT INTO files_fts(project_id,rel_path,title,content) VALUES(?1,?2,?3,?4)",
-            params![f.project_id, f.rel_path, f.title, content],
-        )?;
-        Ok(old_content_hash.as_deref() != Some(new_content_hash.as_str()))
+    /// Upsert a batch of documents in one transaction: file rows, FTS rows and
+    /// each doc's outgoing links. The FTS row is rewritten only when the
+    /// content hash changed (or the row has none yet), so re-indexing an
+    /// unchanged file costs no FTS work. Returns, per doc and in order,
+    /// whether its *content* changed from what was stored (a brand-new row
+    /// counts as changed).
+    pub fn index_docs(&self, docs: &[IndexedDoc]) -> Result<Vec<bool>> {
+        if docs.is_empty() {
+            return Ok(Vec::new());
+        }
+        self.write_txn(|c| {
+            let mut changed = Vec::with_capacity(docs.len());
+            for doc in docs {
+                changed.push(index_doc_in(c, doc)?);
+            }
+            Ok(changed)
+        })
     }
 
     /// Register that `rel_path` exists at `abs_path`, without reading its
-    /// content — cheap enough to call on every `view_file` (unlike
-    /// `upsert_file`, which reads the file and rewrites `files_fts`). This is
-    /// what lets `/s/<code>` resolve in O(1) from the moment `view_file` hands
-    /// the code out, instead of needing `resolve_short_code`'s full-tree
-    /// fallback scan the first time the link is clicked.
+    /// content — cheap enough to call on every `view_file`. This is what lets
+    /// `/s/<code>` resolve in O(1) from the moment `view_file` hands the code
+    /// out, instead of needing `resolve_short_code`'s full-tree fallback scan
+    /// the first time the link is clicked.
     ///
-    /// `content_hash` stays at its `''` default — the same sentinel
-    /// `migration_2_content_hash` already uses for "row exists, content not
-    /// read yet" — so `is_content_indexed` can tell a stub from a real row.
-    /// A no-op if the row already exists (stub or real): never overwrites
-    /// real indexed data with a placeholder.
+    /// `content_hash` stays at its `''` default — the sentinel for "row
+    /// exists, content not read yet" — so [`FileState::content_indexed`] can
+    /// tell a stub from a real row. A no-op if the row already exists (stub or
+    /// real): never overwrites real indexed data with a placeholder.
     pub fn register_known_path(&self, f: &IndexedFile) -> Result<()> {
         let c = self.conn.lock().unwrap();
         c.execute(
-            "INSERT INTO files(project_id,rel_path,abs_path,title,size_bytes,modified_at,path_hash,content_hash,last_accessed_at)
-             VALUES(?1,?2,?3,?4,?5,?6,?7,'',?8)
+            "INSERT INTO files(project_id,rel_path,abs_path,title,size_bytes,modified_at,path_hash,content_hash)
+             VALUES(?1,?2,?3,?4,?5,?6,?7,'')
              ON CONFLICT(project_id,rel_path) DO NOTHING",
             params![
                 f.project_id,
@@ -167,66 +183,93 @@ impl SqliteStore {
                 f.size_bytes as i64,
                 f.modified_at,
                 short_link::path_hash(&f.project_id, &f.rel_path),
-                crate::indexer::now_rfc3339(),
             ],
         )?;
         Ok(())
     }
 
     /// Whether `rel_path`'s row (if any) carries real content-derived data —
-    /// `false` for a `register_known_path` stub or a missing row, `true` once
-    /// `upsert_file` has actually read the file.
+    /// `false` for a `register_known_path` stub or a missing row.
     pub fn is_content_indexed(&self, project_id: &str, rel_path: &str) -> Result<bool> {
-        let c = self.conn.lock().unwrap();
-        let hash: Option<String> = c
-            .query_row(
-                "SELECT content_hash FROM files WHERE project_id=?1 AND rel_path=?2",
-                params![project_id, rel_path],
-                |r| r.get(0),
-            )
-            .optional()?;
-        Ok(hash.is_some_and(|h| !h.is_empty()))
+        Ok(self
+            .file_state(project_id, rel_path)?
+            .is_some_and(|s| s.content_indexed()))
     }
 
     pub fn delete_file(&self, project_id: &str, rel_path: &str) -> Result<()> {
+        self.write_txn(|c| delete_file_in(c, project_id, rel_path).map(|_| ()))
+    }
+
+    /// Delete many files in one transaction; returns how many rows existed.
+    pub fn delete_files(&self, project_id: &str, rel_paths: &[String]) -> Result<usize> {
+        if rel_paths.is_empty() {
+            return Ok(0);
+        }
+        self.write_txn(|c| {
+            let mut n = 0;
+            for rel in rel_paths {
+                if delete_file_in(c, project_id, rel)? {
+                    n += 1;
+                }
+            }
+            Ok(n)
+        })
+    }
+
+    // ---- file state ----
+
+    pub fn file_state(&self, project_id: &str, rel_path: &str) -> Result<Option<FileState>> {
         let c = self.conn.lock().unwrap();
-        c.execute(
-            "DELETE FROM files WHERE project_id=?1 AND rel_path=?2",
-            params![project_id, rel_path],
-        )?;
-        c.execute(
-            "DELETE FROM files_fts WHERE project_id=?1 AND rel_path=?2",
-            params![project_id, rel_path],
-        )?;
-        c.execute(
-            "DELETE FROM links WHERE project_id=?1 AND source_rel=?2",
-            params![project_id, rel_path],
-        )?;
-        Ok(())
+        file_state_in(&c, project_id, rel_path)
+    }
+
+    /// States for the given paths; paths with no row are absent from the map.
+    pub fn file_states_for(
+        &self,
+        project_id: &str,
+        rel_paths: &[String],
+    ) -> Result<HashMap<String, FileState>> {
+        let c = self.conn.lock().unwrap();
+        let mut out = HashMap::with_capacity(rel_paths.len());
+        for rel in rel_paths {
+            if let Some(state) = file_state_in(&c, project_id, rel)? {
+                out.insert(rel.clone(), state);
+            }
+        }
+        Ok(out)
+    }
+
+    /// State of every file row of a project (stubs included), keyed by rel path.
+    pub fn file_states(&self, project_id: &str) -> Result<HashMap<String, FileState>> {
+        let c = self.conn.lock().unwrap();
+        let mut stmt = c.prepare(&format!(
+            "SELECT {FILE_STATE_COLS} FROM files WHERE project_id=?1"
+        ))?;
+        let rows = stmt.query_map(params![project_id], row_to_file_state)?;
+        let mut out = HashMap::new();
+        for r in rows {
+            let state = r?;
+            out.insert(state.rel_path.clone(), state);
+        }
+        Ok(out)
+    }
+
+    /// Parent directories of ALL file rows (stubs included), across all
+    /// projects — the set the filesystem watcher needs to cover.
+    pub fn indexed_dirs(&self) -> Result<HashSet<PathBuf>> {
+        let c = self.conn.lock().unwrap();
+        let mut stmt = c.prepare("SELECT abs_path FROM files")?;
+        let rows = stmt.query_map([], |r| r.get::<_, String>(0))?;
+        let mut out = HashSet::new();
+        for r in rows {
+            if let Some(parent) = Path::new(&r?).parent() {
+                out.insert(parent.to_path_buf());
+            }
+        }
+        Ok(out)
     }
 
     // ---- links / backlinks (FR-18) ----
-
-    /// Replace the set of outgoing internal links for a source file.
-    pub fn set_file_links(
-        &self,
-        project_id: &str,
-        source_rel: &str,
-        targets: &[String],
-    ) -> Result<()> {
-        let c = self.conn.lock().unwrap();
-        c.execute(
-            "DELETE FROM links WHERE project_id=?1 AND source_rel=?2",
-            params![project_id, source_rel],
-        )?;
-        for t in targets {
-            c.execute(
-                "INSERT OR IGNORE INTO links(project_id,source_rel,target_rel) VALUES(?1,?2,?3)",
-                params![project_id, source_rel, t],
-            )?;
-        }
-        Ok(())
-    }
 
     /// Files that link *to* `target_rel` → (source_rel, title).
     pub fn backlinks(&self, project_id: &str, target_rel: &str) -> Result<Vec<(String, String)>> {
@@ -256,14 +299,6 @@ impl SqliteStore {
         let mut stmt = c.prepare("SELECT project_id,abs_path,rel_path,title,size_bytes,modified_at FROM files WHERE project_id=?1 ORDER BY rel_path")?;
         let rows = stmt.query_map(params![project_id], |r| Ok(row_to_file(r)))?;
         Ok(rows.filter_map(|r| r.ok()).collect())
-    }
-
-    /// Absolute paths of every indexed file in a project — the link resolver index.
-    pub fn file_abs_paths(&self, project_id: &str) -> Result<HashSet<PathBuf>> {
-        let c = self.conn.lock().unwrap();
-        let mut stmt = c.prepare("SELECT abs_path FROM files WHERE project_id=?1")?;
-        let rows = stmt.query_map(params![project_id], |r| r.get::<_, String>(0))?;
-        Ok(rows.filter_map(|r| r.ok()).map(PathBuf::from).collect())
     }
 
     /// The file a short code points at, or `None` when nothing matches.
@@ -327,7 +362,7 @@ impl SqliteStore {
     }
 
     /// `(schema version, files still missing a short-link code)` — what `mdview
-    /// doctor` reports so an operator can see whether an upgrade finished.
+    /// doctor` reports.
     pub fn schema_report(&self) -> Result<(i64, usize)> {
         let c = self.conn.lock().unwrap();
         let version: i64 = c.query_row("PRAGMA user_version", [], |r| r.get(0))?;
@@ -336,28 +371,6 @@ impl SqliteStore {
                 r.get(0)
             })?;
         Ok((version, unhashed as usize))
-    }
-
-    #[cfg(test)]
-    pub(crate) fn file_last_accessed(&self, project_id: &str, rel_path: &str) -> Option<String> {
-        let c = self.conn.lock().unwrap();
-        c.query_row(
-            "SELECT last_accessed_at FROM files WHERE project_id=?1 AND rel_path=?2",
-            params![project_id, rel_path],
-            |r| r.get(0),
-        )
-        .optional()
-        .unwrap()
-    }
-
-    #[cfg(test)]
-    pub(crate) fn backdate_file_access_for_test(&self, project_id: &str, rel_path: &str, ts: &str) {
-        let c = self.conn.lock().unwrap();
-        c.execute(
-            "UPDATE files SET last_accessed_at=?3 WHERE project_id=?1 AND rel_path=?2",
-            params![project_id, rel_path, ts],
-        )
-        .unwrap();
     }
 
     #[cfg(test)]
@@ -378,20 +391,6 @@ impl SqliteStore {
 
     // ---- access tracking / cleanup ----
 
-    /// Record that `rel_path` was actually viewed — the signal the cleanup
-    /// sweep (`cleanup_stale`) checks. Deliberately separate from
-    /// `upsert_file`, which never touches this column on re-index: an edit
-    /// (or the filesystem watcher noticing one) is not a view, so it must
-    /// not reset a file's unaccessed clock.
-    pub fn touch_file_access(&self, project_id: &str, rel_path: &str) -> Result<()> {
-        let c = self.conn.lock().unwrap();
-        c.execute(
-            "UPDATE files SET last_accessed_at=?3 WHERE project_id=?1 AND rel_path=?2",
-            params![project_id, rel_path, crate::indexer::now_rfc3339()],
-        )?;
-        Ok(())
-    }
-
     /// Record that a project was actually viewed (any file within it opened).
     pub fn touch_project_access(&self, project_id: &str) -> Result<()> {
         let c = self.conn.lock().unwrap();
@@ -402,272 +401,140 @@ impl SqliteStore {
         Ok(())
     }
 
-    /// Drop every file not viewed since `file_cutoff`, and every project not
-    /// seen since `project_cutoff` (which cascades its files, FTS rows, and
-    /// links — same as `delete_project`). Both cutoffs are RFC3339 strings;
+    /// Drop every project not seen since `project_cutoff` (an RFC3339 string;
     /// lexicographic comparison sorts correctly for RFC3339's fixed-width
-    /// fields. Projects are swept first so a file belonging to a
-    /// just-deleted project isn't also counted in the file total. Returns
-    /// `(files_removed, projects_removed)`.
+    /// fields), with all its files, FTS rows and links, in one transaction.
+    /// Returns the number of projects removed.
     ///
     /// Deletes only rows in this registry — never touches a project's real
-    /// files on disk (same guarantee as `delete_project`/`delete_file`).
-    pub fn cleanup_stale(&self, file_cutoff: &str, project_cutoff: &str) -> Result<(usize, usize)> {
-        let stale_projects: Vec<String> = {
-            let c = self.conn.lock().unwrap();
-            let mut stmt = c.prepare("SELECT id FROM projects WHERE last_seen_at < ?1")?;
-            let rows = stmt.query_map(params![project_cutoff], |r| r.get::<_, String>(0))?;
-            rows.filter_map(|r| r.ok()).collect()
-        };
-        for id in &stale_projects {
-            self.delete_project(id)?;
-        }
+    /// files on disk (same guarantee as `delete_project`).
+    pub fn cleanup_stale(&self, project_cutoff: &str) -> Result<usize> {
+        self.write_txn(|c| {
+            let stale: Vec<String> = {
+                let mut stmt = c.prepare("SELECT id FROM projects WHERE last_seen_at < ?1")?;
+                let rows = stmt.query_map(params![project_cutoff], |r| r.get::<_, String>(0))?;
+                rows.collect::<std::result::Result<_, _>>()?
+            };
+            for id in &stale {
+                delete_project_in(c, id)?;
+            }
+            Ok(stale.len())
+        })
+    }
 
-        let stale_files: Vec<(String, String)> = {
-            let c = self.conn.lock().unwrap();
-            let mut stmt =
-                c.prepare("SELECT project_id, rel_path FROM files WHERE last_accessed_at < ?1")?;
-            let rows = stmt.query_map(params![file_cutoff], |r| {
-                Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
-            })?;
-            rows.filter_map(|r| r.ok()).collect()
-        };
-        for (project_id, rel_path) in &stale_files {
-            self.delete_file(project_id, rel_path)?;
+    /// `VACUUM` when more than a quarter of the database file is free pages.
+    /// Returns whether it ran.
+    pub fn vacuum_if_fragmented(&self) -> Result<bool> {
+        let c = self.conn.lock().unwrap();
+        let free: i64 = c.query_row("PRAGMA freelist_count", [], |r| r.get(0))?;
+        let total: i64 = c.query_row("PRAGMA page_count", [], |r| r.get(0))?;
+        if free * 4 > total {
+            c.execute_batch("VACUUM")?;
+            return Ok(true);
         }
-
-        Ok((stale_files.len(), stale_projects.len()))
+        Ok(false)
     }
 
     // ---- search (FTS5) ----
 
+    /// Ranked content search over already-indexed rows. Selects only `files`
+    /// columns: a contentless FTS table reads back NULL for its own columns
+    /// and has no `snippet()`, so excerpts are built elsewhere (`excerpt` is
+    /// empty here). Row errors propagate instead of silently dropping hits.
+    ///
+    /// `dir_prefix` limits results to files under that folder (`%`, `_` and
+    /// `\` in the folder name are matched literally).
     pub fn search(
         &self,
         query: &str,
         project_id: Option<&str>,
+        dir_prefix: Option<&str>,
+        sort: SearchSort,
         limit: usize,
     ) -> Result<Vec<SearchResult>> {
-        let c = self.conn.lock().unwrap();
         let fts_query = fts_sanitize(query);
         if fts_query.is_empty() {
             return Ok(vec![]);
         }
-        let sql = "SELECT project_id, rel_path, title,
-                     snippet(files_fts, 3, '<mark>', '</mark>', '…', 12) AS excerpt,
-                     bm25(files_fts) AS score
-                   FROM files_fts
-                   WHERE files_fts MATCH ?1
-                     AND (?2 IS NULL OR project_id = ?2)
-                   ORDER BY score
-                   LIMIT ?3";
-        let mut stmt = c.prepare(sql)?;
-        let rows = stmt.query_map(params![fts_query, project_id, limit as i64], |r| {
+        let like = dir_prefix
+            .map(|d| d.trim_matches('/'))
+            .filter(|d| !d.is_empty())
+            .map(|d| format!("{}/%", escape_like(d)));
+        let order = match sort {
+            SearchSort::Relevance => "bm25(files_fts)",
+            SearchSort::Recent => "f.modified_at DESC, bm25(files_fts)",
+        };
+        let sql = format!(
+            "SELECT f.project_id, f.rel_path, f.title, f.modified_at, bm25(files_fts)
+             FROM files_fts
+             JOIN files f ON f.fts_rowid = files_fts.rowid
+             WHERE files_fts MATCH ?1
+               AND (?2 IS NULL OR f.project_id = ?2)
+               AND (?3 IS NULL OR f.rel_path LIKE ?3 ESCAPE '\\')
+             ORDER BY {order}
+             LIMIT ?4"
+        );
+        let c = self.conn.lock().unwrap();
+        let mut stmt = c.prepare(&sql)?;
+        let rows = stmt.query_map(params![fts_query, project_id, like, limit as i64], |r| {
             let project_id: String = r.get(0)?;
             let rel_path: String = r.get(1)?;
-            let title: String = r.get(2)?;
-            let excerpt: String = r.get(3)?;
-            let score: f64 = r.get(4)?;
             Ok(SearchResult {
                 url: format!("/p/{project_id}/{rel_path}"),
                 project_id,
                 rel_path,
-                title,
-                excerpt,
-                score,
+                title: r.get(2)?,
+                excerpt: String::new(),
+                modified_at: r.get(3)?,
+                score: r.get(4)?,
             })
         })?;
-        Ok(rows.filter_map(|r| r.ok()).collect())
+        Ok(rows.collect::<std::result::Result<Vec<_>, _>>()?)
     }
 }
 
-/// Ordered, append-only migration steps.
-///
-/// `SCHEMA` above only ever runs `CREATE TABLE IF NOT EXISTS`, so a database
-/// created by an older build keeps its old columns forever — anything new has to
-/// be added here instead. To add a migration, append one entry; never edit or
-/// reorder an existing one, because databases in the field have already run it.
-///
-/// This is SQLite's own `PRAGMA user_version` convention, which is also what
-/// crates like `rusqlite_migration` implement underneath. With a single step,
-/// that crate would only wrap this list, so the dependency is not earned yet;
-/// the shape here is deliberately the one it expects, so adopting it later is a
-/// mechanical swap rather than a redesign.
-type MigrationStep = (i64, fn(&Connection) -> Result<()>);
-const MIGRATIONS: &[MigrationStep] = &[
-    (1, migration_1_path_hash),
-    (2, migration_2_content_hash),
-    (3, migration_3_last_accessed),
-];
-
-/// Schema version this build expects — the last entry in [`MIGRATIONS`].
-pub const SCHEMA_VERSION: i64 = 3;
-
-/// Bring an existing database up to [`SCHEMA_VERSION`].
-///
-/// Every step is additive (no row is dropped or rewritten) and stamps
-/// `user_version` as soon as it finishes, so a run interrupted halfway resumes at
-/// the next unfinished step instead of redoing completed ones, and running this
-/// against an up-to-date database is a no-op.
-fn migrate(conn: &Connection) -> Result<()> {
-    let mut version: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
-    for (target, step) in MIGRATIONS {
-        if version >= *target {
-            continue;
+/// Create the schema, or rebuild it when the stored version differs — all in
+/// one `BEGIN IMMEDIATE` transaction that re-reads `user_version` after taking
+/// the write lock, so two processes opening the same stale file cannot both
+/// reset it (the loser would otherwise wipe rows the winner already wrote).
+/// `user_version` is always stamped, so a fresh database is recognised as
+/// current on the next open.
+fn init_schema(conn: &Connection) -> Result<()> {
+    conn.execute_batch("BEGIN IMMEDIATE")?;
+    let out = (|| -> Result<()> {
+        let version: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
+        let has_tables: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'",
+            [],
+            |r| r.get(0),
+        )?;
+        if version == SCHEMA_VERSION && has_tables > 0 {
+            return Ok(());
         }
-        step(conn)?;
-        conn.pragma_update(None, "user_version", target)?;
-        version = *target;
-    }
-    Ok(())
-}
-
-/// v1 — short-link support. `path_hash` lets `/s/<code>` find a file without a
-/// separate shortlink table, so a code's lifetime is its index row's lifetime.
-fn migration_1_path_hash(conn: &Connection) -> Result<()> {
-    // A database created by this build already has the column from SCHEMA; one
-    // created by an older build does not, because `CREATE TABLE IF NOT EXISTS`
-    // leaves an existing table alone. The index has to be created here rather
-    // than in SCHEMA for the same reason: on a legacy database SCHEMA runs
-    // first, while the column still does not exist.
-    if !has_column(conn, "files", "path_hash")? {
-        conn.execute(
-            "ALTER TABLE files ADD COLUMN path_hash TEXT NOT NULL DEFAULT ''",
-            [],
-        )?;
-    }
-    conn.execute(
-        "CREATE INDEX IF NOT EXISTS idx_files_hash ON files(path_hash)",
-        [],
-    )?;
-    backfill_path_hash(conn)
-}
-
-/// v2 — scoped live-reload support. `content_hash` lets the watcher tell a real
-/// edit apart from a touch that left bytes identical, so it can skip a needless
-/// reload broadcast (see D2, `docs/history/scoped-live-reload/CONTEXT.md`).
-fn migration_2_content_hash(conn: &Connection) -> Result<()> {
-    if !has_column(conn, "files", "content_hash")? {
-        conn.execute(
-            "ALTER TABLE files ADD COLUMN content_hash TEXT NOT NULL DEFAULT ''",
-            [],
-        )?;
-    }
-    backfill_content_hash(conn)
-}
-
-/// Fill `content_hash` for every row still carrying the empty default, reading
-/// each file's already-indexed content straight from `files_fts` rather than
-/// touching disk — the same content that would otherwise need re-reading is
-/// already sitting in that table from the last successful index.
-///
-/// The two tables are joined in Rust with a `HashMap`, one full scan of each
-/// (O(n+m)), rather than a SQL `LEFT JOIN` on `files_fts`'s `project_id`/
-/// `rel_path` — those columns are `UNINDEXED`, so SQLite has no index to join
-/// through and falls back to a nested-loop scan (O(n×m)). Measured on 16,000
-/// rows: the SQL join never finished in over three minutes against the real
-/// production database; this version completes in under 50ms against an
-/// equivalent synthetic table (tsk-155).
-fn backfill_content_hash(conn: &Connection) -> Result<()> {
-    let pending: Vec<(String, String)> = {
-        let mut stmt =
-            conn.prepare("SELECT project_id, rel_path FROM files WHERE content_hash = ''")?;
-        let rows = stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))?;
-        rows.filter_map(|r| r.ok()).collect()
-    };
-    if pending.is_empty() {
-        return Ok(());
-    }
-
-    let content_by_key: std::collections::HashMap<(String, String), String> = {
-        let mut stmt = conn.prepare("SELECT project_id, rel_path, content FROM files_fts")?;
-        let rows = stmt.query_map([], |r| {
-            Ok((
-                (r.get::<_, String>(0)?, r.get::<_, String>(1)?),
-                r.get::<_, String>(2)?,
-            ))
-        })?;
-        rows.filter_map(|r| r.ok()).collect()
-    };
-
-    conn.execute_batch("BEGIN")?;
-    for (project_id, rel_path) in &pending {
-        let content = content_by_key
-            .get(&(project_id.clone(), rel_path.clone()))
-            .map(String::as_str)
-            .unwrap_or("");
-        conn.execute(
-            "UPDATE files SET content_hash=?3 WHERE project_id=?1 AND rel_path=?2",
-            params![project_id, rel_path, crate::indexer::content_hash(content)],
-        )?;
-    }
-    conn.execute_batch("COMMIT")?;
-    Ok(())
-}
-
-/// v3 — access-based cleanup support. `last_accessed_at` is the timestamp
-/// `cleanup_stale` compares against to decide whether a file's index record
-/// (never the real file on disk) is still worth keeping.
-fn migration_3_last_accessed(conn: &Connection) -> Result<()> {
-    if !has_column(conn, "files", "last_accessed_at")? {
-        conn.execute(
-            "ALTER TABLE files ADD COLUMN last_accessed_at TEXT NOT NULL DEFAULT ''",
-            [],
-        )?;
-    }
-    backfill_last_accessed(conn)
-}
-
-/// Seed every row still carrying the empty default to "now", so an upgrade
-/// never makes a whole existing database instantly stale — the access clock
-/// starts fresh from the moment of the upgrade, same grace period a
-/// brand-new file gets.
-fn backfill_last_accessed(conn: &Connection) -> Result<()> {
-    conn.execute(
-        "UPDATE files SET last_accessed_at=?1 WHERE last_accessed_at=''",
-        params![crate::indexer::now_rfc3339()],
-    )?;
-    Ok(())
-}
-
-fn has_column(conn: &Connection, table: &str, column: &str) -> Result<bool> {
-    let mut stmt = conn.prepare(&format!("PRAGMA table_info({table})"))?;
-    let mut rows = stmt.query([])?;
-    while let Some(r) = rows.next()? {
-        if r.get::<_, String>(1)? == column {
-            return Ok(true);
+        if has_tables > 0 {
+            conn.execute_batch(
+                "DROP TABLE IF EXISTS files_fts;
+                 DROP TABLE IF EXISTS links;
+                 DROP TABLE IF EXISTS files;
+                 DROP TABLE IF EXISTS projects;",
+            )?;
+            tracing::info!(
+                found = version,
+                expected = SCHEMA_VERSION,
+                "registry schema version differs; rebuilt the index (it is a rebuildable cache)"
+            );
+        }
+        conn.execute_batch(SCHEMA)?;
+        conn.pragma_update(None, "user_version", SCHEMA_VERSION)?;
+        Ok(())
+    })();
+    match out {
+        Ok(()) => conn.execute_batch("COMMIT").map_err(Into::into),
+        Err(e) => {
+            let _ = conn.execute_batch("ROLLBACK");
+            Err(e)
         }
     }
-    Ok(false)
-}
-
-/// Fill `path_hash` for every row still carrying the empty default.
-///
-/// Scoped to empty values rather than rewriting the whole table so an
-/// interrupted run costs only what it did not finish, and so a re-run after a
-/// crash is cheap rather than a full rewrite of 15k+ rows.
-fn backfill_path_hash(conn: &Connection) -> Result<()> {
-    let pending: Vec<(String, String)> = {
-        let mut stmt =
-            conn.prepare("SELECT project_id, rel_path FROM files WHERE path_hash = ''")?;
-        let rows = stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))?;
-        rows.filter_map(|r| r.ok()).collect()
-    };
-    if pending.is_empty() {
-        return Ok(());
-    }
-    conn.execute_batch("BEGIN")?;
-    for (project_id, rel_path) in &pending {
-        conn.execute(
-            "UPDATE files SET path_hash=?3 WHERE project_id=?1 AND rel_path=?2",
-            params![
-                project_id,
-                rel_path,
-                short_link::path_hash(project_id, rel_path)
-            ],
-        )?;
-    }
-    conn.execute_batch("COMMIT")?;
-    Ok(())
 }
 
 const SCHEMA: &str = r#"
@@ -687,15 +554,18 @@ CREATE TABLE IF NOT EXISTS files (
     modified_at TEXT NOT NULL,
     path_hash TEXT NOT NULL DEFAULT '',
     content_hash TEXT NOT NULL DEFAULT '',
-    last_accessed_at TEXT NOT NULL DEFAULT '',
+    fts_rowid INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY(project_id, rel_path)
 );
 CREATE INDEX IF NOT EXISTS idx_files_project ON files(project_id);
+CREATE INDEX IF NOT EXISTS idx_files_hash ON files(path_hash);
+CREATE INDEX IF NOT EXISTS idx_files_fts ON files(fts_rowid);
 CREATE VIRTUAL TABLE IF NOT EXISTS files_fts USING fts5(
-    project_id UNINDEXED,
-    rel_path UNINDEXED,
     title,
-    content
+    content,
+    content='',
+    contentless_delete=1,
+    tokenize='unicode61 remove_diacritics 2'
 );
 CREATE TABLE IF NOT EXISTS links (
     project_id TEXT NOT NULL,
@@ -705,6 +575,132 @@ CREATE TABLE IF NOT EXISTS links (
 );
 CREATE INDEX IF NOT EXISTS idx_links_target ON links(project_id, target_rel);
 "#;
+
+const FILE_STATE_COLS: &str =
+    "rel_path,abs_path,title,size_bytes,modified_at,content_hash,fts_rowid";
+
+fn row_to_file_state(r: &rusqlite::Row) -> rusqlite::Result<FileState> {
+    Ok(FileState {
+        rel_path: r.get(0)?,
+        abs_path: PathBuf::from(r.get::<_, String>(1)?),
+        title: r.get(2)?,
+        size_bytes: r.get::<_, i64>(3)? as u64,
+        modified_at: r.get(4)?,
+        content_hash: r.get(5)?,
+        fts_rowid: r.get(6)?,
+    })
+}
+
+fn file_state_in(c: &Connection, project_id: &str, rel_path: &str) -> Result<Option<FileState>> {
+    let mut stmt = c.prepare_cached(&format!(
+        "SELECT {FILE_STATE_COLS} FROM files WHERE project_id=?1 AND rel_path=?2"
+    ))?;
+    Ok(stmt
+        .query_row(params![project_id, rel_path], row_to_file_state)
+        .optional()?)
+}
+
+/// Upsert one doc inside an open write transaction.
+fn index_doc_in(c: &Connection, doc: &IndexedDoc) -> Result<bool> {
+    let f = &doc.file;
+    let new_hash = indexer::content_hash(&doc.content);
+    let old: Option<(String, i64)> = c
+        .query_row(
+            "SELECT content_hash, fts_rowid FROM files WHERE project_id=?1 AND rel_path=?2",
+            params![f.project_id, f.rel_path],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .optional()?;
+    let (old_hash, old_rowid) = match &old {
+        Some((h, id)) => (Some(h.as_str()), *id),
+        None => (None, 0),
+    };
+    c.execute(
+        "INSERT INTO files(project_id,rel_path,abs_path,title,size_bytes,modified_at,path_hash,content_hash)
+         VALUES(?1,?2,?3,?4,?5,?6,?7,?8)
+         ON CONFLICT(project_id,rel_path) DO UPDATE SET
+           abs_path=?3, title=?4, size_bytes=?5, modified_at=?6, path_hash=?7, content_hash=?8",
+        params![
+            f.project_id,
+            f.rel_path,
+            f.abs_path.to_string_lossy(),
+            f.title,
+            f.size_bytes as i64,
+            f.modified_at,
+            short_link::path_hash(&f.project_id, &f.rel_path),
+            new_hash,
+        ],
+    )?;
+    let changed = old_hash != Some(new_hash.as_str());
+    if changed || old_rowid == 0 {
+        if old_rowid > 0 {
+            c.prepare_cached("DELETE FROM files_fts WHERE rowid=?1")?
+                .execute(params![old_rowid])?;
+        }
+        c.prepare_cached("INSERT INTO files_fts(title, content) VALUES(?1, ?2)")?
+            .execute(params![fold(&f.title), fold(&doc.content)])?;
+        let rowid = c.last_insert_rowid();
+        c.execute(
+            "UPDATE files SET fts_rowid=?3 WHERE project_id=?1 AND rel_path=?2",
+            params![f.project_id, f.rel_path, rowid],
+        )?;
+    }
+    c.execute(
+        "DELETE FROM links WHERE project_id=?1 AND source_rel=?2",
+        params![f.project_id, f.rel_path],
+    )?;
+    let mut ins = c.prepare_cached(
+        "INSERT OR IGNORE INTO links(project_id,source_rel,target_rel) VALUES(?1,?2,?3)",
+    )?;
+    for target in &doc.links {
+        ins.execute(params![f.project_id, f.rel_path, target])?;
+    }
+    Ok(changed)
+}
+
+/// Delete one file's row, FTS row (by rowid) and outgoing links. Returns
+/// whether the row existed.
+fn delete_file_in(c: &Connection, project_id: &str, rel_path: &str) -> Result<bool> {
+    let rowid: Option<i64> = c
+        .query_row(
+            "SELECT fts_rowid FROM files WHERE project_id=?1 AND rel_path=?2",
+            params![project_id, rel_path],
+            |r| r.get(0),
+        )
+        .optional()?;
+    if let Some(id) = rowid.filter(|id| *id > 0) {
+        c.prepare_cached("DELETE FROM files_fts WHERE rowid=?1")?
+            .execute(params![id])?;
+    }
+    c.execute(
+        "DELETE FROM files WHERE project_id=?1 AND rel_path=?2",
+        params![project_id, rel_path],
+    )?;
+    c.execute(
+        "DELETE FROM links WHERE project_id=?1 AND source_rel=?2",
+        params![project_id, rel_path],
+    )?;
+    Ok(rowid.is_some())
+}
+
+fn delete_project_in(c: &Connection, id: &str) -> Result<()> {
+    let rowids: Vec<i64> = {
+        let mut stmt =
+            c.prepare("SELECT fts_rowid FROM files WHERE project_id=?1 AND fts_rowid>0")?;
+        let rows = stmt.query_map(params![id], |r| r.get::<_, i64>(0))?;
+        rows.collect::<std::result::Result<_, _>>()?
+    };
+    {
+        let mut del = c.prepare_cached("DELETE FROM files_fts WHERE rowid=?1")?;
+        for rowid in rowids {
+            del.execute(params![rowid])?;
+        }
+    }
+    c.execute("DELETE FROM files WHERE project_id=?1", params![id])?;
+    c.execute("DELETE FROM links WHERE project_id=?1", params![id])?;
+    c.execute("DELETE FROM projects WHERE id=?1", params![id])?;
+    Ok(())
+}
 
 fn row_to_project(r: &rusqlite::Row) -> Project {
     Project {
@@ -727,10 +723,23 @@ fn row_to_file(r: &rusqlite::Row) -> IndexedFile {
     }
 }
 
-/// Make a user query safe for FTS5 MATCH: keep alphanumerics, quote each token
-/// as a prefix search. Avoids syntax errors from FTS special chars.
+/// Escape `\`, `%` and `_` so a folder name is matched literally by `LIKE ... ESCAPE '\'`.
+fn escape_like(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for c in s.chars() {
+        if matches!(c, '\\' | '%' | '_') {
+            out.push('\\');
+        }
+        out.push(c);
+    }
+    out
+}
+
+/// Make a user query safe for FTS5 MATCH: fold it exactly as the indexed text
+/// was folded, keep alphanumerics, and quote each token as a prefix search.
+/// Avoids syntax errors from FTS special chars.
 fn fts_sanitize(query: &str) -> String {
-    query
+    fold(query)
         .split(|c: char| !c.is_alphanumeric())
         .filter(|t| !t.is_empty())
         .map(|t| format!("\"{t}\"*"))
@@ -764,154 +773,223 @@ mod tests {
         }
     }
 
-    /// A database as an older build left it: no `path_hash`, no `user_version`.
-    fn legacy_conn() -> Connection {
-        let conn = Connection::open_in_memory().unwrap();
-        conn.execute_batch(
-            "CREATE TABLE files (
-                 project_id TEXT NOT NULL,
-                 rel_path TEXT NOT NULL,
-                 abs_path TEXT NOT NULL,
-                 title TEXT NOT NULL,
-                 size_bytes INTEGER NOT NULL,
-                 modified_at TEXT NOT NULL,
-                 PRIMARY KEY(project_id, rel_path)
-             );
-             INSERT INTO files VALUES('mdview','docs/a.md','/x/docs/a.md','A',1,'t');
-             INSERT INTO files VALUES('mdview','README.md','/x/README.md','R',1,'t');",
-        )
-        .unwrap();
-        conn
-    }
-
-    #[test]
-    fn migrate_backfills_a_legacy_database() {
-        let store = SqliteStore::from_conn(legacy_conn()).unwrap();
-        let c = store.conn.lock().unwrap();
-
-        let version: i64 = c
-            .query_row("PRAGMA user_version", [], |r| r.get(0))
-            .unwrap();
-        assert_eq!(version, SCHEMA_VERSION);
-
-        let hash: String = c
-            .query_row(
-                "SELECT path_hash FROM files WHERE rel_path='docs/a.md'",
-                [],
-                |r| r.get(0),
-            )
-            .unwrap();
-        assert_eq!(hash, short_link::path_hash("mdview", "docs/a.md"));
-
-        let unfilled: i64 = c
-            .query_row("SELECT COUNT(*) FROM files WHERE path_hash=''", [], |r| {
-                r.get(0)
-            })
-            .unwrap();
-        assert_eq!(unfilled, 0, "every legacy row must be backfilled");
-    }
-
-    #[test]
-    fn migrate_is_idempotent() {
-        let store = SqliteStore::from_conn(legacy_conn()).unwrap();
-        {
-            let c = store.conn.lock().unwrap();
-            // Second pass over an already-migrated database must change nothing
-            // and must not fail on the column already existing.
-            migrate(&c).unwrap();
-            let version: i64 = c
-                .query_row("PRAGMA user_version", [], |r| r.get(0))
-                .unwrap();
-            assert_eq!(version, SCHEMA_VERSION);
+    fn doc(rel: &str, title: &str, content: &str) -> IndexedDoc {
+        IndexedDoc {
+            file: file(rel, title),
+            content: content.into(),
+            links: Vec::new(),
         }
+    }
+
+    fn fts_rows(s: &SqliteStore) -> i64 {
+        let c = s.conn.lock().unwrap();
+        c.query_row("SELECT COUNT(*) FROM files_fts", [], |r| r.get(0))
+            .unwrap()
+    }
+
+    /// The v3 schema text, so a test can build a database as the previous
+    /// generation left it.
+    const V3_SCHEMA: &str = "
+        CREATE TABLE projects (id TEXT PRIMARY KEY, name TEXT NOT NULL, root_path TEXT NOT NULL,
+            created_at TEXT NOT NULL, last_seen_at TEXT NOT NULL);
+        CREATE TABLE files (project_id TEXT NOT NULL, rel_path TEXT NOT NULL, abs_path TEXT NOT NULL,
+            title TEXT NOT NULL, size_bytes INTEGER NOT NULL, modified_at TEXT NOT NULL,
+            path_hash TEXT NOT NULL DEFAULT '', content_hash TEXT NOT NULL DEFAULT '',
+            PRIMARY KEY(project_id, rel_path));
+        CREATE VIRTUAL TABLE files_fts USING fts5(project_id UNINDEXED, rel_path UNINDEXED, title, content);
+        CREATE TABLE links (project_id TEXT NOT NULL, source_rel TEXT NOT NULL, target_rel TEXT NOT NULL,
+            PRIMARY KEY(project_id, source_rel, target_rel));
+        INSERT INTO files VALUES('old','a.md','/x/a.md','A',1,'t','h','c');
+        INSERT INTO files_fts(project_id,rel_path,title,content) VALUES('old','a.md','A','body');
+        PRAGMA user_version = 3;";
+
+    fn v3_db_file(tag: &str) -> PathBuf {
+        let path = std::env::temp_dir().join(format!(
+            "mdview-v3-{tag}-{}-{:?}.db",
+            std::process::id(),
+            std::thread::current().id()
+        ));
+        for ext in ["", "-wal", "-shm"] {
+            let _ = std::fs::remove_file(format!("{}{ext}", path.display()));
+        }
+        let conn = Connection::open(&path).unwrap();
+        conn.execute_batch(V3_SCHEMA).unwrap();
+        path
+    }
+
+    fn cleanup_db_file(path: &Path) {
+        for ext in ["", "-wal", "-shm"] {
+            let _ = std::fs::remove_file(format!("{}{ext}", path.display()));
+        }
+    }
+
+    fn user_version(s: &SqliteStore) -> i64 {
+        let c = s.conn.lock().unwrap();
+        c.query_row("PRAGMA user_version", [], |r| r.get(0))
+            .unwrap()
+    }
+
+    #[test]
+    fn a_stale_schema_version_is_rebuilt_empty() {
+        let path = v3_db_file("reset");
+        let s = SqliteStore::open(&path).unwrap();
+        assert_eq!(user_version(&s), SCHEMA_VERSION);
+        assert_eq!(s.total_file_count().unwrap(), 0);
+        assert_eq!(fts_rows(&s), 0);
+        // The rebuilt schema is the live one.
+        s.upsert_project(&sample_project()).unwrap();
+        s.index_docs(&[doc("a.md", "A", "alpha")]).unwrap();
         assert_eq!(
-            store
-                .find_by_hash_prefix(&short_link::short_code(&short_link::path_hash(
-                    "mdview",
-                    "docs/a.md"
-                )))
-                .unwrap(),
-            Some(("mdview".into(), "docs/a.md".into()))
+            s.search("alpha", None, None, SearchSort::Relevance, 5)
+                .unwrap()
+                .len(),
+            1
         );
+        drop(s);
+        cleanup_db_file(&path);
     }
 
-    /// Regression guard with teeth (tsk-155): the backfill's original SQL
-    /// `LEFT JOIN` on `files_fts`'s `UNINDEXED` columns degraded into an
-    /// O(n×m) nested-loop scan — 2.58s at 3,000 rows in an isolated repro,
-    /// and it never finished at all within three minutes against the real
-    /// 15,480-row production database. A functional test alone (like
-    /// `migrate_backfills_a_legacy_database` above) would never catch a
-    /// regression back to that shape, since both versions produce identical
-    /// output — only wall-clock time distinguishes them. 4,000 rows here is
-    /// enough to make the O(n×m) shape unmistakably slow while staying fast
-    /// under the *correct* O(n+m) one.
     #[test]
-    fn backfilling_thousands_of_rows_stays_fast() {
-        let conn = Connection::open_in_memory().unwrap();
-        conn.execute_batch(
-            "CREATE TABLE files (project_id TEXT NOT NULL, rel_path TEXT NOT NULL,
-                 abs_path TEXT NOT NULL, title TEXT NOT NULL, size_bytes INTEGER NOT NULL,
-                 modified_at TEXT NOT NULL, path_hash TEXT NOT NULL DEFAULT '',
-                 content_hash TEXT NOT NULL DEFAULT '', PRIMARY KEY(project_id, rel_path));
-             CREATE VIRTUAL TABLE files_fts USING fts5(
-                 project_id UNINDEXED, rel_path UNINDEXED, title, content);",
-        )
-        .unwrap();
-        const N: usize = 4000;
-        conn.execute_batch("BEGIN").unwrap();
-        for i in 0..N {
-            let rel = format!("f{i}.md");
-            conn.execute(
-                "INSERT INTO files VALUES('p1',?1,?1,'T',1,'t','','')",
-                params![rel],
-            )
-            .unwrap();
-            conn.execute(
-                "INSERT INTO files_fts(project_id,rel_path,title,content) VALUES('p1',?1,'T',?2)",
-                params![
-                    rel,
-                    format!("body {i} filler text to keep rows non-trivial")
-                ],
-            )
-            .unwrap();
+    fn a_fresh_database_keeps_its_rows_across_opens() {
+        let path = std::env::temp_dir().join(format!("mdview-fresh-{}.db", std::process::id()));
+        cleanup_db_file(&path);
+        {
+            let s = SqliteStore::open(&path).unwrap();
+            assert_eq!(user_version(&s), SCHEMA_VERSION);
+            s.upsert_project(&sample_project()).unwrap();
+            s.index_docs(&[doc("a.md", "A", "alpha")]).unwrap();
         }
-        conn.execute_batch("COMMIT").unwrap();
+        let s = SqliteStore::open(&path).unwrap();
+        assert_eq!(s.file_count("p1").unwrap(), 1);
+        assert!(s.get_project("p1").unwrap().is_some());
+        drop(s);
+        cleanup_db_file(&path);
+    }
 
-        let start = std::time::Instant::now();
-        backfill_content_hash(&conn).unwrap();
-        let elapsed = start.elapsed();
+    #[test]
+    fn concurrent_opens_of_a_stale_file_reset_it_once() {
+        let path = v3_db_file("race");
+        let handles: Vec<_> = (0..2)
+            .map(|i| {
+                let path = path.clone();
+                std::thread::spawn(move || {
+                    let s = SqliteStore::open(&path).unwrap();
+                    let mut p = sample_project();
+                    p.id = format!("p{i}");
+                    p.root_path = PathBuf::from(format!("/proj{i}"));
+                    s.upsert_project(&p).unwrap();
+                })
+            })
+            .collect();
+        for h in handles {
+            h.join().unwrap();
+        }
+        let s = SqliteStore::open(&path).unwrap();
+        assert_eq!(user_version(&s), SCHEMA_VERSION);
+        assert_eq!(s.list_projects().unwrap().len(), 2);
+        drop(s);
+        cleanup_db_file(&path);
+    }
+
+    #[test]
+    fn fts_delete_is_a_rowid_lookup() {
+        let s = SqliteStore::open_in_memory().unwrap();
+        let c = s.conn.lock().unwrap();
+        let mut stmt = c
+            .prepare("EXPLAIN QUERY PLAN DELETE FROM files_fts WHERE rowid=?1")
+            .unwrap();
+        let mut rows = stmt.query(params![1]).unwrap();
+        let mut plan = String::new();
+        while let Some(r) = rows.next().unwrap() {
+            plan.push_str(&r.get::<_, String>(3).unwrap());
+            plan.push('\n');
+        }
         assert!(
-            elapsed.as_secs() < 2,
-            "backfill of {N} rows took {elapsed:?} -- likely regressed back to an O(n*m) join"
+            plan.contains("VIRTUAL TABLE INDEX 0:="),
+            "FTS delete must be a rowid lookup, got plan: {plan}"
         );
-
-        let unfilled: i64 = conn
-            .query_row(
-                "SELECT COUNT(*) FROM files WHERE content_hash=''",
-                [],
-                |r| r.get(0),
-            )
-            .unwrap();
-        assert_eq!(unfilled, 0);
     }
 
     #[test]
-    fn a_fresh_database_needs_no_alter_table() {
-        // SCHEMA already carries path_hash, so migrate must recognise that and
-        // still stamp the version rather than trying to add the column again.
-        let store = SqliteStore::open_in_memory().unwrap();
-        let c = store.conn.lock().unwrap();
-        let version: i64 = c
-            .query_row("PRAGMA user_version", [], |r| r.get(0))
-            .unwrap();
-        assert_eq!(version, SCHEMA_VERSION);
-    }
-
-    #[test]
-    fn upsert_file_records_the_path_hash() {
+    fn unchanged_content_keeps_the_fts_row_and_changed_content_replaces_it() {
         let s = SqliteStore::open_in_memory().unwrap();
         s.upsert_project(&sample_project()).unwrap();
-        s.upsert_file(&file("docs/a.md", "Alpha"), "alpha").unwrap();
+        let first = s.index_docs(&[doc("a.md", "A", "old_token")]).unwrap();
+        assert_eq!(first, vec![true]);
+        let id1 = s.file_state("p1", "a.md").unwrap().unwrap().fts_rowid;
+        assert!(id1 > 0);
+
+        let same = s.index_docs(&[doc("a.md", "A", "old_token")]).unwrap();
+        assert_eq!(same, vec![false]);
+        assert_eq!(s.file_state("p1", "a.md").unwrap().unwrap().fts_rowid, id1);
+
+        let changed = s.index_docs(&[doc("a.md", "A", "new_token")]).unwrap();
+        assert_eq!(changed, vec![true]);
+        assert!(s.file_state("p1", "a.md").unwrap().unwrap().fts_rowid > 0);
+        assert_eq!(fts_rows(&s), 1, "the old FTS row must be gone");
+        let q = |t: &str| {
+            s.search(t, Some("p1"), None, SearchSort::Relevance, 5)
+                .unwrap()
+        };
+        assert!(q("old_token").is_empty());
+        assert_eq!(q("new_token").len(), 1);
+    }
+
+    #[test]
+    fn index_docs_replaces_outgoing_links_and_reports_backlinks() {
+        let s = SqliteStore::open_in_memory().unwrap();
+        s.upsert_project(&sample_project()).unwrap();
+        let mut d = doc("a.md", "A", "x");
+        d.links = vec!["b.md".into(), "c.md".into()];
+        s.index_docs(&[d]).unwrap();
+        assert_eq!(s.backlinks("p1", "b.md").unwrap().len(), 1);
+
+        let mut d = doc("a.md", "A", "x");
+        d.links = vec!["c.md".into()];
+        s.index_docs(&[d]).unwrap();
+        assert!(s.backlinks("p1", "b.md").unwrap().is_empty());
+        assert_eq!(s.backlinks("p1", "c.md").unwrap().len(), 1);
+    }
+
+    #[test]
+    fn stubs_have_no_content_state_and_never_overwrite_real_rows() {
+        let s = SqliteStore::open_in_memory().unwrap();
+        s.upsert_project(&sample_project()).unwrap();
+        s.register_known_path(&file("a.md", "a.md")).unwrap();
+        let st = s.file_state("p1", "a.md").unwrap().unwrap();
+        assert!(!st.content_indexed());
+        assert_eq!(st.fts_rowid, 0);
+
+        s.index_docs(&[doc("a.md", "Real", "body")]).unwrap();
+        s.register_known_path(&file("a.md", "a.md")).unwrap();
+        let st = s.file_state("p1", "a.md").unwrap().unwrap();
+        assert!(st.content_indexed());
+        assert_eq!(st.title, "Real");
+        assert_eq!(s.file_states("p1").unwrap().len(), 1);
+        assert_eq!(
+            s.file_states_for("p1", &["a.md".into(), "zzz.md".into()])
+                .unwrap()
+                .len(),
+            1
+        );
+    }
+
+    #[test]
+    fn indexed_dirs_cover_stubs_across_projects() {
+        let s = SqliteStore::open_in_memory().unwrap();
+        s.upsert_project(&sample_project()).unwrap();
+        s.register_known_path(&file("docs/a.md", "a")).unwrap();
+        s.index_docs(&[doc("b.md", "B", "x")]).unwrap();
+        let dirs = s.indexed_dirs().unwrap();
+        assert!(dirs.contains(&PathBuf::from("/proj/docs")));
+        assert!(dirs.contains(&PathBuf::from("/proj")));
+    }
+
+    #[test]
+    fn index_docs_records_the_path_hash() {
+        let s = SqliteStore::open_in_memory().unwrap();
+        s.upsert_project(&sample_project()).unwrap();
+        s.index_docs(&[doc("docs/a.md", "Alpha", "alpha")]).unwrap();
 
         let code = short_link::short_code(&short_link::path_hash("p1", "docs/a.md"));
         assert_eq!(
@@ -924,13 +1002,13 @@ mod tests {
     fn re_indexing_keeps_the_same_hash() {
         let s = SqliteStore::open_in_memory().unwrap();
         s.upsert_project(&sample_project()).unwrap();
-        s.upsert_file(&file("docs/a.md", "Alpha"), "first").unwrap();
+        s.index_docs(&[doc("docs/a.md", "Alpha", "first")]).unwrap();
         let code = short_link::short_code(&short_link::path_hash("p1", "docs/a.md"));
 
         // Same path, new content/title — the link handed out earlier must survive.
-        let mut changed = file("docs/a.md", "Alpha v2");
-        changed.size_bytes = 999;
-        s.upsert_file(&changed, "second").unwrap();
+        let mut changed = doc("docs/a.md", "Alpha v2", "second");
+        changed.file.size_bytes = 999;
+        s.index_docs(&[changed]).unwrap();
 
         assert_eq!(
             s.find_by_hash_prefix(&code).unwrap(),
@@ -942,7 +1020,7 @@ mod tests {
     fn unknown_code_resolves_to_nothing() {
         let s = SqliteStore::open_in_memory().unwrap();
         s.upsert_project(&sample_project()).unwrap();
-        s.upsert_file(&file("docs/a.md", "Alpha"), "alpha").unwrap();
+        s.index_docs(&[doc("docs/a.md", "Alpha", "alpha")]).unwrap();
 
         assert_eq!(s.find_by_hash_prefix("ffffffffffff").unwrap(), None);
         assert_eq!(s.find_by_hash_prefix("").unwrap(), None);
@@ -955,10 +1033,10 @@ mod tests {
     fn prefix_lookup_uses_the_hash_index() {
         let s = SqliteStore::open_in_memory().unwrap();
         s.upsert_project(&sample_project()).unwrap();
-        for i in 0..200 {
-            s.upsert_file(&file(&format!("docs/f{i}.md"), "T"), "body")
-                .unwrap();
-        }
+        let docs: Vec<_> = (0..200)
+            .map(|i| doc(&format!("docs/f{i}.md"), "T", "body"))
+            .collect();
+        s.index_docs(&docs).unwrap();
         let plan = s.hash_prefix_query_plan("a3f9c1d20b74").unwrap();
         assert!(
             plan.contains("idx_files_hash"),
@@ -970,20 +1048,17 @@ mod tests {
     fn project_and_file_roundtrip() {
         let s = SqliteStore::open_in_memory().unwrap();
         s.upsert_project(&sample_project()).unwrap();
-        s.upsert_file(&file("docs/a.md", "Alpha"), "alpha content here")
-            .unwrap();
-        s.upsert_file(&file("src/b.md", "Beta"), "beta words")
-            .unwrap();
+        s.index_docs(&[
+            doc("docs/a.md", "Alpha", "alpha content here"),
+            doc("src/b.md", "Beta", "beta words"),
+        ])
+        .unwrap();
 
         assert_eq!(s.file_count("p1").unwrap(), 2);
         assert_eq!(
             s.get_file("p1", "docs/a.md").unwrap().unwrap().title,
             "Alpha"
         );
-        assert!(s
-            .file_abs_paths("p1")
-            .unwrap()
-            .contains(&PathBuf::from("/proj/docs/a.md")));
 
         let found = s.find_project_by_root(Path::new("/proj")).unwrap();
         assert_eq!(found.unwrap().id, "p1");
@@ -993,43 +1068,44 @@ mod tests {
     fn delete_file_removes_from_index_and_fts() {
         let s = SqliteStore::open_in_memory().unwrap();
         s.upsert_project(&sample_project()).unwrap();
-        s.upsert_file(&file("docs/a.md", "Alpha"), "unique_token_xyz")
+        s.index_docs(&[doc("docs/a.md", "Alpha", "unique_token_xyz")])
             .unwrap();
-        assert_eq!(
-            s.search("unique_token_xyz", Some("p1"), 10).unwrap().len(),
-            1
-        );
+        let q = || {
+            s.search(
+                "unique_token_xyz",
+                Some("p1"),
+                None,
+                SearchSort::Relevance,
+                10,
+            )
+            .unwrap()
+            .len()
+        };
+        assert_eq!(q(), 1);
         s.delete_file("p1", "docs/a.md").unwrap();
         assert_eq!(s.file_count("p1").unwrap(), 0);
-        assert_eq!(
-            s.search("unique_token_xyz", Some("p1"), 10).unwrap().len(),
-            0
-        );
+        assert_eq!(q(), 0);
+        assert_eq!(fts_rows(&s), 0);
     }
 
     #[test]
-    fn upsert_file_seeds_last_accessed_at_but_reindex_never_resets_it() {
+    fn delete_files_and_delete_project_drop_fts_rows() {
         let s = SqliteStore::open_in_memory().unwrap();
         s.upsert_project(&sample_project()).unwrap();
-        s.upsert_file(&file("docs/a.md", "Alpha"), "v1").unwrap();
-        assert!(!s.file_last_accessed("p1", "docs/a.md").unwrap().is_empty());
-
-        // Back-date it, as if this file hasn't been viewed in a while.
-        s.backdate_file_access_for_test("p1", "docs/a.md", "2000-01-01T00:00:00Z");
-
-        // Re-indexing on a content change must NOT count as a view.
-        s.upsert_file(&file("docs/a.md", "Alpha"), "v2").unwrap();
-        assert_eq!(
-            s.file_last_accessed("p1", "docs/a.md").unwrap(),
-            "2000-01-01T00:00:00Z"
-        );
-
-        // An actual view does reset it.
-        s.touch_file_access("p1", "docs/a.md").unwrap();
-        assert_ne!(
-            s.file_last_accessed("p1", "docs/a.md").unwrap(),
-            "2000-01-01T00:00:00Z"
-        );
+        s.index_docs(&[
+            doc("a.md", "A", "one"),
+            doc("b.md", "B", "two"),
+            doc("c.md", "C", "three"),
+        ])
+        .unwrap();
+        let removed = s
+            .delete_files("p1", &["a.md".into(), "missing.md".into()])
+            .unwrap();
+        assert_eq!(removed, 1);
+        assert_eq!(fts_rows(&s), 2);
+        s.delete_project("p1").unwrap();
+        assert_eq!(fts_rows(&s), 0);
+        assert_eq!(s.total_file_count().unwrap(), 0);
     }
 
     #[test]
@@ -1046,74 +1122,154 @@ mod tests {
     }
 
     #[test]
-    fn cleanup_stale_removes_unaccessed_files_but_keeps_recent_ones() {
+    fn cleanup_stale_removes_a_stale_project_with_all_its_rows() {
         let s = SqliteStore::open_in_memory().unwrap();
         s.upsert_project(&sample_project()).unwrap();
-        s.upsert_file(&file("docs/old.md", "Old"), "stale").unwrap();
-        s.upsert_file(&file("docs/new.md", "New"), "fresh").unwrap();
-        s.backdate_file_access_for_test("p1", "docs/old.md", "2000-01-01T00:00:00Z");
-
-        let (files_removed, projects_removed) = s
-            .cleanup_stale("2020-01-01T00:00:00Z", "2000-01-01T00:00:00Z")
-            .unwrap();
-
-        assert_eq!(files_removed, 1);
-        assert_eq!(projects_removed, 0);
-        assert!(s.get_file("p1", "docs/old.md").unwrap().is_none());
-        assert!(s.get_file("p1", "docs/new.md").unwrap().is_some());
-    }
-
-    #[test]
-    fn cleanup_stale_removing_a_project_cascades_its_files_without_double_counting() {
-        let s = SqliteStore::open_in_memory().unwrap();
-        s.upsert_project(&sample_project()).unwrap();
-        s.upsert_file(&file("docs/a.md", "A"), "content").unwrap();
+        s.index_docs(&[doc("docs/a.md", "A", "content")]).unwrap();
         s.backdate_project_for_test("p1", "2000-01-01T00:00:00Z");
 
-        let (files_removed, projects_removed) = s
-            .cleanup_stale("2020-01-01T00:00:00Z", "2020-01-01T00:00:00Z")
-            .unwrap();
+        let removed = s.cleanup_stale("2020-01-01T00:00:00Z").unwrap();
 
-        // The project itself was stale, so its file left via cascade, not a
-        // second time through the file sweep.
-        assert_eq!(projects_removed, 1);
-        assert_eq!(files_removed, 0);
+        assert_eq!(removed, 1);
         assert!(s.get_project("p1").unwrap().is_none());
         assert!(s.get_file("p1", "docs/a.md").unwrap().is_none());
+        assert_eq!(fts_rows(&s), 0);
     }
 
     #[test]
     fn cleanup_stale_leaves_everything_when_nothing_is_old_enough() {
         let s = SqliteStore::open_in_memory().unwrap();
         s.upsert_project(&sample_project()).unwrap();
-        s.upsert_file(&file("docs/a.md", "A"), "content").unwrap();
+        s.index_docs(&[doc("docs/a.md", "A", "content")]).unwrap();
 
-        let (files_removed, projects_removed) = s
-            .cleanup_stale("2000-01-01T00:00:00Z", "2000-01-01T00:00:00Z")
-            .unwrap();
+        let removed = s.cleanup_stale("2000-01-01T00:00:00Z").unwrap();
 
-        assert_eq!(files_removed, 0);
-        assert_eq!(projects_removed, 0);
+        assert_eq!(removed, 0);
+        assert!(s.get_file("p1", "docs/a.md").unwrap().is_some());
+    }
+
+    #[test]
+    fn vacuum_runs_only_when_fragmented() {
+        let path = std::env::temp_dir().join(format!("mdview-vac-{}.db", std::process::id()));
+        cleanup_db_file(&path);
+        let s = SqliteStore::open(&path).unwrap();
+        assert!(!s.vacuum_if_fragmented().unwrap());
+
+        {
+            // Free a lot of pages the way a large cleanup would.
+            let c = s.conn.lock().unwrap();
+            c.execute_batch("CREATE TABLE junk(x BLOB)").unwrap();
+            for _ in 0..200 {
+                c.execute("INSERT INTO junk VALUES(zeroblob(8000))", [])
+                    .unwrap();
+            }
+            c.execute_batch("DROP TABLE junk").unwrap();
+        }
+        assert!(s.vacuum_if_fragmented().unwrap());
+        assert!(!s.vacuum_if_fragmented().unwrap());
+        drop(s);
+        cleanup_db_file(&path);
     }
 
     #[test]
     fn fts_search_finds_by_content_and_title() {
         let s = SqliteStore::open_in_memory().unwrap();
         s.upsert_project(&sample_project()).unwrap();
-        s.upsert_file(
-            &file("docs/a.md", "Deployment Guide"),
-            "how to deploy the service",
-        )
+        s.index_docs(&[
+            doc("docs/a.md", "Deployment Guide", "how to deploy the service"),
+            doc("docs/b.md", "Other", "unrelated text"),
+        ])
         .unwrap();
-        s.upsert_file(&file("docs/b.md", "Other"), "unrelated text")
-            .unwrap();
 
-        let by_content = s.search("deploy", Some("p1"), 10).unwrap();
+        let by_content = s
+            .search("deploy", Some("p1"), None, SearchSort::Relevance, 10)
+            .unwrap();
         assert_eq!(by_content.len(), 1);
         assert_eq!(by_content[0].rel_path, "docs/a.md");
+        assert_eq!(by_content[0].title, "Deployment Guide");
         assert!(by_content[0].url.contains("/p/p1/docs/a.md"));
+        assert!(by_content[0].excerpt.is_empty());
 
-        let by_title = s.search("deployment", None, 10).unwrap();
+        let by_title = s
+            .search("deployment", None, None, SearchSort::Relevance, 10)
+            .unwrap();
         assert_eq!(by_title.len(), 1);
+    }
+
+    #[test]
+    fn search_folds_diacritics_and_the_d_stroke() {
+        let s = SqliteStore::open_in_memory().unwrap();
+        s.upsert_project(&sample_project()).unwrap();
+        s.index_docs(&[
+            doc("a.md", "Hướng dẫn", "Đường đi được tới tài liệu"),
+            doc("b.md", "Other", "nothing relevant"),
+        ])
+        .unwrap();
+        let hits = |q: &str| {
+            s.search(q, None, None, SearchSort::Relevance, 10)
+                .unwrap()
+                .len()
+        };
+        assert_eq!(hits("duoc"), 1);
+        assert_eq!(hits("được"), 1);
+        assert_eq!(hits("tai lieu"), 1);
+        assert_eq!(hits("tài liệu"), 1);
+        assert_eq!(hits("huong dan"), 1);
+        assert_eq!(hits("absent"), 0);
+        assert_eq!(hits("!!!"), 0);
+    }
+
+    #[test]
+    fn search_dir_prefix_matches_literally_and_only_below_the_folder() {
+        let s = SqliteStore::open_in_memory().unwrap();
+        s.upsert_project(&sample_project()).unwrap();
+        s.index_docs(&[
+            doc("100%_done/a.md", "A", "shared"),
+            doc("100x_done/b.md", "B", "shared"),
+            doc("100%_done/deep/c.md", "C", "shared"),
+            doc("top.md", "T", "shared"),
+        ])
+        .unwrap();
+        let rels = |dir: Option<&str>| {
+            let mut v: Vec<_> = s
+                .search("shared", Some("p1"), dir, SearchSort::Relevance, 10)
+                .unwrap()
+                .into_iter()
+                .map(|r| r.rel_path)
+                .collect();
+            v.sort();
+            v
+        };
+        assert_eq!(
+            rels(Some("100%_done")),
+            vec!["100%_done/a.md", "100%_done/deep/c.md"]
+        );
+        assert_eq!(
+            rels(Some("100%_done/")),
+            vec!["100%_done/a.md", "100%_done/deep/c.md"]
+        );
+        assert_eq!(rels(Some("")).len(), 4);
+        assert_eq!(rels(None).len(), 4);
+    }
+
+    #[test]
+    fn search_recent_orders_by_modified_time() {
+        let s = SqliteStore::open_in_memory().unwrap();
+        s.upsert_project(&sample_project()).unwrap();
+        let mut old = doc("old.md", "Old", "shared shared shared shared");
+        old.file.modified_at = "2020-01-01T00:00:00Z".into();
+        let mut new = doc("new.md", "New", "shared");
+        new.file.modified_at = "2026-01-01T00:00:00Z".into();
+        s.index_docs(&[old, new]).unwrap();
+
+        let recent = s
+            .search("shared", None, None, SearchSort::Recent, 10)
+            .unwrap();
+        assert_eq!(recent[0].rel_path, "new.md");
+        assert_eq!(recent[0].modified_at, "2026-01-01T00:00:00Z");
+        let relevant = s
+            .search("shared", None, None, SearchSort::Relevance, 10)
+            .unwrap();
+        assert_eq!(relevant[0].rel_path, "old.md");
     }
 }

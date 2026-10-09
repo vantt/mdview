@@ -19,6 +19,21 @@ impl IndexLookup for std::collections::HashSet<PathBuf> {
     }
 }
 
+/// Link-target existence answered by the filesystem instead of the index, so a
+/// link to a file that exists but has not been indexed yet is never reported as
+/// broken. Goes through [`crate::indexer::confine`], so only markdown inside
+/// the canonical project root (and outside excluded directories) ever counts.
+pub struct ProjectFs<'a> {
+    pub root: &'a Path,
+    pub exclude: &'a [String],
+}
+
+impl IndexLookup for ProjectFs<'_> {
+    fn contains(&self, abs: &Path) -> bool {
+        crate::indexer::confine(self.root, abs, self.exclude).is_some()
+    }
+}
+
 /// True for links we leave untouched (external / in-page / protocol).
 pub fn is_external(href: &str) -> bool {
     let h = href.trim();

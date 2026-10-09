@@ -1320,6 +1320,7 @@ dependencies = [
  "time",
  "toml",
  "tracing",
+ "unicode-normalization",
 ]
 
 [[package]]

@@ -55,6 +55,37 @@ pub struct SearchResult {
     pub excerpt: String,
     pub url: String,
     pub score: f64,
+    /// RFC3339 modified timestamp of the file.
+    pub modified_at: String,
+}
+
+/// How content-search results are ordered.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum SearchSort {
+    #[default]
+    Relevance,
+    Recent,
+}
+
+/// What one project sync did.
+#[derive(Debug, Clone, Default, Serialize)]
+pub struct SyncStats {
+    pub files_seen: usize,
+    pub files_read: usize,
+    pub files_removed: usize,
+    pub elapsed_ms: u128,
+    /// True when the previous sync finished moments ago and this call did nothing.
+    pub skipped_recent: bool,
+}
+
+/// A content search plus the sync that preceded it.
+#[derive(Debug, Clone, Default)]
+pub struct SearchOutcome {
+    pub results: Vec<SearchResult>,
+    pub sync: SyncStats,
+    /// Set when the sync failed; the query still ran over what was indexed.
+    pub sync_error: Option<String>,
 }
 
 /// Rendered markdown page plus metadata for the viewer.
