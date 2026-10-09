@@ -252,7 +252,10 @@ mod tests {
         let dir =
             std::env::temp_dir().join(format!("mdview-code-src-{tag}-{}", std::process::id()));
         let _ = fs::remove_dir_all(&dir);
-        dir
+        // Canonical, like a project root: on Windows `canonicalize` adds the
+        // `\\?\` prefix, and an uncanonical root fails the containment check.
+        fs::create_dir_all(&dir).unwrap();
+        fs::canonicalize(&dir).unwrap()
     }
 
     #[test]
