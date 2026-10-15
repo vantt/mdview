@@ -507,6 +507,7 @@ main.fg-page {
   position: sticky;
   top: 53px; /* below the sticky topbar; matches its rendered height, same
                 offset .sidebar/.rightbar already stick to */
+  z-index: var(--z-nav); /* above positioned content, e.g. the editor */
   padding: var(--space-3) var(--space-6);
   background: var(--color-bg);
   border-bottom: var(--border-width-hairline) solid var(--color-border);
@@ -590,8 +591,16 @@ main.fg-page {
 }
 
 /* ── In-place markdown editor (file pages; toggled by #edit-md) ─────
-   Sits where the rendered article was, at the same reading-column width
-   as .breadcrumb--reading so the swap doesn't shift the page. ─────── */
+   Takes the rendered article's place at the same reading-column width as
+   .breadcrumb--reading, so the swap doesn't shift the page. The editor grows
+   with its content and the page scrolls (no inner scrollbar), which keeps
+   the toolbar — living in the sticky breadcrumb — in view at any depth. ── */
+
+/* `.fg-reading` sets `display: grid` (atelier/editorial.css), which beats the
+   UA `[hidden] { display: none }` rule — without this the article stays on
+   screen and the editor lands below the whole document. */
+.fg-reading[hidden] { display: none; }
+
 .md-editor {
   display: flex;
   flex-direction: column;
@@ -601,28 +610,90 @@ main.fg-page {
   padding: 0 var(--space-6);
 }
 .md-editor[hidden] { display: none; }
+
+/* Toolbar: replaces the Edit/Copy pills in the breadcrumb while editing. */
 .md-editor__bar {
   display: flex;
   align-items: center;
   justify-content: flex-end;
   gap: var(--space-2);
-}
-.md-editor__status {
-  flex: 1 1 auto;
   min-width: 0;
+}
+.md-editor__bar[hidden] { display: none; }
+.content.is-editing .breadcrumb__right > .copy-md { display: none; }
+.md-editor__bar .fg-btn {
+  padding: var(--space-1) var(--space-3);
+  font-size: var(--type-body-sm-size);
+}
+/* Compact to fit the breadcrumb, but with a ~44px invisible hit area. */
+.md-editor__bar .fg-btn { position: relative; }
+.md-editor__bar .fg-btn::after {
+  content: "";
+  position: absolute;
+  inset: calc(-1 * var(--space-2)) calc(-1 * var(--space-1));
+}
+.md-editor__state {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  margin-right: var(--space-2);
+  color: var(--color-text-subtle);
+  white-space: nowrap;
+}
+.md-editor__dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: var(--radius-pill);
+  background: var(--color-border-strong);
+  transition: background var(--motion-fast) var(--ease-standard);
+}
+.content.is-dirty .md-editor__dot { background: var(--color-action); }
+.content.is-dirty .md-editor__state { color: var(--color-text); }
+.md-editor__kbd {
+  padding: 0 var(--space-1);
+  border: var(--border-width-hairline) solid currentColor;
+  border-radius: var(--radius-sm);
+  font-family: var(--font-mono);
+  font-size: var(--type-tag-size);
+  line-height: 1.5;
+  opacity: 0.75;
+}
+
+/* Messages too long for the toolbar: save conflicts, errors, fallbacks.
+   Sticks to the viewport bottom so it is seen at any scroll depth. */
+.md-editor__notice {
+  position: sticky;
+  bottom: var(--space-4);
+  z-index: var(--z-nav);
+  box-shadow: var(--elevation-lg);
+  margin: 0;
+  padding: var(--space-2) var(--space-3);
+  border: var(--border-width-hairline) solid var(--color-border);
+  border-left-width: var(--border-width-strong);
+  border-radius: var(--input-radius);
+  background: var(--color-surface);
   font-family: var(--type-body-sm-font);
   font-size: var(--type-body-sm-size);
-  color: var(--color-text-muted);
+  color: var(--color-text);
 }
-.md-editor__status.is-ok { color: var(--color-success); }
-.md-editor__status.is-warn { color: var(--color-warning); }
-.md-editor__status.is-err { color: var(--color-danger); }
+.md-editor__notice[hidden] { display: none; }
+.md-editor__notice.is-warn { border-left-color: var(--color-warning); }
+.md-editor__notice.is-err { border-left-color: var(--color-danger); }
+
+/* Tall enough to fill the viewport under the topbar + breadcrumb even for a
+   short file, so the editing surface never looks like a small form field. */
+.md-editor__ta,
+.md-editor .cm-editor {
+  min-height: calc(100vh - 53px - 160px);
+}
 .md-editor__ta {
   width: 100%;
   box-sizing: border-box;
-  min-height: 70vh;
   padding: var(--space-4);
-  resize: vertical;
+  resize: none;
+  overflow-y: hidden; /* app.js grows it to fit; the page scrolls instead */
   background: var(--color-surface-raised);
   border: var(--border-width-hairline) solid var(--color-border);
   border-radius: var(--input-radius);
@@ -639,31 +710,22 @@ main.fg-page {
   outline: none;
   border-color: var(--color-border-interactive);
 }
-.md-editor.is-dirty .md-editor__ta {
-  border-color: var(--color-action);
-}
 /* CodeMirror host: same frame as the textarea fallback so the swap-in is
    invisible. Light mode reuses page tokens; dark mode is One Dark, whose
    own background is kept but framed by the same border. */
 .md-editor .cm-editor {
-  min-height: 70vh;
   border: var(--border-width-hairline) solid var(--color-border);
   border-radius: var(--input-radius);
   background: var(--color-surface-raised);
   font-size: var(--type-body-sm-size);
-  overflow: hidden;
 }
 .md-editor .cm-editor.cm-focused {
   outline: none;
   border-color: var(--color-border-interactive);
 }
-.md-editor.is-dirty .cm-editor {
-  border-color: var(--color-action);
-}
 .md-editor .cm-scroller {
   font-family: var(--font-mono);
   line-height: 1.6;
-  min-height: 70vh;
 }
 .md-editor .cm-content {
   padding: var(--space-3) 0;
@@ -671,7 +733,13 @@ main.fg-page {
 .md-editor .cm-gutters {
   background: transparent;
   border-right: var(--border-width-hairline) solid var(--color-border);
+  border-radius: var(--input-radius) 0 0 var(--input-radius);
   color: var(--color-text-subtle);
+}
+/* The TOC links point into the hidden article: mute them while editing. */
+.layout.is-editing .rightbar {
+  opacity: 0.4;
+  pointer-events: none;
 }
 
 /* ── Responsive: hide rails on narrow viewports ─────────────────── */
@@ -718,6 +786,14 @@ main.fg-page {
   }
   .md-editor {
     padding: 0 var(--space-4);
+  }
+  /* Phones: the dot alone carries the state; no keyboard hint. */
+  .md-editor__state-txt,
+  .md-editor__kbd {
+    display: none;
+  }
+  .md-editor__state {
+    margin-right: var(--space-1);
   }
   /* Never scroll the page sideways: 16px gutters, and wide content scrolls or
      wraps inside its own box. `pre` keeps its own horizontal scroll. */

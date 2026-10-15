@@ -360,6 +360,16 @@
     });
   })();
 
+  // Parse comrak's data-sourcepos "startLine:col-endLine:col" → [start, end].
+  // Shared by copy-as-markdown and the editor's reading-position sync.
+  function rangeOf(el) {
+    var sp = el.getAttribute("data-sourcepos");
+    if (!sp) return null;
+    var m = /^(\d+):\d+-(\d+):\d+$/.exec(sp);
+    if (!m) return null;
+    return [parseInt(m[1], 10), parseInt(m[2], 10)];
+  }
+
   // Copy-as-markdown: when the user copies a selection inside the rendered
   // article, substitute the RAW markdown for the selected block range (mapped
   // via data-sourcepos line numbers) instead of the rendered HTML/text.
@@ -372,15 +382,6 @@
     try { source = JSON.parse(srcEl.textContent || '""'); } catch (e) { return; }
     if (typeof source !== "string" || !source.length) return;
     var lines = source.split("\n");
-
-    // Parse comrak's data-sourcepos "startLine:col-endLine:col" → [start, end].
-    function rangeOf(el) {
-      var sp = el.getAttribute("data-sourcepos");
-      if (!sp) return null;
-      var m = /^(\d+):\d+-(\d+):\d+$/.exec(sp);
-      if (!m) return null;
-      return [parseInt(m[1], 10), parseInt(m[2], 10)];
-    }
 
     function closestBlock(node) {
       var el = node.nodeType === 1 ? node : node.parentElement;
@@ -828,23 +829,34 @@
   // In-place markdown editor. The Edit button swaps the rendered article for
   // an editor pre-filled from #mdsource — CodeMirror 6 (vendored, lazy-loaded
   // from /static/codemirror.min.js on the first click) with the plain
-  // textarea as the fallback if that script fails. Save PUTs the text back
-  // to the daemon (which rewrites the file and re-indexes it) and reloads the
-  // page so the reader sees the fresh render. `editor.dirty` is read by the
-  // live-reload handler below: an unsaved draft must survive a file-change
-  // event, so the reload is parked until the draft is saved or discarded.
+  // textarea as the fallback if that script fails. The editor opens at the
+  // source line of the paragraph being read and, on Cancel, returns the
+  // reader to the paragraph they were editing. Its toolbar lives in the
+  // sticky breadcrumb, so Save/Cancel stay in view at any depth. Save PUTs
+  // the text back to the daemon (which rewrites the file and re-indexes it)
+  // and reloads the page so the reader sees the fresh render. `editor.dirty`
+  // is read by the live-reload handler below: an unsaved draft must survive
+  // a file-change event, so the reload is parked until the draft is saved or
+  // discarded.
   var editor = { dirty: false, pendingReload: false };
   (function () {
     var btn = document.getElementById("edit-md");
     var box = document.getElementById("md-editor");
     var src = document.getElementById("mdsource");
     var reading = document.querySelector(".fg-reading");
-    if (!btn || !box || !src || !reading) return;
+    var article = document.querySelector(".markdown-body");
+    var content = document.querySelector(".content");
+    var layout = document.querySelector(".layout");
+    var crumb = document.querySelector(".breadcrumb");
+    var bar = document.querySelector(".md-editor__bar");
+    if (!btn || !box || !src || !reading || !article || !content || !crumb || !bar) return;
     var ta = box.querySelector(".md-editor__ta");
     var cmHost = box.querySelector(".md-editor__cm");
-    var status = box.querySelector(".md-editor__status");
-    var saveBtn = box.querySelector(".md-editor__save");
-    var cancelBtn = box.querySelector(".md-editor__cancel");
+    var notice = box.querySelector(".md-editor__notice");
+    var stateTxt = bar.querySelector(".md-editor__state-txt");
+    var saveBtn = bar.querySelector(".md-editor__save");
+    var saveTxt = bar.querySelector(".md-editor__save-txt");
+    var cancelBtn = bar.querySelector(".md-editor__cancel");
     var id = currentFileIdentity();
     if (!id) return;
     var baseHash = src.getAttribute("data-hash") || null;
@@ -852,8 +864,14 @@
     try { original = JSON.parse(src.textContent || '""'); } catch (e) { original = src.textContent || ""; }
     var open = false, saving = false, force = false, conflicted = false;
     var cm = null;          // CodeMirror EditorView once mounted
+    var cmLib = null;       // the bundle's global, once loaded
     var cmTheme = null;     // Compartment holding the light/dark theme
     var cmLoad = null;      // Promise for the bundle, shared across clicks
+
+    if (/Mac|iPhone|iPad/.test(navigator.platform || "")) {
+      var kbd = bar.querySelector(".md-editor__kbd");
+      if (kbd) kbd.textContent = "⌘S";
+    }
 
     // Uniform surface over whichever editor is live (CodeMirror or textarea).
     function getValue() { return cm ? cm.state.doc.toString() : ta.value; }
@@ -862,21 +880,37 @@
         cm.dispatch({ changes: { from: 0, to: cm.state.doc.length, insert: text } });
       } else {
         ta.value = text;
+        fitTextarea();
       }
     }
-    function focusEditor() { if (cm) cm.focus(); else ta.focus(); }
+    function focusEditor() {
+      if (cm) cm.focus(); else ta.focus({ preventScroll: true });
+    }
+    // The textarea grows to its content so the page — not the field — scrolls,
+    // exactly like the CodeMirror path (whose editor sizes itself).
+    function fitTextarea() {
+      ta.style.height = "auto";
+      ta.style.height = ta.scrollHeight + 2 + "px";
+    }
 
-    function setStatus(msg, kind) {
-      status.textContent = msg || "";
-      status.className = "md-editor__status" + (kind ? " is-" + kind : "");
+    function setNotice(msg, kind) {
+      notice.textContent = msg || "";
+      notice.className = "md-editor__notice" + (kind ? " is-" + kind : "");
+      notice.hidden = !msg;
+    }
+    function refreshBar() {
+      stateTxt.textContent = saving ? "Saving…" : editor.dirty ? "Unsaved changes" : "No changes";
+      saveTxt.textContent = force ? "Overwrite" : "Save";
+      saveBtn.disabled = saving || !(editor.dirty || force);
     }
     function setDirty(d) {
       editor.dirty = d;
-      box.classList.toggle("is-dirty", d);
+      content.classList.toggle("is-dirty", d);
+      refreshBar();
     }
     function onInput() {
       setDirty(getValue() !== original);
-      if (force) { force = false; saveBtn.textContent = "Save"; }
+      if (!cm) fitTextarea();
     }
     function isDark() {
       return document.documentElement.getAttribute("data-scheme") === "dark";
@@ -886,6 +920,72 @@
       // in app.css); dark mode uses CodeMirror's One Dark for real syntax
       // colours the light highlight style would lack on a dark ground.
       return isDark() ? lib.oneDark : [];
+    }
+
+    // ── Reading position ────────────────────────────────────────────────
+    // The line just under the sticky breadcrumb is "where the reader is".
+    function viewTop() { return crumb.getBoundingClientRect().bottom; }
+
+    // Source line of the first rendered block still visible under the bar,
+    // plus how far below the bar its top sits (kept on the way in so the
+    // text doesn't visibly jump). Null at the top of the page: open at line 1.
+    function readingAnchor() {
+      if (window.scrollY < 4) return null;
+      var top = viewTop();
+      var blocks = article.children;
+      for (var i = 0; i < blocks.length; i++) {
+        var r = rangeOf(blocks[i]);
+        if (!r) continue;
+        var rect = blocks[i].getBoundingClientRect();
+        if (rect.bottom > top + 1) return { line: r[0], offset: Math.max(0, rect.top - top) };
+      }
+      return null;
+    }
+    // Scroll the open editor so `anchor.line` sits `anchor.offset` px under
+    // the bar, and park the caret there so typing starts where the eye is.
+    function scrollEditorTo(anchor) {
+      if (!anchor) { window.scrollTo(0, 0); return; }
+      if (cm) {
+        var line = cm.state.doc.line(Math.min(anchor.line, cm.state.doc.lines));
+        cm.dispatch({
+          selection: { anchor: line.from },
+          // scrollMargins (below) already clears the sticky bars.
+          effects: cmLib.EditorView.scrollIntoView(line.from, { y: "start", yMargin: anchor.offset })
+        });
+        return;
+      }
+      var lh = parseFloat(getComputedStyle(ta).lineHeight) || 20;
+      var pad = parseFloat(getComputedStyle(ta).paddingTop) || 0;
+      var y = ta.getBoundingClientRect().top + window.scrollY + pad + (anchor.line - 1) * lh;
+      window.scrollTo(0, Math.max(0, y - viewTop() - anchor.offset));
+      var at = 0;
+      for (var n = 1; n < anchor.line && at !== -1; n++) at = ta.value.indexOf("\n", at) + 1 || -1;
+      if (at > 0) ta.setSelectionRange(at, at);
+    }
+    // The source line at the top of the editor viewport (for the way back).
+    function editorTopLine() {
+      var top = viewTop();
+      if (cm) {
+        var block = cm.lineBlockAtHeight(top - cm.documentTop);
+        return cm.state.doc.lineAt(block.from).number;
+      }
+      var lh = parseFloat(getComputedStyle(ta).lineHeight) || 20;
+      var pad = parseFloat(getComputedStyle(ta).paddingTop) || 0;
+      return Math.max(1, Math.floor((top - ta.getBoundingClientRect().top - pad) / lh) + 1);
+    }
+    // Bring the rendered block containing `line` back under the bar.
+    function scrollArticleTo(line) {
+      if (line <= 1) { window.scrollTo(0, 0); return; }
+      var target = null;
+      var blocks = article.children;
+      for (var i = 0; i < blocks.length; i++) {
+        var r = rangeOf(blocks[i]);
+        if (!r) continue;
+        if (r[0] > line) break;
+        target = blocks[i];
+      }
+      if (!target) return;
+      window.scrollTo(0, target.getBoundingClientRect().top + window.scrollY - viewTop());
     }
 
     // Load the CodeMirror bundle once, on demand. Resolves to the global it
@@ -905,6 +1005,7 @@
       return cmLoad;
     }
     function mountCodeMirror(lib, text) {
+      cmLib = lib;
       cmTheme = new lib.Compartment();
       cm = new lib.EditorView({
         parent: cmHost,
@@ -914,6 +1015,9 @@
             lib.baseExtensions,
             cmTheme.of(themeExt(lib)),
             lib.EditorView.updateListener.of(function (u) { if (u.docChanged) onInput(); }),
+            // The page scrolls the editor, under a sticky topbar+breadcrumb:
+            // keep the caret from ever being scrolled in behind them.
+            lib.EditorView.scrollMargins.of(function () { return { top: viewTop(), bottom: 24 }; }),
             // Save from inside the editor too: CodeMirror swallows keydown
             // it handles, so the document-level Ctrl+S below never sees it.
             lib.keymap.of([{ key: "Mod-s", run: function () { save(); return true; } }])
@@ -928,56 +1032,68 @@
       }).observe(document.documentElement, { attributes: true, attributeFilter: ["data-scheme"] });
     }
 
+    function setOpen(o) {
+      open = o;
+      reading.hidden = o;
+      box.hidden = !o;
+      bar.hidden = !o;
+      content.classList.toggle("is-editing", o);
+      if (layout) layout.classList.toggle("is-editing", o);
+      btn.setAttribute("aria-expanded", o ? "true" : "false");
+    }
     function show() {
-      open = true;
-      setDirty(false);
+      var anchor = readingAnchor();
       force = false;
       conflicted = false;
-      saveBtn.textContent = "Save";
-      setStatus("");
-      reading.hidden = true;
-      box.hidden = false;
-      btn.setAttribute("aria-expanded", "true");
-      btn.classList.add("is-active");
+      setNotice("");
+      setOpen(true);
+      setDirty(false);
       if (cm) {
         setValue(original);
+        scrollEditorTo(anchor);
         focusEditor();
         return;
       }
       // First open: textarea shows immediately, CodeMirror takes over when
-      // the bundle arrives (carrying over anything typed meanwhile).
+      // the bundle arrives (carrying over anything typed meanwhile, and
+      // re-anchoring to the same line).
       ta.value = original;
-      ta.focus();
+      fitTextarea();
+      scrollEditorTo(anchor);
+      focusEditor();
       loadCodeMirror().then(function (lib) {
         if (!open || cm) return;
+        var line = editorTopLine();
+        var off = anchor ? anchor.offset : 0;
+        var sel = ta.selectionStart;
         mountCodeMirror(lib, ta.value);
+        cm.dispatch({ selection: { anchor: Math.min(sel, cm.state.doc.length) } });
+        scrollEditorTo((anchor || line > 1) ? { line: line, offset: off } : null);
         focusEditor();
       }, function (e) {
-        setStatus("Plain editor (" + ((e && e.message) || e) + ")", "warn");
+        setNotice("Using the plain editor: " + ((e && e.message) || e) + ".", "warn");
       });
     }
     function hide() {
-      open = false;
+      var line = editorTopLine();
       setDirty(false);
-      box.hidden = true;
-      reading.hidden = false;
-      btn.setAttribute("aria-expanded", "false");
-      btn.classList.remove("is-active");
+      setOpen(false);
+      scrollArticleTo(line);
+      btn.focus({ preventScroll: true });
       // A file-change event arrived while the draft was open: honour it now.
       if (editor.pendingReload) location.reload();
     }
     function cancel() {
       if (editor.dirty && !window.confirm("Discard your unsaved changes?")) return;
-      hide();
       // The file changed on disk while the draft was open: the rendered page
       // is stale, so show the current version.
-      if (conflicted) location.reload();
+      if (conflicted) editor.pendingReload = true;
+      hide();
     }
     function save() {
-      if (saving || !open) return;
+      if (saving || !open || !(editor.dirty || force)) return;
       saving = true;
-      saveBtn.disabled = true;
-      setStatus("Saving…");
+      refreshBar();
       var body = { content: getValue() };
       if (!force && baseHash) body.base_hash = baseHash;
       fetch("/api/projects/" + encodeURIComponent(id.projectId) + "/files/" +
@@ -990,8 +1106,7 @@
         if (r.ok) {
           // Saved: the draft is now the file. Drop dirty first so the
           // beforeunload guard doesn't prompt, then reload for the render.
-          setDirty(false);
-          setStatus("Saved", "ok");
+          saving = false;
           editor.pendingReload = true;
           hide();
           return;
@@ -999,16 +1114,15 @@
         if (r.status === 409) {
           force = true;
           conflicted = true;
-          saveBtn.textContent = "Overwrite";
-          setStatus("This file changed on disk since you opened it. Overwrite it, or Cancel and reload to see the new version.", "warn");
+          setNotice("This file changed on disk since you opened it. Overwrite it with your version, or Cancel to load the new one.", "warn");
           return;
         }
         return r.text().then(function (t) { throw new Error(t || ("HTTP " + r.status)); });
       }).catch(function (e) {
-        setStatus("Save failed: " + ((e && e.message) || e), "err");
+        setNotice("Save failed: " + ((e && e.message) || e), "err");
       }).then(function () {
         saving = false;
-        saveBtn.disabled = false;
+        refreshBar();
       });
     }
 
@@ -1024,7 +1138,7 @@
       if ((ev.ctrlKey || ev.metaKey) && ev.key.toLowerCase() === "s") {
         ev.preventDefault();
         save();
-      } else if (ev.key === "Escape" && box.contains(document.activeElement)) {
+      } else if (ev.key === "Escape" && (box.contains(document.activeElement) || bar.contains(document.activeElement))) {
         ev.preventDefault();
         cancel();
       }

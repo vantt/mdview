@@ -85,7 +85,12 @@ pub fn file_page(
 ) -> String {
     let tree = file_tree(project, files, &file.rel_path);
     let right = right_panel(project, page, backlinks);
-    let actions = format!("{}{}", edit_md_button(), copy_md_button());
+    let actions = format!(
+        "{}{}{}",
+        edit_md_button(),
+        copy_md_button(),
+        md_editor_bar()
+    );
     let breadcrumb = breadcrumb(project, "", &file.rel_path, true, &actions);
     // Raw markdown source for copy-as-markdown and the in-place editor: the
     // client maps a DOM selection (via data-sourcepos line ranges) back to
@@ -654,20 +659,29 @@ fn edit_md_button() -> &'static str {
 
 /// The in-place markdown editor: a CodeMirror host (filled by app.js once
 /// /static/codemirror.min.js loads) with a plain textarea as the fallback
-/// if that script fails, plus a Save/Cancel bar. Rendered hidden on every file page; the Edit button
-/// swaps it in for the rendered article. Server-side markup (rather than
-/// built by app.js) so the CSS has real elements to target and the page
-/// stays one document — but it does nothing without scripting, so it stays
-/// hidden when scripting is off.
+/// if that script fails, plus a notice for messages too long for the
+/// toolbar (conflicts, save errors) — after the editor so it can stick to
+/// the viewport bottom however deep in the source the reader is. Rendered hidden on every file page; the
+/// Edit button swaps it in for the rendered article. Server-side markup
+/// (rather than built by app.js) so the CSS has real elements to target and
+/// the page stays one document — but it does nothing without scripting, so it
+/// stays hidden when scripting is off.
 fn md_editor() -> &'static str {
     r#"<div id="md-editor" class="md-editor" hidden>
-      <div class="md-editor__bar">
-        <span class="md-editor__status" aria-live="polite"></span>
-        <button type="button" class="fg-btn fg-btn--ghost md-editor__cancel">Cancel</button>
-        <button type="button" class="fg-btn fg-btn--primary md-editor__save">Save</button>
-      </div>
       <div class="md-editor__cm" hidden></div>
       <textarea class="md-editor__ta" spellcheck="false" aria-label="Markdown source"></textarea>
+      <p class="md-editor__notice" role="status" aria-live="polite" hidden></p>
+    </div>"#
+}
+
+/// The editor's toolbar. Lives in the sticky breadcrumb (in place of the
+/// Edit/Copy buttons while editing) so Save/Cancel and the unsaved-changes
+/// state stay in view however far down the source the editor is scrolled.
+fn md_editor_bar() -> &'static str {
+    r#"<div class="md-editor__bar" hidden>
+      <span class="md-editor__state" aria-live="polite"><span class="md-editor__dot" aria-hidden="true"></span><span class="md-editor__state-txt">Editing</span></span>
+      <button type="button" class="fg-btn fg-btn--ghost md-editor__cancel">Cancel</button>
+      <button type="button" class="fg-btn fg-btn--primary md-editor__save" disabled><span class="md-editor__save-txt">Save</span><kbd class="md-editor__kbd">Ctrl S</kbd></button>
     </div>"#
 }
 
