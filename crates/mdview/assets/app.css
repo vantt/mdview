@@ -1367,20 +1367,120 @@ pre.mermaid.zoomable:focus-within .mermaid-controls {
   color: inherit;
 }
 
-/* Directory listing main pane (the sidebar shows the same directory in
-   compact form via `.chapter`/`.chap-file`). */
+/* ── Directory listing main pane ───────────────────────────────────
+   The sidebar shows the same directory in compact form (`.chapter`/
+   `.chap-file`); this pane is the detail view: a folder header with counts
+   and a filter box, then a column-aligned table (name / size / modified).
+   `.codelist` is the scroll container (see `.content--code` above); the
+   inner column caps the measure so the size/date columns stay within an
+   easy eye-jump of the name instead of drifting to the far edge. */
 .codelist {
-  margin: var(--space-3) auto var(--space-6);
+  /* The pane's own width, not the viewport's, decides the compact layout:
+     beside the sidebar a tablet viewport still leaves a phone-wide pane. */
+  container-type: inline-size;
+}
+.codelist__inner {
+  box-sizing: border-box;
+  max-width: 1040px;
+  margin: 0 auto;
+  padding: var(--space-5) var(--space-6) var(--space-7);
+}
+.codelist__head {
   display: flex;
-  flex-direction: column;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--space-3) var(--space-5);
+  margin-bottom: var(--space-4);
+}
+.codelist__heading {
+  min-width: 0;
+}
+.codelist__title {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0;
+  font-family: var(--type-heading-font);
+  font-size: var(--type-heading-size);
+  line-height: var(--type-heading-leading);
+  letter-spacing: var(--type-heading-tracking);
+  font-weight: var(--type-heading-weight);
+  color: var(--color-text);
+  overflow-wrap: anywhere;
+}
+.codelist__title .codelist__icon {
+  width: 24px;
+  height: 24px;
+}
+.codelist__meta {
+  margin: var(--space-1) 0 0;
+  font-family: var(--type-body-sm-font);
+  font-size: var(--type-body-sm-size);
+  color: var(--color-text-muted);
+  font-variant-numeric: var(--num-variant);
+}
+.codelist__filter {
+  flex: 0 1 260px;
+  min-width: 180px;
+}
+.codelist__filter[hidden] {
+  display: none;
+}
+.codelist__filter .fg-input {
+  box-sizing: border-box;
+  width: 100%;
+}
+
+/* Table: one bordered card; the column header sticks to the top of the
+   scroll container so long folders keep their labels in view. */
+.codelist__table {
+  border: var(--border-width-hairline) solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface-raised);
+  /* `clip` (not `hidden`) rounds row hovers into the corners without
+     making this a scroll container, so the sticky header still sticks. */
+  overflow: clip;
+}
+.codelist__cols,
+.codelist__row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 7rem 8.5rem;
+  align-items: center;
+  column-gap: var(--space-4);
+  padding: 0 var(--space-4);
+}
+.codelist__cols {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  min-height: 36px;
+  border-bottom: var(--border-width-hairline) solid var(--color-border);
+  background: var(--color-surface);
+  font-family: var(--type-label-font);
+  font-size: var(--type-label-size);
+  letter-spacing: var(--type-label-tracking);
+  text-transform: var(--type-label-case);
+  color: var(--color-text-subtle);
+}
+.codelist__cols > :not(:first-child),
+.codelist__size,
+.codelist__date {
+  text-align: right;
+}
+.codelist__rows {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.codelist__rows > li + li {
+  border-top: var(--border-width-hairline) solid var(--color-border);
 }
 .codelist__row {
-  display: flex;
-  justify-content: space-between;
-  gap: var(--space-3);
-  padding: var(--space-2) var(--space-3);
-  border-radius: var(--radius-sm);
+  min-height: 40px;
   color: var(--color-text);
+  text-decoration: none;
+  transition: background-color var(--motion-fast) var(--ease-standard);
 }
 .codelist__row:visited {
   color: var(--color-text);
@@ -1388,18 +1488,116 @@ pre.mermaid.zoomable:focus-within .mermaid-controls {
 .codelist__row:hover {
   background: var(--color-surface-hover);
 }
-.codelist__row--dir .codelist__name {
-  font-weight: var(--weight-semibold);
+.codelist__row:focus-visible {
+  position: relative;
+  outline: var(--focus-width) solid var(--focus-color);
+  outline-offset: calc(var(--focus-width) * -1);
+  background: var(--color-surface-hover);
 }
 .codelist__name {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
   min-width: 0;
-  overflow-wrap: break-word;
+  padding: var(--space-2) 0;
 }
-.codelist__size {
-  flex: none;
+.codelist__label {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.codelist__row:hover .codelist__label {
+  text-decoration: underline;
+  text-decoration-color: var(--color-border-strong);
+  text-underline-offset: 3px;
+}
+.codelist__row--dir .codelist__label {
+  font-weight: var(--weight-medium);
+}
+.codelist__hint {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--color-text-subtle);
+  font-size: var(--type-body-sm-size);
+}
+.codelist__row--up .codelist__label {
+  white-space: nowrap;
+  font-family: var(--font-mono);
   color: var(--color-text-muted);
+}
+.codelist__size,
+.codelist__date {
   font-family: var(--type-body-sm-font);
   font-size: var(--type-body-sm-size);
+  font-variant-numeric: var(--num-variant);
+  color: var(--color-text-muted);
+  white-space: nowrap;
+}
+.codelist__empty,
+.codelist__nomatch {
+  margin: 0;
+  padding: var(--space-6) var(--space-4);
+  text-align: center;
+  font-family: var(--type-body-sm-font);
+  font-size: var(--type-body-sm-size);
+  color: var(--color-text-muted);
+}
+.codelist__nomatch[hidden] {
+  display: none;
+}
+.codelist__q {
+  color: var(--color-text);
+  font-weight: var(--weight-medium);
+}
+
+/* Icons: one outline family; folders take the warm honey tone so they read
+   as containers at a glance, files stay neutral with a subtle per-kind
+   tint. */
+.codelist__icon {
+  flex: none;
+  width: 20px;
+  height: 20px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.75;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  color: var(--color-text-subtle);
+}
+.codelist__icon--dir {
+  color: var(--color-warning);
+  fill: color-mix(in srgb, var(--color-warning) 18%, transparent);
+}
+.codelist__icon--code { color: var(--color-info); }
+.codelist__icon--text { color: var(--color-text-muted); }
+.codelist__icon--config { color: var(--color-success); }
+.codelist__icon--image { color: var(--color-brand); }
+
+@container (max-width: 600px) {
+  .codelist__inner {
+    padding: var(--space-4) var(--space-4) var(--space-6);
+  }
+  .codelist__cols,
+  .codelist__row {
+    grid-template-columns: minmax(0, 1fr) auto;
+    padding: 0 var(--space-3);
+  }
+  .codelist__row {
+    min-height: 44px;
+  }
+  .codelist__cols > :last-child,
+  .codelist__date {
+    display: none;
+  }
+  .codelist__filter {
+    flex: 1 1 100%;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .codelist__row {
+    transition: none;
+  }
 }
 
 /* Content-search toggles and sync status */

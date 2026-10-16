@@ -30,6 +30,8 @@ pub struct DirEntry {
     pub name: String,
     pub is_dir: bool,
     pub size: u64,
+    /// Last-modified time, when the filesystem reports one.
+    pub modified: Option<std::time::SystemTime>,
 }
 
 /// One directory level, already filtered and sorted.
@@ -85,8 +87,15 @@ pub fn list_dir(root: &Path, rel: &str, exclude: &[String]) -> Result<DirListing
         }
         let name = entry.file_name().to_string_lossy().into_owned();
         let is_dir = canonical_child.is_dir();
-        let size = entry.metadata().map(|m| m.len()).unwrap_or(0);
-        entries.push(DirEntry { name, is_dir, size });
+        let meta = entry.metadata().ok();
+        let size = meta.as_ref().map(|m| m.len()).unwrap_or(0);
+        let modified = meta.and_then(|m| m.modified().ok());
+        entries.push(DirEntry {
+            name,
+            is_dir,
+            size,
+            modified,
+        });
     }
     entries.sort_by(|a, b| {
         (!a.is_dir, a.name.to_lowercase()).cmp(&(!b.is_dir, b.name.to_lowercase()))

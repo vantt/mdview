@@ -377,47 +377,118 @@ pub fn code_page(
 }
 
 /// A directory in the Code section: the same listing rendered both in the
-/// sidebar (compact nav) and the main pane (with sizes) — the two panes
-/// serve different roles, same as a file-explorer's tree-plus-detail split.
+/// sidebar (compact nav) and the main pane (with sizes and ages) — the two
+/// panes serve different roles, same as a file-explorer's tree-plus-detail
+/// split. The main pane is a column-aligned table (name / size / modified)
+/// under a folder header with counts; the filter box and arrow-key row
+/// navigation are progressive enhancements wired by `app.js`, so the
+/// listing still works as plain links without scripts.
 pub fn code_dir_page(project: &Project, listing: &DirListing) -> String {
     let tree = code_tree(project, listing, None);
     let breadcrumb = breadcrumb(project, "_code/", &listing.rel_path, false, "");
+    let pid = esc(&project.id);
+    let now = std::time::SystemTime::now();
 
     let mut rows = String::new();
     if !listing.rel_path.is_empty() {
         let parent = parent_dir(&listing.rel_path);
+        let parent_name = if parent.is_empty() {
+            project.name.as_str()
+        } else {
+            base_name(parent)
+        };
         rows.push_str(&format!(
-            "<a class=\"codelist__row codelist__row--dir\" href=\"/p/{pid}/_code/{parent}\">.. </a>",
-            pid = esc(&project.id),
+            "<li><a class=\"codelist__row codelist__row--up\" href=\"/p/{pid}/_code/{parent}\" data-up>\
+             <span class=\"codelist__name\">{icon}<span class=\"codelist__label\">..</span>\
+             <span class=\"codelist__hint\">Up to {parent_name}</span></span></a></li>",
+            pid = pid,
             parent = esc(parent),
+            icon = ICON_UP,
+            parent_name = esc(parent_name),
         ));
     }
+
+    let (mut dir_count, mut file_count, mut total) = (0usize, 0usize, 0u64);
     for entry in &listing.entries {
         let rel = child_rel(&listing.rel_path, &entry.name);
-        let cls = if entry.is_dir {
-            "codelist__row codelist__row--dir"
+        let (cls, icon, size) = if entry.is_dir {
+            dir_count += 1;
+            (
+                "codelist__row codelist__row--dir",
+                ICON_FOLDER,
+                String::new(),
+            )
         } else {
-            "codelist__row"
+            file_count += 1;
+            total += entry.size;
+            (
+                "codelist__row",
+                file_icon(&entry.name),
+                format_size(entry.size),
+            )
         };
-        let label = if entry.is_dir {
-            format!("{}/", entry.name)
-        } else {
-            entry.name.clone()
-        };
-        let size = if entry.is_dir {
-            String::new()
-        } else {
-            format_size(entry.size)
-        };
+        let modified = entry
+            .modified
+            .map(|t| {
+                let (machine, human) = utc_timestamp(t);
+                format!(
+                    "<time datetime=\"{machine}\" title=\"{human}\">{age}</time>",
+                    age = format_age(now, t),
+                )
+            })
+            .unwrap_or_default();
         rows.push_str(&format!(
-            "<a class=\"{cls}\" href=\"/p/{pid}/_code/{rel}\"><span class=\"codelist__name\">{label}</span><span class=\"codelist__size\">{size}</span></a>",
+            "<li><a class=\"{cls}\" href=\"/p/{pid}/_code/{rel}\" data-name=\"{name}\">\
+             <span class=\"codelist__name\">{icon}<span class=\"codelist__label\">{name}</span></span>\
+             <span class=\"codelist__size\">{size}</span>\
+             <span class=\"codelist__date\">{modified}</span></a></li>",
             cls = cls,
-            pid = esc(&project.id),
+            pid = pid,
             rel = esc(&rel),
-            label = esc(&label),
+            name = esc(&entry.name),
+            icon = icon,
             size = size,
+            modified = modified,
         ));
     }
+
+    let mut meta = Vec::new();
+    if dir_count > 0 {
+        meta.push(plural(dir_count, "folder", "folders"));
+    }
+    if file_count > 0 {
+        meta.push(plural(file_count, "file", "files"));
+        meta.push(format_size(total));
+    }
+    let meta = if meta.is_empty() {
+        "Empty folder".to_string()
+    } else {
+        meta.join(" &middot; ")
+    };
+
+    let heading = if listing.rel_path.is_empty() {
+        project.name.as_str()
+    } else {
+        base_name(&listing.rel_path)
+    };
+    let empty = if listing.entries.is_empty() {
+        "<p class=\"codelist__empty\">This folder is empty.</p>"
+    } else {
+        ""
+    };
+    let table = format!(
+            "<div class=\"codelist__table\">\
+             <div class=\"codelist__cols\" aria-hidden=\"true\"><span>Name</span><span>Size</span><span>Modified</span></div>\
+             <ul class=\"codelist__rows\" id=\"codelist-rows\">{rows}</ul>\
+             <p class=\"codelist__nomatch\" hidden>No files or folders match “<span class=\"codelist__q\"></span>”.</p>\
+             {empty}</div>",
+    );
+    let filter = if listing.entries.len() > 1 {
+        "<div class=\"codelist__filter\" hidden>\
+         <input class=\"fg-input\" type=\"search\" placeholder=\"Filter this folder…\" aria-label=\"Filter this folder\" autocomplete=\"off\" spellcheck=\"false\" aria-controls=\"codelist-rows\"></div>"
+    } else {
+        ""
+    };
 
     let title = if listing.rel_path.is_empty() {
         project.name.clone()
@@ -431,7 +502,16 @@ pub fn code_dir_page(project: &Project, listing: &DirListing) -> String {
   <div class="sidebar-backdrop"></div>
   <main class="content content--code">
     {breadcrumb}
-    <div class="codelist">{rows}</div>
+    <div class="codelist"><div class="codelist__inner">
+      <header class="codelist__head">
+        <div class="codelist__heading">
+          <h1 class="codelist__title">{folder_icon}<span>{heading}</span></h1>
+          <p class="codelist__meta">{meta}</p>
+        </div>
+        {filter}
+      </header>
+      {table}
+    </div></div>
   </main>
 </div>"#,
         topbar = topbar_full(
@@ -441,9 +521,91 @@ pub fn code_dir_page(project: &Project, listing: &DirListing) -> String {
         ),
         tree = tree,
         breadcrumb = breadcrumb,
-        rows = rows,
+        folder_icon = ICON_FOLDER_OPEN,
+        heading = esc(heading),
+        meta = meta,
+        filter = filter,
+        table = table,
     );
     layout(&title, "", &body_html)
+}
+
+fn plural(n: usize, one: &str, many: &str) -> String {
+    format!("{n} {}", if n == 1 { one } else { many })
+}
+
+// Listing icons: one outline family (24-unit grid, 1.75 stroke,
+// currentColor), sized and tinted by `.codelist__icon` in app.css.
+const ICON_FOLDER: &str = r#"<svg class="codelist__icon codelist__icon--dir" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7.5A1.5 1.5 0 0 1 4.5 6h4.38a1.5 1.5 0 0 1 1.06.44L11.5 8h8A1.5 1.5 0 0 1 21 9.5v8a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 17.5z"/></svg>"#;
+const ICON_FOLDER_OPEN: &str = r#"<svg class="codelist__icon codelist__icon--dir" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 17.5v-10A1.5 1.5 0 0 1 4.5 6h4.38a1.5 1.5 0 0 1 1.06.44L11.5 8h6A1.5 1.5 0 0 1 19 9.5V11"/><path d="M3 17.5 5.6 12a1.5 1.5 0 0 1 1.36-.9H20a1 1 0 0 1 .92 1.39l-2.3 5.6a1.5 1.5 0 0 1-1.39.91H4.5A1.5 1.5 0 0 1 3 17.5z"/></svg>"#;
+const ICON_UP: &str = r#"<svg class="codelist__icon codelist__icon--up" viewBox="0 0 24 24" aria-hidden="true"><path d="m14 9-5-5-5 5"/><path d="M20 20h-7a4 4 0 0 1-4-4V4"/></svg>"#;
+const ICON_FILE: &str = r#"<svg class="codelist__icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/></svg>"#;
+const ICON_FILE_CODE: &str = r#"<svg class="codelist__icon codelist__icon--code" viewBox="0 0 24 24" aria-hidden="true"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/><path d="m10 12.5-2 2 2 2"/><path d="m14 12.5 2 2-2 2"/></svg>"#;
+const ICON_FILE_TEXT: &str = r#"<svg class="codelist__icon codelist__icon--text" viewBox="0 0 24 24" aria-hidden="true"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/><path d="M9 13h6"/><path d="M9 17h6"/></svg>"#;
+const ICON_FILE_CONFIG: &str = r#"<svg class="codelist__icon codelist__icon--config" viewBox="0 0 24 24" aria-hidden="true"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/><path d="M9 12h2"/><path d="M13 12h2"/><path d="M9 16h4"/></svg>"#;
+const ICON_FILE_IMAGE: &str = r#"<svg class="codelist__icon codelist__icon--image" viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="4" width="16" height="16" rx="2"/><circle cx="9.5" cy="9.5" r="1.5"/><path d="m20 15-4-4-8 9"/></svg>"#;
+
+/// Pick a listing icon from the file name: docs, config, images and source
+/// code each get a distinct glyph; anything unrecognised gets the plain one.
+fn file_icon(name: &str) -> &'static str {
+    let lower = name.to_ascii_lowercase();
+    let ext = lower.rsplit_once('.').map(|(_, e)| e).unwrap_or("");
+    match ext {
+        "md" | "markdown" | "mdx" | "txt" | "rst" | "adoc" => ICON_FILE_TEXT,
+        "json" | "jsonc" | "toml" | "yaml" | "yml" | "ini" | "cfg" | "conf" | "lock" | "env"
+        | "xml" | "plist" | "properties" => ICON_FILE_CONFIG,
+        "png" | "jpg" | "jpeg" | "gif" | "webp" | "svg" | "ico" | "bmp" | "avif" => ICON_FILE_IMAGE,
+        "rs" | "js" | "mjs" | "cjs" | "ts" | "tsx" | "jsx" | "py" | "go" | "rb" | "java" | "kt"
+        | "swift" | "c" | "h" | "cc" | "cpp" | "hpp" | "cs" | "php" | "sh" | "bash" | "zsh"
+        | "ps1" | "html" | "css" | "scss" | "vue" | "svelte" | "sql" | "lua" | "dart" | "zig"
+        | "ex" | "exs" => ICON_FILE_CODE,
+        _ if matches!(lower.as_str(), "dockerfile" | "makefile" | "justfile") => ICON_FILE_CODE,
+        _ if lower.starts_with(".git") || lower.starts_with(".env") => ICON_FILE_CONFIG,
+        _ if lower.starts_with("readme") || lower.starts_with("license") => ICON_FILE_TEXT,
+        _ => ICON_FILE,
+    }
+}
+
+/// Compact relative age of `then` as seen at `now` ("just now", "5 min ago",
+/// "3 h ago", "12 days ago"), falling back to a calendar date past ~a month.
+/// A timestamp in the future (clock skew) reads as "just now".
+fn format_age(now: std::time::SystemTime, then: std::time::SystemTime) -> String {
+    let secs = now.duration_since(then).map(|d| d.as_secs()).unwrap_or(0);
+    match secs {
+        0..=59 => "just now".to_string(),
+        60..=3599 => format!("{} min ago", secs / 60),
+        3600..=86_399 => format!("{} h ago", secs / 3600),
+        86_400..=172_799 => "yesterday".to_string(),
+        172_800..=2_591_999 => format!("{} days ago", secs / 86_400),
+        _ => {
+            let dt = time::OffsetDateTime::from(then);
+            const MONTHS: [&str; 12] = [
+                "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+            ];
+            format!(
+                "{} {}, {}",
+                MONTHS[u8::from(dt.month()) as usize - 1],
+                dt.day(),
+                dt.year()
+            )
+        }
+    }
+}
+
+/// A UTC timestamp twice over: machine-readable for `<time datetime>`
+/// (`YYYY-MM-DDTHH:MMZ`) and human-readable for its tooltip.
+fn utc_timestamp(t: std::time::SystemTime) -> (String, String) {
+    let dt = time::OffsetDateTime::from(t);
+    let (date, clock) = (
+        format!(
+            "{:04}-{:02}-{:02}",
+            dt.year(),
+            u8::from(dt.month()),
+            dt.day()
+        ),
+        format!("{:02}:{:02}", dt.hour(), dt.minute()),
+    );
+    (format!("{date}T{clock}Z"), format!("{date} {clock} UTC"))
 }
 
 /// Sidebar for the Code section: always exactly one directory's contents
@@ -1065,6 +1227,32 @@ pub const CODEMIRROR_JS: &str = include_str!("../assets/codemirror.min.js");
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn format_age_buckets_relative_times_and_falls_back_to_a_date() {
+        use std::time::{Duration, UNIX_EPOCH};
+        let now = UNIX_EPOCH + Duration::from_secs(1_800_000_000);
+        let ago = |s: u64| format_age(now, now - Duration::from_secs(s));
+        assert_eq!(ago(5), "just now");
+        assert_eq!(ago(5 * 60), "5 min ago");
+        assert_eq!(ago(3 * 3600), "3 h ago");
+        assert_eq!(ago(30 * 3600), "yesterday");
+        assert_eq!(ago(12 * 86_400), "12 days ago");
+        assert_eq!(format_age(now, UNIX_EPOCH), "Jan 1, 1970");
+        // Clock skew: a future mtime never renders a negative age.
+        assert_eq!(format_age(now, now + Duration::from_secs(90)), "just now");
+    }
+
+    #[test]
+    fn file_icon_groups_by_kind() {
+        assert_eq!(file_icon("main.RS"), ICON_FILE_CODE);
+        assert_eq!(file_icon("Makefile"), ICON_FILE_CODE);
+        assert_eq!(file_icon("README.md"), ICON_FILE_TEXT);
+        assert_eq!(file_icon("Cargo.toml"), ICON_FILE_CONFIG);
+        assert_eq!(file_icon(".gitignore"), ICON_FILE_CONFIG);
+        assert_eq!(file_icon("logo.svg"), ICON_FILE_IMAGE);
+        assert_eq!(file_icon("blob.bin"), ICON_FILE);
+    }
 
     #[test]
     fn escape_script_breakout_neutralizes_closing_tag_in_array_json() {

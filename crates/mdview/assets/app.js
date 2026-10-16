@@ -1454,3 +1454,66 @@
   }
   connect();
 })();
+
+// Code section directory listing: instant filter box and arrow-key row
+// navigation. Both are enhancements over a server-rendered list of plain
+// links — the filter box ships `hidden` and is only revealed here.
+(function () {
+  "use strict";
+  var list = document.getElementById("codelist-rows");
+  if (!list) return;
+  var box = document.querySelector(".codelist__filter");
+  var input = box && box.querySelector("input");
+  var noMatch = document.querySelector(".codelist__nomatch");
+  var query = noMatch && noMatch.querySelector(".codelist__q");
+
+  function visibleRows() {
+    return Array.prototype.filter.call(list.querySelectorAll(".codelist__row"), function (a) {
+      return !a.parentNode.hidden;
+    });
+  }
+
+  function applyFilter() {
+    var q = input.value.trim().toLowerCase();
+    var shown = 0;
+    list.querySelectorAll(".codelist__row").forEach(function (a) {
+      var name = a.getAttribute("data-name");
+      // The ".." row has no name: keep it only while no filter is typed.
+      var hit = name === null ? q === "" : name.toLowerCase().indexOf(q) >= 0;
+      a.parentNode.hidden = !hit;
+      if (hit && name !== null) shown++;
+    });
+    if (noMatch) {
+      noMatch.hidden = q === "" || shown > 0;
+      if (query) query.textContent = input.value.trim();
+    }
+  }
+
+  if (input) {
+    box.hidden = false;
+    input.addEventListener("input", applyFilter);
+    input.addEventListener("keydown", function (e) {
+      if (e.key === "Escape" && input.value) {
+        input.value = "";
+        applyFilter();
+      } else if (e.key === "ArrowDown") {
+        var rows = visibleRows();
+        if (rows.length) { e.preventDefault(); rows[0].focus(); }
+      } else if (e.key === "Enter") {
+        // Enter in the box opens the first remaining match.
+        var first = visibleRows().filter(function (a) { return a.hasAttribute("data-name"); })[0];
+        if (first) { e.preventDefault(); first.click(); }
+      }
+    });
+  }
+
+  list.addEventListener("keydown", function (e) {
+    if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return;
+    var rows = visibleRows();
+    var i = rows.indexOf(document.activeElement);
+    if (i < 0) return;
+    e.preventDefault();
+    if (e.key === "ArrowDown" && i < rows.length - 1) rows[i + 1].focus();
+    else if (e.key === "ArrowUp") (i > 0 ? rows[i - 1] : input || rows[0]).focus();
+  });
+})();
