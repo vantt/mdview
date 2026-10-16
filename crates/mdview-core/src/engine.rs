@@ -360,6 +360,56 @@ impl Engine {
         }))
     }
 
+    /// Render `content` — an unsaved draft of the markdown file `rel_path` —
+    /// exactly as [`Engine::view_page`] would render that file if it held
+    /// these bytes: same renderer, same source path for resolving relative
+    /// links and images, same project link index. Purely a read: nothing is
+    /// written, indexed, or recorded as an access, so a live preview never
+    /// disturbs the store or wakes the file watcher.
+    ///
+    /// `rel_path` must name an existing markdown file inside the project
+    /// (same confinement as `view_page`); otherwise `Error::FileNotFound`.
+    pub fn render_draft(
+        &self,
+        project_id: &str,
+        rel_path: &str,
+        content: &str,
+    ) -> Result<RenderedPage> {
+        let project = self
+            .store
+            .get_project(project_id)?
+            .ok_or_else(|| Error::ProjectNotFound(project_id.to_string()))?;
+        let exclude = &self.config.indexing.exclude_patterns;
+        let abs = crate::link_resolver::normalize(&project.root_path.join(rel_path));
+        let not_found = || Error::FileNotFound(rel_path.to_string());
+        let canonical =
+            indexer::confine(&project.root_path, &abs, exclude).ok_or_else(not_found)?;
+        // Same choice of source path as `IndexService::read_file`: the path
+        // the caller named when it lies lexically under the root, else the
+        // resolved one.
+        let (rel, source_abs) = match indexer::rel_path_str(&project.root_path, &abs) {
+            rel if rel.is_empty() => {
+                let canonical_root = std::fs::canonicalize(&project.root_path)?;
+                (
+                    indexer::rel_path_str(&canonical_root, &canonical),
+                    canonical,
+                )
+            }
+            rel => (rel, abs),
+        };
+        if rel.is_empty() || indexer::is_excluded(&rel, exclude) {
+            return Err(not_found());
+        }
+        let fs = ProjectFs::new(&project.root_path, exclude);
+        Ok(self.render.render(
+            indexer::strip_bom(content),
+            &source_abs,
+            &project.id,
+            &project.root_path,
+            &fs,
+        ))
+    }
+
     /// Link targets and same-directory markdown siblings of `file` that still
     /// need indexing: missing, a stub, or whose size/mtime differ from the row.
     /// Every candidate passes `confine`; at most `NEIGHBOUR_CAP` are returned.
@@ -869,6 +919,84 @@ mod tests {
         assert_eq!(rel_path, "worktrees/task-1/README.md");
 
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// A draft renders exactly like the saved file would — same relative-link
+    /// rewriting against the file's own directory — while the disk, the
+    /// index and the file's indexed content stay untouched; paths outside the
+    /// project or not naming a markdown file are refused.
+    #[test]
+    fn render_draft_matches_page_render_without_side_effects() {
+        let dir = std::env::temp_dir().join(format!("mdview-eng-draft-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        write(&dir, "docs/guide.md", "# Saved\n");
+        write(&dir, "src/api/README.md", "# API");
+        write(&dir, "docs/pic.png", "png");
+        std::fs::write(dir.with_extension("outside.md"), "# Outside").unwrap();
+
+        let engine = Engine::new(SqliteStore::open_in_memory().unwrap(), Config::default());
+        let vf = engine.view_file(&dir, "docs/guide.md").unwrap();
+        let draft = "# Draft\n\nsee [api](../src/api/README.md)\n";
+
+        let page = engine
+            .render_draft(&vf.project_id, "docs/guide.md", draft)
+            .unwrap();
+        assert!(page
+            .html
+            .contains(&format!("/p/{}/src/api/README.md", vf.project_id)));
+        assert_eq!(page.title, "Draft");
+
+        // Same bytes on disk render to the same HTML through the page path.
+        std::fs::write(dir.join("docs/guide.md"), draft).unwrap();
+        let viewed = engine
+            .view_page(&vf.project_id, "docs/guide.md")
+            .unwrap()
+            .unwrap();
+        assert_eq!(viewed.page.html, page.html);
+
+        // A further draft leaves disk and the indexed hash alone.
+        engine
+            .render_draft(&vf.project_id, "docs/guide.md", "# Other\n")
+            .unwrap();
+        assert_eq!(
+            std::fs::read_to_string(dir.join("docs/guide.md")).unwrap(),
+            draft
+        );
+        let state = engine
+            .store
+            .file_state(&vf.project_id, "docs/guide.md")
+            .unwrap()
+            .unwrap();
+        assert_eq!(state.content_hash, indexer::content_hash(draft));
+
+        for bad in [
+            "docs/missing.md",
+            "docs/pic.png",
+            "../mdview-eng-draft-x.md",
+        ] {
+            assert!(matches!(
+                engine.render_draft(&vf.project_id, bad, "# x"),
+                Err(Error::FileNotFound(_))
+            ));
+        }
+        let outside = format!(
+            "../{}",
+            dir.with_extension("outside.md")
+                .file_name()
+                .unwrap()
+                .to_string_lossy()
+        );
+        assert!(matches!(
+            engine.render_draft(&vf.project_id, &outside, "# x"),
+            Err(Error::FileNotFound(_))
+        ));
+        assert!(matches!(
+            engine.render_draft("nope", "docs/guide.md", "# x"),
+            Err(Error::ProjectNotFound(_))
+        ));
+
+        std::fs::remove_dir_all(&dir).ok();
+        std::fs::remove_file(dir.with_extension("outside.md")).ok();
     }
 
     /// Saving from the editor must land on disk *and* in the index in one

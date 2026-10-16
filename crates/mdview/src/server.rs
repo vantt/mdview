@@ -166,6 +166,7 @@ fn router(state: AppState) -> Router {
         .route("/api/config", get(api_config).post(update_config))
         .route("/api/projects/:id/unregister", post(unregister_project))
         .route("/api/projects/:id/files/*path", put(save_file))
+        .route("/api/projects/:id/render/*path", post(render_draft))
         .route("/static/app.css", get(css_asset))
         .route("/static/app.js", get(js_asset))
         .route("/static/mermaid.min.js", get(mermaid_asset))
@@ -632,6 +633,46 @@ async fn save_file(
         Err(e) => (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(json!({ "ok": false, "error": e.to_string() })),
+        )
+            .into_response(),
+    }
+}
+
+#[derive(serde::Deserialize)]
+struct RenderDraftBody {
+    content: String,
+}
+
+/// `POST /api/projects/:id/render/<rel_path>` — the editor's live preview.
+/// Renders an unsaved draft of `rel_path` through the same renderer as the
+/// file page, returning the markup that page puts inside its `<article>`.
+/// Read-only: nothing is written, indexed or broadcast. Same auth, CSRF
+/// posture and body-size cap (axum's default JSON limit) as `save_file`.
+async fn render_draft(
+    _auth: crate::auth::AuthSession,
+    State(st): State<AppState>,
+    Path((id, path)): Path<(String, String)>,
+    Json(body): Json<RenderDraftBody>,
+) -> Response {
+    let engine = st.engine.clone();
+    let rendered =
+        tokio::task::spawn_blocking(move || engine.render_draft(&id, &path, &body.content)).await;
+    match rendered {
+        Ok(Ok(page)) => Json(json!({ "ok": true, "html": page.html })).into_response(),
+        Ok(Err(mdview_core::Error::ProjectNotFound(_)))
+        | Ok(Err(mdview_core::Error::FileNotFound(_))) => (
+            StatusCode::NOT_FOUND,
+            Json(json!({ "ok": false, "error": "not_found" })),
+        )
+            .into_response(),
+        Ok(Err(e)) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({ "ok": false, "error": e.to_string() })),
+        )
+            .into_response(),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({ "ok": false, "error": format!("render task failed: {e}") })),
         )
             .into_response(),
     }
@@ -1523,5 +1564,83 @@ mod auth_wiring_tests {
             .await
             .unwrap();
         assert_eq!(res.status(), StatusCode::OK);
+    }
+
+    async fn post_json(app: Router, uri: &str, cookie: Option<&str>, body: &str) -> Response {
+        let mut req = Request::builder()
+            .method("POST")
+            .uri(uri)
+            .header("content-type", "application/json");
+        if let Some(c) = cookie {
+            req = req.header(header::COOKIE, c);
+        }
+        app.oneshot(req.body(Body::from(body.to_string())).unwrap())
+            .await
+            .unwrap()
+    }
+
+    async fn json_body(res: Response) -> serde_json::Value {
+        let bytes = axum::body::to_bytes(res.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        serde_json::from_slice(&bytes).unwrap()
+    }
+
+    /// The live preview renders a draft with the page renderer (source
+    /// positions, tables), never touches the file, refuses anonymous callers
+    /// exactly like the save route, and 404s files outside the project index.
+    #[tokio::test]
+    async fn render_draft_returns_page_html_without_writing() {
+        let dir = std::env::temp_dir().join(format!("mdview-srv-draft-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("docs")).unwrap();
+        std::fs::write(dir.join("docs/guide.md"), "# Saved\n").unwrap();
+        let state = test_state();
+        let (project, _) = state.engine.register(&dir, None).unwrap();
+        let uri = format!("/api/projects/{}/render/docs/guide.md", project.id);
+        let draft =
+            json!({ "content": "# Draft\n\n| a | b |\n|---|---|\n| 1 | 2 |\n" }).to_string();
+
+        let anon = post_json(router(state.clone()), &uri, None, &draft).await;
+        let anon_save = router(state.clone())
+            .oneshot(
+                Request::builder()
+                    .method("PUT")
+                    .uri(format!("/api/projects/{}/files/docs/guide.md", project.id))
+                    .header("content-type", "application/json")
+                    .body(Body::from(draft.clone()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(anon.status(), StatusCode::NOT_FOUND);
+        assert_eq!(anon.status(), anon_save.status());
+
+        let sid = cookie_from(&login(router(state.clone()), TOKEN).await);
+        let res = post_json(router(state.clone()), &uri, Some(&sid), &draft).await;
+        assert_eq!(res.status(), StatusCode::OK);
+        let body = json_body(res).await;
+        assert_eq!(body["ok"], true);
+        let html = body["html"].as_str().unwrap();
+        assert!(html.contains("data-sourcepos"), "{html}");
+        assert!(html.contains("<table"), "{html}");
+        assert!(html.contains("Draft"), "{html}");
+        assert_eq!(
+            std::fs::read_to_string(dir.join("docs/guide.md")).unwrap(),
+            "# Saved\n"
+        );
+
+        for missing in [
+            format!("/api/projects/{}/render/docs/missing.md", project.id),
+            format!("/api/projects/{}/render/../outside.md", project.id),
+            "/api/projects/nope/render/docs/guide.md".to_string(),
+        ] {
+            let res = post_json(router(state.clone()), &missing, Some(&sid), &draft).await;
+            assert_eq!(res.status(), StatusCode::NOT_FOUND, "{missing}");
+            let body = json_body(res).await;
+            assert_eq!(body, json!({ "ok": false, "error": "not_found" }));
+        }
+
+        std::fs::remove_dir_all(&dir).ok();
     }
 }
