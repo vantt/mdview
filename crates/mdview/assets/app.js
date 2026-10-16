@@ -503,8 +503,10 @@
   // mermaid) gets wrapped in the design system's .fg-codeblock component with a
   // top bar carrying its language label and a Copy button. Done client-side
   // because the server's HTML sanitizer would strip a server-emitted <button>.
-  (function () {
-    var blocks = document.querySelectorAll(".fg-prose pre.code");
+  // Callable again on a fresh render (the editor's live preview); blocks that
+  // already carry the bar are skipped.
+  function enhanceCodeBlocks(root) {
+    var blocks = root.querySelectorAll(".fg-prose pre.code");
     if (!blocks.length || !document.body) return;
 
     function langOf(pre) {
@@ -566,6 +568,97 @@
       wrap.appendChild(bar);
       wrap.appendChild(pre);
     });
+  }
+  enhanceCodeBlocks(document);
+
+  // Table width toggle. Each rendered table is wrapped in .table-wrap (see
+  // app.css) so it sits in the reading column like the text around it; a
+  // button at the right end of the header row widens it to the full
+  // breakout span and back. The button hangs on the wrapper, outside the
+  // sideways-scrolling box, so it stays in view however wide the table is. Done client-side for the same sanitizer reason as the code-block
+  // bar. `wideAt` (index → true) restores the toggles across a re-render.
+  var TABLE_WIDEN_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 3h6v6"></path><path d="M9 21H3v-6"></path><path d="M21 3l-7 7"></path><path d="M3 21l7-7"></path></svg>';
+  var TABLE_FIT_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 14h6v6"></path><path d="M20 10h-6V4"></path><path d="M14 10l7-7"></path><path d="M3 21l7-7"></path></svg>';
+  function setTableWide(wrap, btn, wide) {
+    var label = wide ? "Fit table to the text column" : "Widen table to the full page";
+    wrap.classList.toggle("is-wide", wide);
+    btn.setAttribute("aria-pressed", wide ? "true" : "false");
+    btn.setAttribute("aria-label", label);
+    btn.title = label;
+    btn.innerHTML = wide ? TABLE_FIT_SVG : TABLE_WIDEN_SVG;
+  }
+  // Offer the toggle only where widening shows more: the breakout grid is
+  // wider than its reading track, and the table's natural width exceeds that
+  // track; a widened table keeps its button there so it can be put back.
+  function refreshTableZoom(root) {
+    root.querySelectorAll(".fg-prose > .table-wrap").forEach(function (wrap) {
+      var grid = wrap.parentElement && wrap.parentElement.parentElement;
+      var table = wrap.querySelector("table");
+      if (!grid || !table) return;
+      var tracks = getComputedStyle(grid).gridTemplateColumns.split(" ").map(parseFloat);
+      if (tracks.length !== 3) return;
+      var col = tracks[1], span = tracks[0] + tracks[1] + tracks[2];
+      var can = span - col > 24;
+      if (can && !wrap.classList.contains("is-wide")) {
+        table.style.width = "max-content";
+        can = table.offsetWidth > col + 1;
+        table.style.width = "";
+      }
+      wrap.classList.toggle("can-zoom", can);
+      var head = table.tHead;
+      if (head) wrap.style.setProperty("--table-head-h", head.offsetHeight + "px");
+    });
+  }
+  function enhanceTables(root, wideAt) {
+    root.querySelectorAll(".fg-prose > table").forEach(function (table, i) {
+      var cell = table.querySelector("thead tr:last-child > :last-child");
+      if (!cell) return;
+      var wrap = document.createElement("div");
+      wrap.className = "table-wrap";
+      var scroller = document.createElement("div");
+      scroller.className = "table-wrap__scroll";
+      table.parentNode.insertBefore(wrap, table);
+      wrap.appendChild(scroller);
+      scroller.appendChild(table);
+      var btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "table-zoom";
+      cell.classList.add("table-zoom__cell");
+      wrap.appendChild(btn);
+      setTableWide(wrap, btn, !!(wideAt && wideAt[i]));
+      btn.addEventListener("click", function () {
+        setTableWide(wrap, btn, !wrap.classList.contains("is-wide"));
+        refreshTableZoom(root);
+      });
+    });
+    refreshTableZoom(root);
+  }
+  // Which tables are widened, as `enhanceTables` takes it back.
+  function wideTables(root) {
+    var wide = {};
+    root.querySelectorAll(".fg-prose > .table-wrap").forEach(function (wrap, i) {
+      if (wrap.classList.contains("is-wide")) wide[i] = true;
+    });
+    return wide;
+  }
+  // A wrapped table (or code block) carries its source range on the inner
+  // element, not the wrapper; look inside so line mapping still
+  // sees it.
+  function blockRange(el) {
+    var r = rangeOf(el);
+    if (r || !el.matches(".table-wrap, .fg-codeblock")) return r;
+    var inner = el.querySelector("[data-sourcepos]");
+    return inner ? rangeOf(inner) : null;
+  }
+  (function () {
+    var reading = document.querySelector(".fg-reading");
+    if (!reading) return;
+    enhanceTables(document);
+    var pending = 0;
+    new ResizeObserver(function () {
+      if (pending) return;
+      pending = requestAnimationFrame(function () { pending = 0; refreshTableZoom(document); });
+    }).observe(reading);
   })();
 
   // Copy the whole page's Markdown source (embedded as JSON in #mdsource) —
@@ -867,6 +960,13 @@
     var cmLib = null;       // the bundle's global, once loaded
     var cmTheme = null;     // Compartment holding the light/dark theme
     var cmLoad = null;      // Promise for the bundle, shared across clicks
+    // Side-by-side mode: on while open and .content is at least SPLIT_MIN
+    // wide. The right pane then shows a live render of the draft.
+    var SPLIT_MIN = 1100;
+    var split = false;
+    var shownText = original;  // the source the article currently renders
+    var originalNodes = null;  // the page's own render, kept while previewing
+    var previewTimer = 0, previewSeq = 0, previewNotice = false;
 
     if (/Mac|iPhone|iPad/.test(navigator.platform || "")) {
       var kbd = bar.querySelector(".md-editor__kbd");
@@ -889,6 +989,8 @@
     // The textarea grows to its content so the page — not the field — scrolls,
     // exactly like the CodeMirror path (whose editor sizes itself).
     function fitTextarea() {
+      // Side by side, the pane sets the height and the textarea scrolls.
+      if (split) { ta.style.height = ""; return; }
       ta.style.height = "auto";
       ta.style.height = ta.scrollHeight + 2 + "px";
     }
@@ -911,6 +1013,7 @@
     function onInput() {
       setDirty(getValue() !== original);
       if (!cm) fitTextarea();
+      schedulePreview();
     }
     function isDark() {
       return document.documentElement.getAttribute("data-scheme") === "dark";
@@ -934,7 +1037,7 @@
       var top = viewTop();
       var blocks = article.children;
       for (var i = 0; i < blocks.length; i++) {
-        var r = rangeOf(blocks[i]);
+        var r = blockRange(blocks[i]);
         if (!r) continue;
         var rect = blocks[i].getBoundingClientRect();
         if (rect.bottom > top + 1) return { line: r[0], offset: Math.max(0, rect.top - top) };
@@ -944,7 +1047,10 @@
     // Scroll the open editor so `anchor.line` sits `anchor.offset` px under
     // the bar, and park the caret there so typing starts where the eye is.
     function scrollEditorTo(anchor) {
-      if (!anchor) { window.scrollTo(0, 0); return; }
+      if (!anchor) {
+        if (split) editorScroller().scrollTop = 0; else window.scrollTo(0, 0);
+        return;
+      }
       if (cm) {
         var line = cm.state.doc.line(Math.min(anchor.line, cm.state.doc.lines));
         cm.dispatch({
@@ -956,22 +1062,27 @@
       }
       var lh = parseFloat(getComputedStyle(ta).lineHeight) || 20;
       var pad = parseFloat(getComputedStyle(ta).paddingTop) || 0;
-      var y = ta.getBoundingClientRect().top + window.scrollY + pad + (anchor.line - 1) * lh;
-      window.scrollTo(0, Math.max(0, y - viewTop() - anchor.offset));
+      if (split) {
+        ta.scrollTop = Math.max(0, pad + (anchor.line - 1) * lh - anchor.offset);
+      } else {
+        var y = ta.getBoundingClientRect().top + window.scrollY + pad + (anchor.line - 1) * lh;
+        window.scrollTo(0, Math.max(0, y - viewTop() - anchor.offset));
+      }
       var at = 0;
       for (var n = 1; n < anchor.line && at !== -1; n++) at = ta.value.indexOf("\n", at) + 1 || -1;
       if (at > 0) ta.setSelectionRange(at, at);
     }
     // The source line at the top of the editor viewport (for the way back).
     function editorTopLine() {
-      var top = viewTop();
+      var top = split ? editorScroller().getBoundingClientRect().top : viewTop();
       if (cm) {
         var block = cm.lineBlockAtHeight(top - cm.documentTop);
         return cm.state.doc.lineAt(block.from).number;
       }
       var lh = parseFloat(getComputedStyle(ta).lineHeight) || 20;
       var pad = parseFloat(getComputedStyle(ta).paddingTop) || 0;
-      return Math.max(1, Math.floor((top - ta.getBoundingClientRect().top - pad) / lh) + 1);
+      var scrolled = split ? ta.scrollTop : 0;
+      return Math.max(1, Math.floor((top - ta.getBoundingClientRect().top + scrolled - pad) / lh) + 1);
     }
     // Bring the rendered block containing `line` back under the bar.
     function scrollArticleTo(line) {
@@ -979,7 +1090,7 @@
       var target = null;
       var blocks = article.children;
       for (var i = 0; i < blocks.length; i++) {
-        var r = rangeOf(blocks[i]);
+        var r = blockRange(blocks[i]);
         if (!r) continue;
         if (r[0] > line) break;
         target = blocks[i];
@@ -987,6 +1098,142 @@
       if (!target) return;
       window.scrollTo(0, target.getBoundingClientRect().top + window.scrollY - viewTop());
     }
+
+    // ── Side by side ───────────────────────────────────────────────────
+    // Whichever element scrolls the source while split.
+    function editorScroller() { return cm ? cm.scrollDOM : ta; }
+    function wantSplit() { return content.clientWidth >= SPLIT_MIN; }
+    // Turn split on or off while open, keeping the source line at the top of
+    // the editor where it was.
+    function setSplit(on) {
+      if (on === split) return;
+      var line = editorTopLine();
+      split = on;
+      content.classList.toggle("is-split", on);
+      reading.hidden = !on;
+      if (on) {
+        window.scrollTo(0, 0);
+        content.style.setProperty("--split-top", crumb.getBoundingClientRect().bottom + "px");
+      }
+      if (!cm) fitTextarea();
+      scrollEditorTo(line > 1 ? { line: line, offset: 0 } : null);
+      if (on) {
+        renderPreview();
+        syncPreview();
+      }
+      refreshTableZoom(article);
+    }
+    // Back to the page's own render (closing the editor).
+    function leaveSplit() {
+      clearTimeout(previewTimer);
+      previewSeq++;
+      if (previewNotice) { setNotice(""); previewNotice = false; }
+      reading.classList.remove("is-stale");
+      if (originalNodes) {
+        var wide = wideTables(article);
+        article.replaceChildren.apply(article, originalNodes);
+        originalNodes = null;
+        shownText = original;
+        // Keep the reader's table toggles from the preview.
+        article.querySelectorAll(".fg-prose > .table-wrap").forEach(function (wrap, i) {
+          var b = wrap.querySelector(".table-zoom");
+          if (b) setTableWide(wrap, b, !!wide[i]);
+        });
+      }
+      if (!split) return;
+      split = false;
+      content.classList.remove("is-split");
+      content.style.removeProperty("--split-top");
+      refreshTableZoom(article);
+    }
+
+    // Live preview: re-render the draft on the server (same renderer as the
+    // page) a beat after typing stops. Only the newest request may paint.
+    function schedulePreview() {
+      if (!split) return;
+      clearTimeout(previewTimer);
+      previewTimer = setTimeout(renderPreview, 250);
+    }
+    function renderPreview() {
+      var text = getValue();
+      if (!split || text === shownText) return;
+      var seq = ++previewSeq;
+      fetch("/api/projects/" + encodeURIComponent(id.projectId) + "/render/" +
+            id.relPath.split("/").map(encodeURIComponent).join("/"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "same-origin",
+        body: JSON.stringify({ content: text })
+      }).then(function (r) {
+        return r.json().catch(function () { return null; }).then(function (j) {
+          if (!r.ok || !j || !j.ok) throw new Error((j && j.error) || ("HTTP " + r.status));
+          return j.html;
+        });
+      }).then(function (html) {
+        if (seq !== previewSeq || !split) return;
+        if (!originalNodes) originalNodes = Array.prototype.slice.call(article.childNodes);
+        var wide = wideTables(article);
+        article.innerHTML = html;
+        shownText = text;
+        enhanceCodeBlocks(article);
+        enhanceTables(article, wide);
+        var diagrams = article.querySelectorAll("pre.mermaid");
+        if (diagrams.length && window.__mermaid) {
+          try {
+            Promise.resolve(window.__mermaid.run({ nodes: diagrams })).then(function () {
+              document.dispatchEvent(new Event("mdview:mermaid-done"));
+            }, function () {});
+          } catch (e) {}
+        }
+        reading.classList.remove("is-stale");
+        if (previewNotice) { setNotice(""); previewNotice = false; }
+        syncPreview();
+      }).catch(function (e) {
+        if (seq !== previewSeq || !split) return;
+        reading.classList.add("is-stale");
+        if (notice.hidden || previewNotice) {
+          setNotice("Preview not updated: " + ((e && e.message) || e) + ".", "warn");
+          previewNotice = true;
+        }
+      });
+    }
+
+    // Keep the preview on the passage being edited: map the editor's top
+    // source line to the rendered block holding it, interpolating between
+    // that block and the next so long blocks track smoothly.
+    function syncPreview() {
+      if (!split) return;
+      var line = editorTopLine();
+      var blocks = article.children;
+      var prev = null, prevR = null, next = null, nextR = null;
+      for (var i = 0; i < blocks.length; i++) {
+        var r = blockRange(blocks[i]);
+        if (!r) continue;
+        if (r[0] <= line) { prev = blocks[i]; prevR = r; continue; }
+        next = blocks[i]; nextR = r;
+        break;
+      }
+      if (!prev || line <= 1) { reading.scrollTop = 0; return; }
+      var base = reading.scrollTop - reading.getBoundingClientRect().top;
+      var y0 = prev.getBoundingClientRect().top + base;
+      var y1 = next ? next.getBoundingClientRect().top + base : y0 + prev.offsetHeight;
+      var s1 = next ? nextR[0] : prevR[1] + 1;
+      var t = s1 > prevR[0] ? Math.min(1, (line - prevR[0]) / (s1 - prevR[0])) : 0;
+      reading.scrollTop = y0 + (y1 - y0) * t;
+    }
+    var syncPending = 0;
+    function onEditorScroll() {
+      if (!split || syncPending) return;
+      syncPending = requestAnimationFrame(function () { syncPending = 0; syncPreview(); });
+    }
+    ta.addEventListener("scroll", onEditorScroll, { passive: true });
+    // Follow the space .content gets (window resize, sidebar drawer): switch
+    // between split and single while open, and keep the panes' top in step.
+    new ResizeObserver(function () {
+      if (!open) return;
+      setSplit(wantSplit());
+      if (split) content.style.setProperty("--split-top", crumb.getBoundingClientRect().bottom + "px");
+    }).observe(content);
 
     // Load the CodeMirror bundle once, on demand. Resolves to the global it
     // defines, or rejects — in which case the textarea stays in service.
@@ -1017,7 +1264,8 @@
             lib.EditorView.updateListener.of(function (u) { if (u.docChanged) onInput(); }),
             // The page scrolls the editor, under a sticky topbar+breadcrumb:
             // keep the caret from ever being scrolled in behind them.
-            lib.EditorView.scrollMargins.of(function () { return { top: viewTop(), bottom: 24 }; }),
+            // Side by side, CodeMirror scrolls itself inside its pane instead.
+            lib.EditorView.scrollMargins.of(function () { return { top: split ? 0 : viewTop(), bottom: 24 }; }),
             // Save from inside the editor too: CodeMirror swallows keydown
             // it handles, so the document-level Ctrl+S below never sees it.
             lib.keymap.of([{ key: "Mod-s", run: function () { save(); return true; } }])
@@ -1026,6 +1274,7 @@
       });
       ta.hidden = true;
       cmHost.hidden = false;
+      cm.scrollDOM.addEventListener("scroll", onEditorScroll, { passive: true });
       // Follow the page's theme toggle (app.js sets data-scheme on <html>).
       new MutationObserver(function () {
         cm.dispatch({ effects: cmTheme.reconfigure(themeExt(lib)) });
@@ -1034,6 +1283,7 @@
 
     function setOpen(o) {
       open = o;
+      if (!o) leaveSplit();
       reading.hidden = o;
       box.hidden = !o;
       bar.hidden = !o;
@@ -1050,7 +1300,9 @@
       setDirty(false);
       if (cm) {
         setValue(original);
+        setSplit(wantSplit());
         scrollEditorTo(anchor);
+        syncPreview();
         focusEditor();
         return;
       }
@@ -1058,8 +1310,10 @@
       // the bundle arrives (carrying over anything typed meanwhile, and
       // re-anchoring to the same line).
       ta.value = original;
+      setSplit(wantSplit());
       fitTextarea();
       scrollEditorTo(anchor);
+      syncPreview();
       focusEditor();
       loadCodeMirror().then(function (lib) {
         if (!open || cm) return;
@@ -1069,6 +1323,7 @@
         mountCodeMirror(lib, ta.value);
         cm.dispatch({ selection: { anchor: Math.min(sel, cm.state.doc.length) } });
         scrollEditorTo((anchor || line > 1) ? { line: line, offset: off } : null);
+        syncPreview();
         focusEditor();
       }, function (e) {
         setNotice("Using the plain editor: " + ((e && e.message) || e) + ".", "warn");

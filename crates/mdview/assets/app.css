@@ -99,6 +99,25 @@ main.fg-page {
   font-size: var(--type-body-sm-size);
   color: var(--color-text-muted);
 }
+/* Icon form of a nav link, swapped in for the text on the narrowest
+   phones (see the max-width: 400px block). */
+.nav-link__icon {
+  display: none;
+}
+@media (max-width: 400px) {
+  .nav-link__icon {
+    display: block;
+  }
+  .nav-link__txt {
+    display: none;
+  }
+  /* ~44px hit area around the 18px glyph. */
+  .nav-link:has(.nav-link__icon) {
+    display: inline-flex;
+    padding: var(--space-2);
+    margin: calc(-1 * var(--space-2));
+  }
+}
 .theme-toggle {
   margin-left: var(--space-3);
   width: 32px; /* structural: fixed icon-button footprint */
@@ -736,10 +755,67 @@ main.fg-page {
   border-radius: var(--input-radius) 0 0 var(--input-radius);
   color: var(--color-text-subtle);
 }
-/* The TOC links point into the hidden article: mute them while editing. */
+/* The TOC rail has nothing to offer while editing; dropping it also hands
+   its width to the editor, which is what lets a laptop-width window reach
+   the side-by-side threshold below. */
 .layout.is-editing .rightbar {
-  opacity: 0.4;
-  pointer-events: none;
+  display: none;
+}
+
+/* ── Side-by-side editing (app.js adds .is-split while the editor is open
+   and .content is wide enough): source on the left, live render on the
+   right, each scrolling inside its own pane under the sticky breadcrumb.
+   --split-top (set by app.js) is where the panes start, so they fill the
+   rest of the viewport exactly and the page itself never scrolls. ── */
+.content.is-split {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  grid-template-rows: auto auto;
+  align-items: start;
+}
+.content.is-split > .breadcrumb {
+  grid-column: 1 / -1;
+  max-width: none;
+  width: 100%;
+  box-sizing: border-box;
+}
+.content.is-split > .md-editor,
+.content.is-split > .fg-reading {
+  grid-row: 2;
+  box-sizing: border-box;
+  height: calc(100vh - var(--split-top, 120px) - 2 * var(--space-4));
+  margin: var(--space-4) 0 0;
+}
+.content.is-split > .md-editor {
+  grid-column: 1;
+  max-width: none;
+  padding: 0 var(--space-4) 0 var(--space-6);
+}
+.content.is-split > .fg-reading {
+  grid-column: 2;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 0 var(--space-6) var(--space-8) var(--space-5);
+  border-left: var(--border-width-hairline) solid var(--color-border);
+}
+.content.is-split .md-editor__cm {
+  flex: 1;
+  min-height: 0;
+}
+.content.is-split .md-editor__ta,
+.content.is-split .md-editor .cm-editor {
+  flex: 1;
+  height: 100%;
+  min-height: 0;
+}
+.content.is-split .md-editor__ta {
+  overflow-y: auto;
+}
+/* A stale preview (the last render request failed) stays readable but
+   visibly behind the source. */
+.content.is-split .fg-reading.is-stale {
+  opacity: 0.6;
+  transition: opacity var(--motion-fast) var(--ease-standard);
 }
 
 /* ── Responsive: hide rails on narrow viewports ─────────────────── */
@@ -751,6 +827,27 @@ main.fg-page {
 @media (max-width: 700px) {
   .sidebar-toggle {
     display: inline-flex;
+  }
+  /* Phones: brand, section switch, Settings and the theme toggle must share
+     one row without overlapping, so tighten the gaps and pill padding.
+     (`.topbar` prefix: .section-switch is declared later in this file.) */
+  .topbar {
+    gap: var(--space-2);
+    padding: var(--space-2) var(--space-4);
+  }
+  .topbar__left,
+  .topbar__right {
+    gap: var(--space-3);
+  }
+  .topbar .section-switch {
+    gap: 0;
+    margin-right: 0;
+  }
+  .topbar .section-switch a {
+    padding: var(--space-1) var(--space-2);
+  }
+  .topbar .theme-toggle {
+    margin-left: 0;
   }
   /* Hidden by default on mobile; the hamburger opens it as an overlay drawer. */
   .sidebar {
@@ -814,10 +911,16 @@ main.fg-page {
   .fg-prose :not(pre) > code,
   .fg-prose a,
   .fg-prose p,
-  .fg-prose li,
+  .fg-prose li {
+    overflow-wrap: anywhere;
+  }
+  /* Table cells wrap only between words: breaking anywhere let the table
+     shrink every column to a letter's width, stacking text vertically. A
+     table wider than the screen scrolls sideways in its own box instead
+     (.table-wrap__scroll, or the bare table's own overflow without JS). */
   .fg-prose td,
   .fg-prose th {
-    overflow-wrap: anywhere;
+    overflow-wrap: normal;
   }
   .fg-prose pre {
     max-width: 100%;
@@ -1003,6 +1106,93 @@ pre.mermaid.zoomable:focus-within .mermaid-controls {
 .mermaid-controls button:hover {
   background: var(--color-surface-hover);
 }
+/* ── Table width toggle ──────────────────────────────────────────
+   app.js wraps each rendered table in .table-wrap. At rest the wrapper sits
+   in the reading column like the text around it and scrolls sideways when
+   the table is wider; the button in the last header cell (.is-wide) moves
+   it onto the full breakout grid — the same span a bare table gets from
+   atelier/editorial.css, which stays the no-JS fallback. The button only
+   shows (.can-zoom) when the wider span would actually show more. It sits
+   on the wrapper over the end of the header row (--table-head-h, set by
+   app.js), outside .table-wrap__scroll, so sideways scrolling never takes
+   it out of view; the last header cell keeps room for it. */
+.fg-prose > .table-wrap {
+  position: relative;
+  grid-column: 2;
+  max-width: none;
+  min-width: 0;
+}
+.table-wrap__scroll {
+  overflow-x: auto;
+}
+.fg-prose > .table-wrap.is-wide {
+  grid-column: 1 / -1;
+  justify-self: center;
+  min-width: min(var(--reading-col), 100%);
+  max-width: 100%;
+}
+/* Undo the bare-table breakout placement: inside the wrapper, a centred
+   (justify-self also applies in block layout) wider table would overflow
+   to the left, out of the scrollable area. */
+.fg-prose .table-wrap__scroll > table {
+  grid-column: auto;
+  justify-self: auto;
+  display: table;
+  min-width: 100%;
+  max-width: none;
+  overflow: visible;
+}
+.table-wrap.can-zoom .table-zoom__cell {
+  padding-right: calc(var(--space-3) + 28px);
+}
+.table-zoom {
+  position: absolute;
+  top: calc(var(--table-head-h, 36px) / 2);
+  right: var(--space-1);
+  transform: translateY(-50%);
+  display: none;
+  align-items: center;
+  justify-content: center;
+  width: 28px; /* structural: fixed icon-button footprint */
+  height: 28px;
+  padding: 0;
+  border: var(--border-width-hairline) solid transparent;
+  border-radius: var(--btn-radius);
+  /* Opaque: it may sit over a header that has scrolled underneath it. */
+  background: var(--color-bg);
+  color: var(--color-text-subtle);
+  cursor: pointer;
+  transition: color var(--motion-fast) var(--ease-standard),
+    border-color var(--motion-fast) var(--ease-standard),
+    background var(--motion-fast) var(--ease-standard);
+}
+.table-wrap.can-zoom .table-zoom {
+  display: inline-flex;
+}
+/* ~44px invisible hit area around the compact glyph. */
+.table-zoom::after {
+  content: "";
+  position: absolute;
+  inset: calc(-1 * var(--space-2));
+}
+.table-zoom:hover {
+  color: var(--color-text);
+  border-color: var(--color-border);
+  background: var(--color-surface-hover);
+}
+.table-zoom:focus-visible {
+  outline: var(--border-width-strong) solid var(--color-border-interactive);
+  outline-offset: 1px;
+}
+.table-zoom[aria-pressed="true"] {
+  color: var(--color-action);
+}
+.table-zoom svg {
+  width: 16px;
+  height: 16px;
+  display: block;
+}
+
 /* Fullscreen targets the WRAPPER (so the toolbar comes along); the pre fills
    it and fit() re-centers the diagram in the viewport. */
 .mermaid-wrap:fullscreen {

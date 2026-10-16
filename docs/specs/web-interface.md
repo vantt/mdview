@@ -196,6 +196,17 @@ content itself.
   theme. The bundle is vendored and served by the daemon (no CDN), fetched
   only on the first Edit click; if it fails to load, a plain textarea holding
   the same text stays in service.
+- **Side by side:** when the main column is at least 1100px wide while editing
+  (the right panel is hidden during editing to make room), the page splits
+  instead of swapping: editor on the left, a live render of the draft on the
+  right. Each pane scrolls on its own under the sticky breadcrumb; the preview
+  follows the editor's scroll to the same passage and re-renders about 250 ms
+  after typing stops, through the same renderer the page uses
+  (`POST /api/projects/:id/render/*`, which never writes or re-indexes). A
+  failed render leaves the last preview dimmed with a notice. Resizing across
+  the threshold switches modes without losing the draft or the editor's
+  position; below it the editor replaces the article as before. Cancel
+  restores the page's own render.
 - **Saving:** Save (or Ctrl/Cmd+S) sends the text to the daemon, which
   overwrites the file on disk and re-indexes it in the same step, then the
   page reloads to show the fresh render. Title, search, and backlinks reflect
@@ -214,6 +225,17 @@ content itself.
 - **Afterwards:** the operator fixes a typo or reshapes a doc the agent wrote
   without leaving the browser, and the next `mdview_view_file` call or reload
   shows the result.
+
+### Table width toggle (file pages)
+
+- **Default:** a table sits in the reading column at the same width as the
+  text around it; a table wider than that scrolls sideways inside its box.
+- **Toggle:** where the page has room beyond the reading column and the table
+  would use it, a small widen icon sits at the right end of the header row
+  (kept in view while the table scrolls). It widens that table to the full
+  width of the main column; the icon then flips to "fit" and puts it back.
+  Each table toggles on its own; the choice lasts until the page reloads.
+- **No JavaScript:** tables keep the full-width layout.
 
 ### Mermaid diagram zoom / pan / fullscreen (file pages)
 
@@ -300,16 +322,20 @@ snapshot under `docs/specs/visuals/web-interface/` is an open item.
   files by title), TOC scrollspy (`IntersectionObserver` over the article's
   headings, toggles the matching TOC link's active state), in-place editor
   (`#edit-md` / `#md-editor`, `PUT /api/projects/:id/files/*`; parks live
-  reload while a draft is dirty; lazy-loads `/static/codemirror.min.js`).
+  reload while a draft is dirty; lazy-loads `/static/codemirror.min.js`;
+  side-by-side split + live preview via `POST /api/projects/:id/render/*`),
+  table width toggle (`enhanceTables` / `.table-wrap`).
 - `crates/mdview/assets/codemirror.min.js` — vendored CodeMirror 6 bundle,
   built from `tools/codemirror-bundle/` (`npm install && npm run build`);
   `entry.js` there lists the extensions and the `mdviewCodeMirror` global.
 - `crates/mdview-core/src/listing.rs` (cached listing behind the sidebar and
   `jump_files`), `search.rs` (`search_content`), `sync.rs` (lazy project sync),
   `snippet.rs` / `fold.rs` (excerpts and diacritic folding).
-- `crates/mdview/src/server.rs` — `save_file` (the editor's PUT route);
+- `crates/mdview/src/server.rs` — `save_file` (the editor's PUT route),
+  `render_draft` (the live preview's POST route);
   `crates/mdview-core/src/engine.rs` — `Engine::save_file` (atomic write +
-  re-index, `Error::Conflict` on a stale base hash).
+  re-index, `Error::Conflict` on a stale base hash), `Engine::render_draft`
+  (renders unsaved text as that file, read-only).
 - `crates/mdview/assets/app.css` — `.chapter` / `.chap-*` styles, `.toc` /
   `.backlinks`, `.breadcrumb`, `.fg-sidebar-search`, `.md-editor`.
 - `crates/mdview/assets/atelier/components.css` — `.fg-input` / `.fg-select`
