@@ -94,6 +94,35 @@ pub enum Command {
     },
     /// Print the version (same value as `--version`).
     Version,
+    /// Upgrade this binary in place to the latest GitHub release (restarting a
+    /// running daemon on the new version).
+    Update {
+        /// Only report whether a newer release exists; change nothing.
+        #[arg(long)]
+        check: bool,
+        /// Install this release tag (e.g. `v0.8.4`) instead of the latest;
+        /// the only way to downgrade.
+        #[arg(long)]
+        version: Option<String>,
+        /// Reinstall even when the target version is already installed.
+        #[arg(long)]
+        force: bool,
+    },
+    /// Remove mdview: stop the daemon, undo what `doctor --fix` set up (Claude
+    /// permission, MCP registrations, /mdview skill, MDView instruction
+    /// blocks), and delete the binary. Shows the plan and asks first.
+    #[command(alias = "remove")]
+    Uninstall {
+        /// Also delete the data directory (~/.mdview: config and index).
+        #[arg(long)]
+        purge: bool,
+        /// Do not ask for confirmation.
+        #[arg(long, short = 'y')]
+        yes: bool,
+        /// Only print what would be removed.
+        #[arg(long)]
+        dry_run: bool,
+    },
 }
 
 #[derive(Subcommand)]
@@ -134,6 +163,16 @@ pub fn run(cli: Cli) -> Result<()> {
             println!("mdview {}", env!("CARGO_PKG_VERSION"));
             Ok(())
         }
+        Command::Update {
+            check,
+            version,
+            force,
+        } => crate::update::run(check, version, force),
+        Command::Uninstall {
+            purge,
+            yes,
+            dry_run,
+        } => crate::uninstall::run(purge, yes, dry_run),
     }
 }
 

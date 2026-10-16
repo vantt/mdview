@@ -136,7 +136,17 @@ fn build_display_urls(
 pub(crate) use mdview_core::process::apply_detach;
 
 pub fn spawn_daemon_detached() -> Result<()> {
-    let exe = std::env::current_exe()?;
+    let mut exe = std::env::current_exe()?;
+    // After `mdview update` swapped the file under a long-lived process (e.g.
+    // `mdview mcp`), Linux reports the old inode as "<path> (deleted)"; the
+    // updated binary now lives at the original path.
+    if let Some(live) = exe
+        .to_str()
+        .and_then(|p| p.strip_suffix(" (deleted)"))
+        .map(std::path::PathBuf::from)
+    {
+        exe = live;
+    }
     let mut cmd = std::process::Command::new(exe);
     cmd.arg("serve")
         .stdin(std::process::Stdio::null())
@@ -184,7 +194,7 @@ pub fn stop_daemon_pid(pid: u32) -> Option<(u32, bool)> {
 }
 
 /// Parse a numeric `major.minor.patch` (extra suffixes after `-`/`+` ignored).
-fn parse_version(v: &str) -> Option<(u64, u64, u64)> {
+pub(crate) fn parse_version(v: &str) -> Option<(u64, u64, u64)> {
     let core = v.split(['-', '+']).next()?;
     let mut it = core.split('.');
     let mut next = || it.next()?.parse::<u64>().ok();

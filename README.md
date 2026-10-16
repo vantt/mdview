@@ -79,6 +79,9 @@ irm https://raw.githubusercontent.com/vantt/mdview/main/install.ps1 | iex
 mdview doctor --fix     # let agents run `mdview open` and install the /mdview skill
 ```
 
+Upgrade later with `mdview update` (`--check` to only look; see [usage](docs/usage.md#upgrading)).
+Remove it with `mdview uninstall` (`--purge` also deletes config and index; see [usage](docs/usage.md#uninstalling)).
+
 Or from source (needs Rust):
 
 ```sh

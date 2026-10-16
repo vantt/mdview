@@ -300,9 +300,9 @@ fn check_index_schema_at(path: &Path, legacy: &[PathBuf], apply: bool) -> Check 
 }
 
 /// The permission that lets a Claude Code agent run `mdview open` unprompted.
-const CLAUDE_PERMISSION: &str = "Bash(mdview open:*)";
+pub(crate) const CLAUDE_PERMISSION: &str = "Bash(mdview open:*)";
 
-fn claude_settings_path() -> PathBuf {
+pub(crate) fn claude_settings_path() -> PathBuf {
     home().join(".claude").join("settings.json")
 }
 
@@ -320,7 +320,7 @@ fn check_claude_permission(dry_run: bool, fix: bool) -> Check {
 }
 
 /// `<name>.mdview-<unix seconds>.bak` beside `path`.
-fn timestamped_backup_path(path: &Path) -> PathBuf {
+pub(crate) fn timestamped_backup_path(path: &Path) -> PathBuf {
     let secs = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_secs())
@@ -445,7 +445,7 @@ fn ensure_claude_permission(path: &Path, dry_run: bool, fix: bool) -> (Status, S
     }
 }
 
-fn claude_config_path() -> PathBuf {
+pub(crate) fn claude_config_path() -> PathBuf {
     dirs::home_dir()
         .unwrap_or_else(|| PathBuf::from("."))
         .join(".claude.json")
@@ -462,7 +462,7 @@ fn bin_on_path(name: &str) -> bool {
         .unwrap_or(false)
 }
 
-fn home() -> PathBuf {
+pub(crate) fn home() -> PathBuf {
     dirs::home_dir().unwrap_or_else(|| PathBuf::from("."))
 }
 
@@ -473,7 +473,7 @@ fn current_exe_str() -> String {
 }
 
 /// The `<name>.bak` sibling of `path`, written before an in-place config edit.
-fn backup_path(path: &Path) -> PathBuf {
+pub(crate) fn backup_path(path: &Path) -> PathBuf {
     let mut name = path
         .file_name()
         .map(|n| n.to_os_string())
@@ -717,7 +717,7 @@ fn agent_block() -> String {
 
 /// Byte range `[start, end)` of the managed block (markers included), or `None`
 /// when a well-formed block (START before END) is not present.
-fn managed_block_range(text: &str) -> Option<(usize, usize)> {
+pub(crate) fn managed_block_range(text: &str) -> Option<(usize, usize)> {
     let start = text.find(MDVIEW_START)?;
     let end = text[start..].find(MDVIEW_END)? + start + MDVIEW_END.len();
     Some((start, end))
@@ -735,7 +735,10 @@ fn agent_block_in_sync(text: &str) -> bool {
 /// place, or append a fresh one, creating the file if absent. Idempotent — the
 /// user's surrounding content is preserved untouched.
 fn write_agent_snippet(name: &str) -> Result<()> {
-    let path = std::path::Path::new(name);
+    // Write through a symlink (e.g. `CLAUDE.md -> AGENTS.md`) instead of
+    // replacing it with a regular file.
+    let resolved = std::fs::canonicalize(name).unwrap_or_else(|_| PathBuf::from(name));
+    let path = resolved.as_path();
     let existing = std::fs::read_to_string(path).unwrap_or_default();
     let block = agent_block();
     let updated = if let Some((start, end)) = managed_block_range(&existing) {
@@ -758,10 +761,11 @@ fn write_agent_snippet(name: &str) -> Result<()> {
     config::write_atomic(path, updated.as_bytes()).map_err(anyhow::Error::from)
 }
 
-fn check_agent_instruction(dry_run: bool, fix: bool) -> Check {
-    const FILES: [&str; 2] = ["AGENTS.md", "CLAUDE.md"];
+/// Agent instruction files that carry the managed block.
+pub(crate) const AGENT_FILES: [&str; 2] = ["AGENTS.md", "CLAUDE.md"];
 
-    let needs_sync: Vec<&str> = FILES
+fn check_agent_instruction(dry_run: bool, fix: bool) -> Check {
+    let needs_sync: Vec<&str> = AGENT_FILES
         .into_iter()
         .filter(|name| {
             !std::fs::read_to_string(name)
@@ -821,7 +825,7 @@ fn check_agent_instruction(dry_run: bool, fix: bool) -> Check {
 const SKILL_TEMPLATE: &str = include_str!("../../../docs/mdview-skill-template.md");
 
 /// `~/.claude/skills/mdview/SKILL.md` — the global (not per-project) skill file.
-fn skill_path() -> PathBuf {
+pub(crate) fn skill_path() -> PathBuf {
     dirs::home_dir()
         .unwrap_or_else(|| PathBuf::from("."))
         .join(".claude/skills/mdview/SKILL.md")

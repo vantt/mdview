@@ -8,6 +8,8 @@ mod doctor;
 mod mcp;
 mod runtime;
 mod server;
+mod uninstall;
+mod update;
 mod views;
 mod watch;
 
@@ -23,6 +25,7 @@ fn main() {
         )
         .init();
 
+    update::cleanup_parked_binary();
     let cli = cli::Cli::parse();
     if let Err(e) = cli::run(cli) {
         eprintln!("error: {e:#}");

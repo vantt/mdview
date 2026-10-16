@@ -18,6 +18,40 @@ The script detects your OS/arch, downloads the `mdview` binary, and puts it on
 your PATH. Check the latest release at
 <https://github.com/vantt/mdview/releases>.
 
+### Upgrading
+```bash
+mdview update --check            # is a newer release out?
+mdview update                    # replace this binary with the latest release
+mdview update --version v0.8.4   # install a specific release (downgrades allowed)
+```
+`update` downloads the release binary for your platform, verifies its size and
+the release's sha256 digest, checks it runs, then swaps it in place of the
+running binary (symlinks are followed). A running daemon is restarted on the
+new version. If the binary sits in a root-owned directory such as
+`/usr/local/bin`, run `sudo mdview update`, then `mdview restart` as yourself
+(the update never restarts your daemon as root). Without `--version`, `update`
+never downgrades; `--force` only reinstalls the same version. Set `GITHUB_TOKEN` if you hit
+GitHub's anonymous API rate limit. Platforms without a prebuilt binary (e.g.
+Intel macOS) update from source with
+`cargo install --git https://github.com/vantt/mdview mdview --force`.
+
+### Uninstalling
+```bash
+mdview uninstall --dry-run       # show what would be removed
+mdview uninstall                 # remove (asks first); `mdview remove` is an alias
+mdview uninstall --purge --yes   # also delete ~/.mdview (config + index), no prompt
+```
+`uninstall` stops the daemon, undoes what `doctor --fix` set up — the
+`Bash(mdview open:*)` permission, MCP registrations for Claude Code, Codex and
+Antigravity (each config is backed up first and keeps its permissions), the
+global `/mdview` skill, and the MDView block in `AGENTS.md`/`CLAUDE.md` of the
+current directory (a file that held only the block is deleted) — then removes
+the binary and any `mdview` symlink on `PATH` pointing to it. Like `doctor
+--fix`, it only edits instruction files where you run it: registered projects
+that still carry the block are listed, not changed. If a step fails, the binary
+and data directory are kept so you can fix the cause and re-run. Run it as your
+own user; if the binary is root-owned it prints the `sudo rm` to finish.
+
 ### From source (works anytime; needs Rust)
 ```bash
 cargo install --git https://github.com/vantt/mdview mdview
@@ -160,6 +194,8 @@ mdview unregister <project-id>                  # remove a project (files kept)
 mdview stop                                     # stop the daemon
 mdview restart                                  # restart the daemon (apply config changes)
 mdview doctor [--fix] [--mcp] [--json] [--dry-run]  # diagnose & repair integration
+mdview update [--check] [--version <tag>] [--force] # self-upgrade to a GitHub release
+mdview uninstall [--purge] [--yes] [--dry-run]  # remove mdview and its integrations
 ```
 Most commands accept `--json` for scripting.
 

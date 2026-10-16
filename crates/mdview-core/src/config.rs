@@ -210,6 +210,8 @@ fn with_hostname_hint(text: &str) -> String {
 }
 
 /// Atomic file write via temp-in-same-dir + rename. Shared by config & registry snapshots.
+/// An existing file's permissions carry over to the replacement, so rewriting a
+/// private config (e.g. a 0600 `~/.claude.json`) never widens its access.
 pub fn write_atomic(path: &Path, bytes: &[u8]) -> Result<()> {
     let parent = path.parent().unwrap_or_else(|| Path::new("."));
     std::fs::create_dir_all(parent)?;
@@ -218,14 +220,38 @@ pub fn write_atomic(path: &Path, bytes: &[u8]) -> Result<()> {
         path.file_name().and_then(|s| s.to_str()).unwrap_or("f"),
         std::process::id()
     ));
-    std::fs::write(&tmp, bytes)?;
-    std::fs::rename(&tmp, path)?;
+    let written = std::fs::write(&tmp, bytes).and_then(|()| {
+        if let Ok(meta) = std::fs::metadata(path) {
+            std::fs::set_permissions(&tmp, meta.permissions())?;
+        }
+        std::fs::rename(&tmp, path)
+    });
+    if let Err(e) = written {
+        let _ = std::fs::remove_file(&tmp);
+        return Err(e.into());
+    }
     Ok(())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(unix)]
+    #[test]
+    fn write_atomic_keeps_existing_permissions() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = std::env::temp_dir().join(format!("mdview-atomic-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let p = dir.join("private.json");
+        std::fs::write(&p, "{}").unwrap();
+        std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o600)).unwrap();
+        write_atomic(&p, b"{\"a\":1}").unwrap();
+        let mode = std::fs::metadata(&p).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o600);
+        assert_eq!(std::fs::read_to_string(&p).unwrap(), "{\"a\":1}");
+        std::fs::remove_dir_all(&dir).ok();
+    }
 
     #[test]
     fn corrupt_config_falls_back_to_default() {
