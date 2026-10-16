@@ -17,3 +17,7 @@ crates/mdview-desktop/target/
 /.fgos/*
 !/.fgos/events.jsonl
 /.claude/worktrees/
+
+# Local agent tooling (AgentKit kit install + session state) — machine-local.
+/.claude/
+/.agentkit/
