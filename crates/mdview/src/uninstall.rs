@@ -223,7 +223,13 @@ fn plan_instruction_blocks(steps: &mut Vec<Step>, dir: &Path) {
         if !has_block {
             continue;
         }
-        let aliased = names.len() > 1 || names.iter().any(|p| p != &real);
+        // Ask the filesystem rather than compare `p` with `real`: on Windows
+        // `canonicalize` returns a `\\?\` verbatim path that never equals the
+        // plain one, which made every file look aliased.
+        let aliased = names.len() > 1
+            || names
+                .iter()
+                .any(|p| std::fs::symlink_metadata(p).is_ok_and(|m| m.file_type().is_symlink()));
         let shown = names
             .iter()
             .map(|p| p.display().to_string())
