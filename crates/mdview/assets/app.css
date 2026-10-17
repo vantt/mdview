@@ -1367,6 +1367,117 @@ pre.mermaid.zoomable:focus-within .mermaid-controls {
   color: inherit;
 }
 
+/* ── Markdown in the Code section: source | render ───────────────────
+   A markdown file's Code page shows its highlighted source and its render
+   side by side (the pairing the Docs editor shows while editing). The pair
+   takes `.codeview`'s place as the flex child that fills the pane; each
+   half scrolls on its own and app.js keeps them on the same passage.
+   `data-mode` (source | split | preview) is set by the view switch. ── */
+.content--code > .codedual {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
+}
+.codedual > .codedual__source,
+.codedual > .codedual__preview {
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+/* Markdown is prose: wrap long lines instead of scrolling a half-width pane
+   sideways (the line-number cell stays top-aligned beside a wrapped line). */
+.codedual__source .codeview__line {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+/* `.fg-reading` is a grid (atelier/editorial.css): pin its rows to the top
+   so a short document doesn't stretch them over the pane's height. */
+.codedual__preview {
+  align-content: start;
+  padding: var(--space-5) var(--space-6) var(--space-8);
+  border-left: var(--border-width-hairline) solid var(--color-border);
+}
+.codedual > .codedual__source:focus-visible,
+.codedual > .codedual__preview:focus-visible {
+  outline: var(--focus-width) solid var(--focus-color);
+  outline-offset: calc(var(--focus-offset) * -1);
+}
+.codedual[data-mode="source"],
+.codedual[data-mode="preview"] {
+  grid-template-columns: minmax(0, 1fr);
+}
+.codedual[data-mode="source"] > .codedual__preview,
+.codedual[data-mode="preview"] > .codedual__source {
+  display: none;
+}
+.codedual[data-mode="preview"] > .codedual__preview {
+  border-left: 0;
+}
+/* Too narrow for two columns (and no script to pick one view): stack them. */
+@media (max-width: 1100px) {
+  .codedual[data-mode="split"] {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr) minmax(0, 1fr);
+  }
+  .codedual[data-mode="split"] > .codedual__preview {
+    border-left: 0;
+    border-top: var(--border-width-hairline) solid var(--color-border);
+  }
+}
+
+/* Source/Split/Preview switch (breadcrumb, markdown Code pages only). */
+.view-switch {
+  flex: none;
+  display: inline-flex;
+  padding: 2px;
+  border: var(--border-width-hairline) solid var(--color-border);
+  border-radius: var(--radius-pill);
+  background: var(--color-surface);
+}
+.view-switch[hidden] {
+  display: none;
+}
+.view-switch__btn {
+  padding: var(--space-1) var(--space-3);
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--color-text-muted);
+  font-family: var(--type-tag-font);
+  font-size: var(--type-tag-size);
+  cursor: pointer;
+  transition: color var(--motion-fast) var(--ease-standard),
+    background var(--motion-fast) var(--ease-standard);
+}
+.view-switch__btn:hover {
+  color: var(--color-text);
+}
+.view-switch__btn[aria-pressed="true"] {
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-weight: var(--weight-semibold);
+  box-shadow: 0 0 0 var(--border-width-hairline) var(--color-border);
+}
+.view-switch__btn[hidden] {
+  display: none;
+}
+.view-switch__btn:focus-visible {
+  outline: var(--focus-width) solid var(--focus-color);
+  outline-offset: 1px;
+}
+.breadcrumb__right:has(.view-switch:not([hidden])) {
+  align-items: center;
+  gap: var(--space-3);
+}
+@media (max-width: 700px) {
+  .breadcrumb__right:has(.view-switch:not([hidden])) .breadcrumb__meta-lang,
+  .breadcrumb__right:has(.view-switch:not([hidden])) .breadcrumb__meta-size {
+    display: none;
+  }
+}
+
 /* ── Directory listing main pane ───────────────────────────────────
    The sidebar shows the same directory in compact form (`.chapter`/
    `.chap-file`); this pane is the detail view: a folder header with counts

@@ -648,9 +648,22 @@ impl Engine {
             SourceContent::Text { text, truncated } => {
                 let size = text.len() as u64;
                 let highlighted = self.render.highlight_source(&abs, &text);
+                // Markdown also gets its rendered form, so the Code page can
+                // show source and render side by side.
+                let rendered = indexer::is_markdown(&abs).then(|| {
+                    let fs = ProjectFs::new(&project.root_path, exclude);
+                    self.render.render(
+                        indexer::strip_bom(&text),
+                        &abs,
+                        &project.id,
+                        &project.root_path,
+                        &fs,
+                    )
+                });
                 self.record_access(project_id);
                 Ok(CodeView::File {
                     highlighted,
+                    rendered,
                     truncated,
                     size,
                 })
@@ -664,6 +677,8 @@ pub enum CodeView {
     Dir(DirListing),
     File {
         highlighted: HighlightedSource,
+        /// The rendered page, for markdown files only.
+        rendered: Option<RenderedPage>,
         truncated: bool,
         size: u64,
     },
@@ -1105,6 +1120,33 @@ mod tests {
             stale,
             "code_path must bump last_seen_at"
         );
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn code_path_renders_markdown_files_only() {
+        let dir = std::env::temp_dir().join(format!("mdview-code-md-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        write(&dir, "docs/a.md", "# Title\n\nBody\n");
+        write(&dir, "src/lib.rs", "pub fn a() {}\n");
+
+        let engine = Engine::new(SqliteStore::open_in_memory().unwrap(), Config::default());
+        let vf = engine.view_file(&dir, "docs/a.md").unwrap();
+        let CodeView::File { rendered, .. } =
+            engine.code_path(&vf.project_id, "docs/a.md").unwrap()
+        else {
+            panic!("a.md is a text file");
+        };
+        let page = rendered.expect("markdown carries its render");
+        assert!(page.html.contains("Title") && page.html.contains("data-sourcepos=\"1:1"));
+
+        let CodeView::File { rendered, .. } =
+            engine.code_path(&vf.project_id, "src/lib.rs").unwrap()
+        else {
+            panic!("lib.rs is a text file");
+        };
+        assert!(rendered.is_none(), "only markdown is rendered");
 
         std::fs::remove_dir_all(&dir).ok();
     }

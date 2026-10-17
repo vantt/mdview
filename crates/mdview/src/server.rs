@@ -893,6 +893,7 @@ async fn code_response(st: &AppState, id: &str, path: &str) -> Response {
         }
         Ok(mdview_core::engine::CodeView::File {
             highlighted,
+            rendered,
             truncated,
             size,
         }) => {
@@ -902,6 +903,7 @@ async fn code_response(st: &AppState, id: &str, path: &str) -> Response {
                 path,
                 views::CodeBody::Text {
                     highlighted: &highlighted,
+                    rendered: rendered.as_ref(),
                     truncated,
                     size,
                 },

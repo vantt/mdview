@@ -423,9 +423,9 @@ fn code_section_lists_dirs_highlights_files_and_denies_sensitive_paths() {
     );
     assert_eq!(pem_status, 404);
 
-    // 7. The same markdown file renders as highlighted SOURCE through the
-    //    Code section, not as rendered markdown — the two sections stay
-    //    distinct.
+    // 7. The same markdown file shows its highlighted SOURCE through the
+    //    Code section, with its render beside it (source | preview) — and
+    //    that pairing is for markdown only.
     let (status, body) = http_get(
         &info.host,
         info.port,
@@ -435,8 +435,22 @@ fn code_section_lists_dirs_highlights_files_and_denies_sensitive_paths() {
     assert_eq!(status, 200);
     assert!(body.contains("id=\"L1\""), "not rendered as source: {body}");
     assert!(
-        !body.contains("fg-prose"),
-        "markdown pipeline leaked into the Code section: {body}"
+        body.contains("id=\"codedual\"") && body.contains("fg-prose"),
+        "markdown render missing beside the source: {body}"
+    );
+    assert!(
+        body.contains("data-sourcepos="),
+        "render lacks the line ranges the panes sync on: {body}"
+    );
+    let (_, rs_body) = http_get(
+        &info.host,
+        info.port,
+        &format!("/p/{project_id}/_code/src/lib.rs"),
+        cookie,
+    );
+    assert!(
+        !rs_body.contains("codedual") && !rs_body.contains("fg-prose"),
+        "markdown pipeline leaked into a non-markdown file: {rs_body}"
     );
 
     // 8. The Docs page still renders normally and now carries the Docs|Code

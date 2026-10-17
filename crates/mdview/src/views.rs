@@ -100,11 +100,44 @@ pub fn file_page(
     // Hash of that same source: the editor sends it back on save so the
     // daemon can refuse to clobber a file something else wrote meanwhile.
     let source_hash = mdview_core::indexer::content_hash(&page.source);
-    let head_extra = if page.has_mermaid {
-        // Mermaid is vendored and served locally (/static/mermaid.min.js) rather
-        // than loaded from a CDN: the daemon commonly runs on a LAN/offline host
-        // where a CDN is unreachable, which would leave diagrams unrendered.
-        r#"<script src="/static/mermaid.min.js" defer></script>
+    let head_extra = if page.has_mermaid { mermaid_head() } else { "" };
+    let body = format!(
+        r#"{topbar}
+<div class="layout">
+  <aside id="sidebar" class="sidebar">{tree}</aside>
+  <div class="sidebar-backdrop"></div>
+  <main class="content">
+    {breadcrumb}
+    <div class="fg-reading">
+      <article class="fg-prose markdown-body">{html}</article>
+    </div>
+    {editor}
+    <script type="application/json" id="mdsource" data-hash="{source_hash}">{source_json}</script>
+  </main>
+  {right}
+</div>"#,
+        topbar = topbar_full(
+            sidebar_toggle(),
+            &section_switch(project, Section::Docs),
+            "",
+        ),
+        tree = tree,
+        breadcrumb = breadcrumb,
+        html = page.html,
+        editor = md_editor(),
+        source_hash = source_hash,
+        source_json = source_json,
+        right = right,
+    );
+    layout(&page.title, head_extra, &body)
+}
+
+/// `<head>` scripts that render a page's Mermaid diagrams. Mermaid is
+/// vendored and served locally (/static/mermaid.min.js) rather than loaded
+/// from a CDN: the daemon commonly runs on a LAN/offline host where a CDN is
+/// unreachable, which would leave diagrams unrendered.
+fn mermaid_head() -> &'static str {
+    r#"<script src="/static/mermaid.min.js" defer></script>
 <script>
 (function () {
   // Surface a render failure ON the page (mobile has no dev console), so a
@@ -139,38 +172,6 @@ pub fn file_page(
   }
 })();
 </script>"#
-    } else {
-        ""
-    };
-    let body = format!(
-        r#"{topbar}
-<div class="layout">
-  <aside id="sidebar" class="sidebar">{tree}</aside>
-  <div class="sidebar-backdrop"></div>
-  <main class="content">
-    {breadcrumb}
-    <div class="fg-reading">
-      <article class="fg-prose markdown-body">{html}</article>
-    </div>
-    {editor}
-    <script type="application/json" id="mdsource" data-hash="{source_hash}">{source_json}</script>
-  </main>
-  {right}
-</div>"#,
-        topbar = topbar_full(
-            sidebar_toggle(),
-            &section_switch(project, Section::Docs),
-            "",
-        ),
-        tree = tree,
-        breadcrumb = breadcrumb,
-        html = page.html,
-        editor = md_editor(),
-        source_hash = source_hash,
-        source_json = source_json,
-        right = right,
-    );
-    layout(&page.title, head_extra, &body)
 }
 
 /// Escape `<` in an already-serialized JSON blob so a literal `</script>` in
@@ -286,6 +287,8 @@ fn section_switch(project: &Project, active: Section) -> String {
 pub enum CodeBody<'a> {
     Text {
         highlighted: &'a HighlightedSource,
+        /// Markdown files only: shown beside the source (`code_dual`).
+        rendered: Option<&'a RenderedPage>,
         truncated: bool,
         size: u64,
     },
@@ -308,10 +311,11 @@ pub fn code_page(
     let active = base_name(rel_path);
     let tree = code_tree(project, sidebar, Some(active));
 
+    let mut head_extra = "";
     let (main, meta) = match body {
         CodeBody::Binary { size } => (
             format!(
-                "<div class=\"codeview__binary\">Binary file &middot; {size} — cannot be displayed.</div>",
+                "<div class=\"codeview\"><div class=\"codeview__binary\">Binary file &middot; {size} — cannot be displayed.</div></div>",
                 size = format_size(size)
             ),
             format!(
@@ -322,6 +326,7 @@ pub fn code_page(
         ),
         CodeBody::Text {
             highlighted,
+            rendered,
             truncated,
             size,
         } => {
@@ -338,17 +343,27 @@ pub fn code_page(
                     "<tr id=\"L{n}\"><td class=\"codeview__num\"><a href=\"#L{n}\">{n}</a></td><td class=\"codeview__line\"><code>{line}</code></td></tr>"
                 ));
             }
-            let main = format!(
+            let source = format!(
                 "{banner}<table class=\"codeview__table\">{rows}</table>",
                 banner = banner,
                 rows = rows,
             );
-            let meta = format!(
+            let mut meta = format!(
                 "<span class=\"breadcrumb__meta-lang\">{lang}</span> \
                  <span class=\"breadcrumb__meta-size\">{size}</span>",
                 lang = esc(&highlighted.syntax_name),
                 size = format_size(size),
             );
+            let main = match rendered {
+                Some(page) => {
+                    if page.has_mermaid {
+                        head_extra = mermaid_head();
+                    }
+                    meta.push_str(code_view_switch());
+                    code_dual(&source, &page.html)
+                }
+                None => format!("<div class=\"codeview\">{source}</div>"),
+            };
             (main, meta)
         }
     };
@@ -361,7 +376,7 @@ pub fn code_page(
   <div class="sidebar-backdrop"></div>
   <main class="content content--code">
     {breadcrumb}
-    <div class="codeview">{main}</div>
+    {main}
   </main>
 </div>"#,
         topbar = topbar_full(
@@ -373,7 +388,27 @@ pub fn code_page(
         breadcrumb = breadcrumb,
         main = main,
     );
-    layout(active, "", &body_html)
+    layout(active, head_extra, &body_html)
+}
+
+/// A markdown file's main pane in the Code section: the highlighted source
+/// and its render side by side, the same pairing the Docs editor shows while
+/// editing. Both panes are server-rendered and scroll on their own, so the
+/// page reads fine without scripts; app.js adds the Source/Split/Preview
+/// switch and keeps the two panes on the same passage.
+fn code_dual(source: &str, html: &str) -> String {
+    format!(
+        r#"<div id="codedual" class="codedual" data-mode="split">
+      <div class="codeview codedual__source" tabindex="0" aria-label="Markdown source">{source}</div>
+      <div class="fg-reading codedual__preview" tabindex="0" aria-label="Rendered preview"><article class="fg-prose markdown-body">{html}</article></div>
+    </div>"#
+    )
+}
+
+/// Source/Split/Preview switch for a markdown file's Code page, in the
+/// breadcrumb's right half. Ships hidden: app.js reveals and drives it.
+fn code_view_switch() -> &'static str {
+    r#"<div class="view-switch" role="group" aria-label="View" hidden><button type="button" class="view-switch__btn" data-mode="source" aria-pressed="false">Source</button><button type="button" class="view-switch__btn" data-mode="split" aria-pressed="true">Split</button><button type="button" class="view-switch__btn" data-mode="preview" aria-pressed="false">Preview</button></div>"#
 }
 
 /// A directory in the Code section: the same listing rendered both in the

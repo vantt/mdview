@@ -919,6 +919,172 @@
     headings.forEach(function (h) { observer.observe(h); });
   })();
 
+  // Markdown file in the Code section: highlighted source and its render
+  // side by side (server-rendered in #codedual). This adds the
+  // Source/Split/Preview switch — remembered across pages, with Split only
+  // offered when the pair has room for two columns — and keeps the two
+  // panes on the same passage: whichever pane the reader scrolls drives the
+  // other, mapped through the render's data-sourcepos line ranges.
+  (function () {
+    var dual = document.getElementById("codedual");
+    var sw = document.querySelector(".view-switch");
+    if (!dual || !sw) return;
+    var srcPane = dual.querySelector(".codedual__source");
+    var prevPane = dual.querySelector(".codedual__preview");
+    var article = prevPane && prevPane.querySelector(".markdown-body");
+    var table = srcPane && srcPane.querySelector(".codeview__table");
+    if (!srcPane || !prevPane || !article || !table) return;
+    var btns = Array.prototype.slice.call(sw.querySelectorAll(".view-switch__btn"));
+    var splitBtn = sw.querySelector('[data-mode="split"]');
+    var KEY = "mdview-code-md-view";
+    var SPLIT_MIN = 820;  // px of #codedual width for two readable columns
+    var pref = "split";
+    try { pref = localStorage.getItem(KEY) || "split"; } catch (e) {}
+    if (["source", "split", "preview"].indexOf(pref) < 0) pref = "split";
+    var narrow = false, mode = "";
+    // Arriving on a #L42 line link: the source has to be on screen.
+    var lineHash = /^#L\d+$/.test(location.hash);
+
+    function effective() {
+      var m = narrow && pref === "split" ? "preview" : pref;
+      return lineHash && m === "preview" ? (narrow ? "source" : "split") : m;
+    }
+    function apply() {
+      var next = effective();
+      splitBtn.hidden = narrow;
+      btns.forEach(function (b) {
+        b.setAttribute("aria-pressed", b.getAttribute("data-mode") === next ? "true" : "false");
+      });
+      if (next === mode) return;
+      var line = mode && mode !== "preview" ? sourceTopLine() : previewTopLine();
+      mode = next;
+      dual.setAttribute("data-mode", next);
+      refreshTableZoom(article);
+      // Keep the passage the reader was on across the switch.
+      if (next !== "preview") scrollSourceTo(line);
+      if (next !== "source") scrollPreviewTo(line);
+    }
+
+    // ── Line <-> position mapping ───────────────────────────────────────
+    function paneY(pane, el) {
+      return el.getBoundingClientRect().top - pane.getBoundingClientRect().top + pane.scrollTop;
+    }
+    // Fractional source line at the top of the source pane.
+    function sourceTopLine() {
+      var rows = table.rows, n = rows.length;
+      if (!n || srcPane.scrollTop < 1) return 1;
+      var top = srcPane.scrollTop, lo = 0, hi = n - 1;
+      while (lo < hi) {  // last row starting at or above the pane top
+        var mid = (lo + hi + 1) >> 1;
+        if (paneY(srcPane, rows[mid]) <= top) lo = mid; else hi = mid - 1;
+      }
+      var h = rows[lo].offsetHeight || 1;
+      return lo + 1 + Math.min(1, Math.max(0, (top - paneY(srcPane, rows[lo])) / h));
+    }
+    function scrollSourceTo(line) {
+      var rows = table.rows;
+      if (!rows.length || line <= 1) { srcPane.scrollTop = 0; return; }
+      var i = Math.min(rows.length, Math.floor(line)) - 1;
+      srcPane.scrollTop = paneY(srcPane, rows[i]) + (line - Math.floor(line)) * rows[i].offsetHeight;
+    }
+    // Top-level rendered blocks with their source line ranges, in order.
+    function blocks() {
+      var out = [];
+      for (var i = 0; i < article.children.length; i++) {
+        var r = blockRange(article.children[i]);
+        if (r) out.push({ el: article.children[i], r: r });
+      }
+      return out;
+    }
+    // Interpolate between a block's start line and the next block's, so a
+    // long block tracks smoothly rather than jumping block to block.
+    function previewTopLine() {
+      var bs = blocks();
+      if (!bs.length || prevPane.scrollTop < 1) return 1;
+      var top = prevPane.scrollTop, k = -1;
+      for (var i = 0; i < bs.length; i++) {
+        if (paneY(prevPane, bs[i].el) <= top) k = i; else break;
+      }
+      if (k < 0) return 1;
+      var y0 = paneY(prevPane, bs[k].el);
+      var y1 = k + 1 < bs.length ? paneY(prevPane, bs[k + 1].el) : y0 + bs[k].el.offsetHeight;
+      var s1 = k + 1 < bs.length ? bs[k + 1].r[0] : bs[k].r[1] + 1;
+      var t = y1 > y0 ? Math.min(1, (top - y0) / (y1 - y0)) : 0;
+      return bs[k].r[0] + (s1 - bs[k].r[0]) * t;
+    }
+    function scrollPreviewTo(line) {
+      var bs = blocks();
+      if (!bs.length || line <= 1) { prevPane.scrollTop = 0; return; }
+      var k = -1;
+      for (var i = 0; i < bs.length; i++) {
+        if (bs[i].r[0] <= line) k = i; else break;
+      }
+      if (k < 0) { prevPane.scrollTop = 0; return; }
+      var y0 = paneY(prevPane, bs[k].el);
+      var y1 = k + 1 < bs.length ? paneY(prevPane, bs[k + 1].el) : y0 + bs[k].el.offsetHeight;
+      var s1 = k + 1 < bs.length ? bs[k + 1].r[0] : bs[k].r[1] + 1;
+      var t = s1 > bs[k].r[0] ? Math.min(1, (line - bs[k].r[0]) / (s1 - bs[k].r[0])) : 0;
+      prevPane.scrollTop = y0 + (y1 - y0) * t;
+    }
+
+    // ── Scroll sync ─────────────────────────────────────────────────────
+    // Only the pane the reader is using drives: the other pane's scroll
+    // events (our own writes) are ignored, so the two never feed back.
+    var driver = null, pending = 0;
+    function drive(pane) { driver = pane; }
+    [srcPane, prevPane].forEach(function (pane) {
+      ["pointerenter", "pointerdown", "wheel", "touchstart", "focusin"].forEach(function (t) {
+        pane.addEventListener(t, function () { drive(pane); }, { passive: true });
+      });
+      pane.addEventListener("scroll", function () {
+        if (mode !== "split" || pane !== driver || pending) return;
+        pending = requestAnimationFrame(function () {
+          pending = 0;
+          if (pane === srcPane) scrollPreviewTo(sourceTopLine());
+          else scrollSourceTo(previewTopLine());
+        });
+      }, { passive: true });
+    });
+    // Late layout shifts (Mermaid diagrams, images) move the render under
+    // the source: re-align once they land.
+    function realign() { if (mode === "split") scrollPreviewTo(sourceTopLine()); }
+    document.addEventListener("mdview:mermaid-done", realign);
+    article.querySelectorAll("img").forEach(function (img) {
+      if (!img.complete) img.addEventListener("load", realign, { once: true });
+    });
+
+    btns.forEach(function (b) {
+      b.addEventListener("click", function () {
+        pref = b.getAttribute("data-mode");
+        lineHash = false;
+        try { localStorage.setItem(KEY, pref); } catch (e) {}
+        apply();
+      });
+    });
+    new ResizeObserver(function () {
+      var n = dual.clientWidth < SPLIT_MIN;
+      if (n === narrow && mode) return;
+      narrow = n;
+      apply();
+    }).observe(dual);
+    // Bring a #L42 target into the source pane (a third of the way down,
+    // so the lines before it give context) and the render alongside it.
+    function showLine() {
+      lineHash = /^#L\d+$/.test(location.hash);
+      if (!lineHash) return;
+      apply();
+      var row = document.getElementById(location.hash.slice(1));
+      if (!row) return;
+      srcPane.scrollTop = Math.max(0, paneY(srcPane, row) - srcPane.clientHeight / 3);
+      if (mode === "split") scrollPreviewTo(sourceTopLine());
+    }
+    window.addEventListener("hashchange", showLine);
+    sw.hidden = false;
+    narrow = dual.clientWidth < SPLIT_MIN;
+    apply();
+    showLine();
+  })();
+
   // In-place markdown editor. The Edit button swaps the rendered article for
   // an editor pre-filled from #mdsource — CodeMirror 6 (vendored, lazy-loaded
   // from /static/codemirror.min.js on the first click) with the plain
