@@ -1,6 +1,6 @@
 #!/usr/bin/env sh
 # mdview installer — downloads a prebuilt binary (or builds from source) and
-# helps you run `mdview doctor` to wire up Claude Code. Safe to re-run.
+# helps you run `mdview doctor` to wire up your agents. Safe to re-run.
 #
 #   curl -fsSL https://raw.githubusercontent.com/vantt/mdview/main/install.sh | sh
 #
@@ -85,5 +85,6 @@ else
   echo "Installed."
 fi
 echo "Next:"
-echo "  $BIN doctor --fix     # wire up Claude Code MCP integration"
+echo "  $BIN doctor --fix     # wire up the CLI instruction block and skill"
+echo "  $BIN doctor --fix --mcp   # only for Claude Desktop (or other clients without a shell)"
 echo "  $BIN serve            # start the viewer (http://localhost:7700)"

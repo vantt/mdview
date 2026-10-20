@@ -393,15 +393,27 @@ pub fn run(check: bool, version: Option<String>, force: bool) -> Result<()> {
     swapped?;
     println!("Updated {}: {current} -> {target_str}", exe.display());
 
+    if running_under_sudo() {
+        // HOME is root's under sudo: the skill and daemon to refresh are the
+        // invoking user's, so leave both to a run as that user.
+        println!(
+            "Running under sudo; run `mdview restart` and `mdview doctor --fix` as your user."
+        );
+        return Ok(());
+    }
+    // Run the new file by path: after the swap, this process's own
+    // `current_exe()` names the replaced binary (on Linux a deleted inode),
+    // whose compiled-in templates are the old ones.
+    let refreshed = std::process::Command::new(&exe)
+        .args(["doctor", "--after-update"])
+        .status();
+    if !refreshed.is_ok_and(|s| s.success()) {
+        println!("Note: refreshing the installed skill failed; run `mdview doctor --fix`.");
+    }
+
     if crate::runtime::running_daemon().is_none() {
         return Ok(());
     }
-    if running_under_sudo() {
-        println!("A daemon is running under sudo's HOME; not restarting it as root. Run `mdview restart` as your user.");
-        return Ok(());
-    }
-    // Restart through the new file by path: after the swap, this process's
-    // own `current_exe()` names the replaced binary (on Linux a deleted inode).
     let status = std::process::Command::new(&exe)
         .arg("restart")
         .status()

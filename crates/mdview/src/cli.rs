@@ -43,6 +43,15 @@ pub enum Command {
         #[arg(long)]
         json: bool,
     },
+    /// Resolve a file by project root and relative path; the engine behind the
+    /// MCP proxy (`mdview mcp`).
+    #[command(hide = true)]
+    ViewFile {
+        project_root: PathBuf,
+        relative_path: String,
+        #[arg(long)]
+        json: bool,
+    },
     /// List registered projects.
     List {
         #[arg(long)]
@@ -84,8 +93,14 @@ pub enum Command {
         /// Antigravity (off by default; the CLI is the primary agent path).
         #[arg(long)]
         mcp: bool,
+        /// Run by `mdview update` through the new binary: refresh what ships
+        /// with the binary (the installed skill) and report what still needs a
+        /// manual step. Runs nothing else.
+        #[arg(long, hide = true)]
+        after_update: bool,
     },
-    /// Run the MCP server over stdio (used by Claude Code).
+    /// Run the MCP server over stdio (a thin proxy for Claude Desktop and other
+    /// clients without a shell; it shells out to `mdview view-file`).
     Mcp,
     /// Edit configuration.
     Config {
@@ -94,8 +109,9 @@ pub enum Command {
     },
     /// Print the version (same value as `--version`).
     Version,
-    /// Upgrade this binary in place to the latest GitHub release (restarting a
-    /// running daemon on the new version).
+    /// Upgrade this binary in place to the latest GitHub release (refreshing
+    /// the installed /mdview skill and restarting a running daemon on the new
+    /// version).
     Update {
         /// Only report whether a newer release exists; change nothing.
         #[arg(long)]
@@ -136,6 +152,11 @@ pub fn run(cli: Cli) -> Result<()> {
         Command::Serve { port, host } => cmd_serve(port, host),
         Command::Register { path, name, json } => cmd_register(&path, name.as_deref(), json),
         Command::Open { path, json } => cmd_open(&path, json),
+        Command::ViewFile {
+            project_root,
+            relative_path,
+            json,
+        } => cmd_view_file(&project_root, &relative_path, json),
         Command::List { json } => cmd_list(json),
         Command::Search {
             query,
@@ -153,7 +174,15 @@ pub fn run(cli: Cli) -> Result<()> {
             dry_run,
             fix,
             mcp,
-        } => crate::doctor::run(json, dry_run, fix, mcp),
+            after_update,
+        } => {
+            if after_update {
+                crate::doctor::after_update();
+                Ok(())
+            } else {
+                crate::doctor::run(json, dry_run, fix, mcp)
+            }
+        }
         Command::Mcp => crate::mcp::run(),
         Command::Config { action } => match action {
             ConfigAction::Edit => cmd_config_edit(),
@@ -306,7 +335,25 @@ fn cmd_open(path: &Path, json: bool) -> Result<()> {
     let engine = runtime::build_engine()?;
     let root = find_project_root(&engine, &abs);
     let rel = indexer::rel_path_str(&root, &abs);
-    let vf = engine.view_file(&root, &rel)?;
+    print_view(&engine, &root, &rel, json, false)
+}
+
+fn cmd_view_file(root: &Path, rel: &str, json: bool) -> Result<()> {
+    let engine = runtime::build_engine()?;
+    print_view(&engine, root, rel, json, true)
+}
+
+/// Make `rel` under `root` viewable and print its URL(s): the JSON object with
+/// `--json` (plus `rel_path` when `with_rel_path`), else the plain link(s).
+/// Shared by `open` and the hidden `view-file`, so both emit the same URLs.
+fn print_view(
+    engine: &mdview_core::Engine,
+    root: &Path,
+    rel: &str,
+    json: bool,
+    with_rel_path: bool,
+) -> Result<()> {
+    let vf = engine.view_file(root, rel)?;
     // Short form, same as the MCP tool emits (D9): a deep path pushes the full
     // URL past a terminal's width, where it wraps and stops being clickable.
     let bases = runtime::ensure_daemon_bases();
@@ -319,10 +366,11 @@ fn cmd_open(path: &Path, json: bool) -> Result<()> {
         .map(|base| format!("{base}{}", vf.url))
         .collect();
     if json {
-        println!(
-            "{}",
-            open_json(&urls, &long_urls, &vf.code, &vf.project_id, &vf.url)
-        );
+        let mut v = open_json(&urls, &long_urls, &vf.code, &vf.project_id, &vf.url);
+        if with_rel_path {
+            v["rel_path"] = serde_json::json!(vf.rel_path);
+        }
+        println!("{v}");
     } else if urls.len() > 1 {
         println!("{}", format_url_choices(&urls));
     } else {

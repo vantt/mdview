@@ -103,15 +103,17 @@ the project and starting the daemon. `doctor --fix` adds the Claude Code permiss
 file that is not valid JSON is never touched), installs the `/mdview` skill, and syncs the
 agent instruction block. It no longer registers the MCP server by default.
 
-For agents with no shell, opt in to MCP:
+MCP is only needed for clients with no shell, chiefly **Claude Desktop**:
 
 ```
 mdview doctor --fix --mcp
 ```
 
-This registers an MCP server with **Claude Code, Codex, and Antigravity** (for whichever it
-detects) exposing **`mdview_view_file(project_root, relative_path)`**, which returns the same
-fields.
+This registers a small MCP server (`mdview mcp`, tool **`mdview_view_file(project_root,
+relative_path)`**) with Claude Desktop, and with Claude Code, Codex and Antigravity when
+detected. It is a thin proxy that runs `mdview` per call, so an `mdview update` takes effect
+without reconnecting. With mdview inside WSL, Claude Desktop on Windows is registered
+through `wsl.exe`.
 
 Drop the snippet from [`docs/mdview-agents-template.md`](docs/mdview-agents-template.md)
 into your project's `AGENTS.md` / `CLAUDE.md`, and your agent will surface a viewable URL
@@ -124,8 +126,8 @@ sync. Projects idle for 14 days are cleaned up automatically.
 
 **Upgrading.** The registry is rebuilt as `~/.mdview/registry-v4.db` (it is a disposable
 cache); `doctor --fix` removes the old `registry.db`. A running daemon from an older build is
-restarted automatically the next time the CLI needs it. Restart your agent sessions so old
-`mdview mcp` processes exit; older builds keep using `registry.db`.
+restarted automatically the next time the CLI needs it; older builds keep using
+`registry.db`.
 
 <!-- ▶ OPTIONAL VIDEO — agent → view_file → browser. See "Media checklist". -->
 
@@ -146,7 +148,7 @@ live-reload the page.
 
 - **Skill:** run `/mdview docs/spec/prd.md` in the agent's terminal — it replies with a URL to open.
 - **Agent wired up (`doctor --fix`)?** No need to ask — the agent runs `mdview open --json`
-  itself (or calls `mdview_view_file` over MCP) and hands you the URL right after it
+  itself and hands you the URL right after it
   finishes writing the file.
 
 **Reading from a remote server over SSH?** Forward the port and browse locally:

@@ -26,10 +26,15 @@ mdview update --version v0.8.4   # install a specific release (downgrades allowe
 ```
 `update` downloads the release binary for your platform, verifies its size and
 the release's sha256 digest, checks it runs, then swaps it in place of the
-running binary (symlinks are followed). A running daemon is restarted on the
-new version. If the binary sits in a root-owned directory such as
-`/usr/local/bin`, run `sudo mdview update`, then `mdview restart` as yourself
-(the update never restarts your daemon as root). Without `--version`, `update`
+running binary (symlinks are followed). The new binary then refreshes the
+global `/mdview` skill if it is installed, and a running daemon is restarted on
+the new version. The update does not edit project files: if the current
+directory's `AGENTS.md`/`CLAUDE.md` carries an outdated MDView block it says
+so, and you run `mdview doctor --fix` in each such project. `mdview mcp`
+is a thin proxy that runs the binary per call, so a connected MCP client uses
+the new version immediately; no reconnect is needed. If the binary sits in a root-owned directory such as `/usr/local/bin`,
+run `sudo mdview update`, then `mdview restart` and `mdview doctor --fix` as
+yourself (the update never touches your daemon or skill as root). Without `--version`, `update`
 never downgrades; `--force` only reinstalls the same version. Set `GITHUB_TOKEN` if you hit
 GitHub's anonymous API rate limit. Platforms without a prebuilt binary (e.g.
 Intel macOS) update from source with
@@ -42,8 +47,8 @@ mdview uninstall                 # remove (asks first); `mdview remove` is an al
 mdview uninstall --purge --yes   # also delete ~/.mdview (config + index), no prompt
 ```
 `uninstall` stops the daemon, undoes what `doctor --fix` set up — the
-`Bash(mdview open:*)` permission, MCP registrations for Claude Code, Codex and
-Antigravity (each config is backed up first and keeps its permissions), the
+`Bash(mdview open:*)` permission, MCP registrations for Claude Code, Codex,
+Antigravity and Claude Desktop (each config is backed up first and keeps its permissions), the
 global `/mdview` skill, and the MDView block in `AGENTS.md`/`CLAUDE.md` of the
 current directory (a file that held only the block is deleted) — then removes
 the binary and any `mdview` symlink on `PATH` pointing to it. Like `doctor
@@ -132,7 +137,7 @@ off.
 
 ```bash
 mdview doctor --fix         # permission + skill + instruction block (no MCP)
-mdview doctor --fix --mcp   # additionally register the MCP server
+mdview doctor --fix --mcp   # additionally register the MCP server (Claude Desktop, shell-less clients)
 mdview doctor               # re-check: PATH, config, daemon, index schema, permission, skill
 ```
 
@@ -157,9 +162,19 @@ left alone.
 | Claude Code | `~/.claude.json` / `~/.claude/` / `claude` on PATH | `~/.claude.json` (`mcpServers`) |
 | Codex | `~/.codex/` / `codex` on PATH | `~/.codex/config.toml` (`[mcp_servers.mdview]`, format-preserving) |
 | Antigravity | `~/.gemini/config/` / `antigravity` on PATH | `~/.gemini/config/mcp_config.json` (`mcpServers`) |
+| Claude Desktop | its config directory exists | macOS `~/Library/Application Support/Claude/claude_desktop_config.json`; Windows `%APPDATA%\Claude\claude_desktop_config.json` |
 
 For agents without a shell, the MCP tool
 **`mdview_view_file(project_root, relative_path)`** returns the same fields.
+`mdview mcp` is a thin stdio proxy: each call runs the hidden
+`mdview view-file --json` of the same binary, so it never holds the index open
+and picks up `mdview update` without a reconnect.
+
+**Claude Desktop from WSL.** When mdview is installed inside WSL and Claude
+Desktop runs on Windows, `doctor --fix --mcp` finds each
+`/mnt/c/Users/*/AppData/Roaming/Claude/` that exists and registers
+`wsl.exe -d <WSL_DISTRO_NAME> -e <path to mdview> mcp` in its
+`claude_desktop_config.json`. Restart Claude Desktop once to load it.
 
 Drop the snippet from [`mdview-agents-template.md`](mdview-agents-template.md)
 into your project's `AGENTS.md` / `CLAUDE.md` so agents surface a viewable URL
@@ -171,8 +186,7 @@ project is fully indexed on its first content search. `mdview refresh` runs a
 full sync on demand. Projects idle for 14 days are removed from the registry.
 
 **Upgrading.** The registry is rebuilt as `~/.mdview/registry-v4.db`; it is a
-disposable cache and no data is migrated. Restart agent sessions so old
-`mdview mcp` processes exit. A running daemon from an older build — including a
+disposable cache and no data is migrated. A running daemon from an older build — including a
 `mdview serve` you started by hand — is stopped and restarted automatically the
 next time the CLI needs it; older builds keep using
 `registry.db`.

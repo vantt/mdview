@@ -6,8 +6,8 @@
 //! and index) is kept unless `--purge` is given.
 
 use crate::doctor::{
-    claude_config_path, claude_settings_path, home, managed_block_range, skill_path,
-    timestamped_backup_path, AGENT_FILES, CLAUDE_PERMISSION,
+    claude_config_path, claude_desktop_configs, claude_settings_path, home, managed_block_range,
+    skill_path, timestamped_backup_path, AGENT_FILES, CLAUDE_PERMISSION,
 };
 use anyhow::{bail, Context, Result};
 use mdview_core::config;
@@ -168,7 +168,10 @@ fn plan_integrations(steps: &mut Vec<Step>) {
         .join(".gemini")
         .join("config")
         .join("mcp_config.json");
-    for path in [claude_config_path(), gemini] {
+    let json_configs = [claude_config_path(), gemini]
+        .into_iter()
+        .chain(claude_desktop_configs());
+    for path in json_configs {
         let what = format!(
             "unregister the mdview MCP server from {} (backup first)",
             path.display()

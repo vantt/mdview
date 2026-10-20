@@ -1,7 +1,7 @@
 #Requires -Version 5.1
 <#
 .SYNOPSIS
-    mdview installer for Windows — downloads a prebuilt binary and helps wire up Claude Code.
+    mdview installer for Windows — downloads a prebuilt binary and helps wire up your agents.
 .DESCRIPTION
     irm https://raw.githubusercontent.com/vantt/mdview/main/install.ps1 | iex
 .NOTES
@@ -85,5 +85,6 @@ if (Test-Path $DestExe) {
     Write-Host "Installed."
 }
 Write-Host "Next:"
-Write-Host "  $Bin doctor --fix     # wire up Claude Code MCP integration"
+Write-Host "  $Bin doctor --fix     # wire up the CLI instruction block and skill"
+Write-Host "  $Bin doctor --fix --mcp   # only for Claude Desktop (or other clients without a shell)"
 Write-Host "  $Bin serve            # start the viewer (http://localhost:7700)"

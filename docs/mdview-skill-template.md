@@ -16,23 +16,15 @@ never 404s.
 
 ## How to produce the URL
 
-Pick the best available method:
+Run:
 
-1. **CLI (preferred)** — run:
+```sh
+mdview open --json <absolute-path-to-file>
+```
 
-   ```sh
-   mdview open --json <absolute-path-to-file>
-   ```
-
-   It prints JSON whose `url` is the link to share (plus a `urls` array when
-   several hosts are reachable), registering the project and starting the
-   daemon if needed.
-
-2. **MCP tool (if you have no shell)** — call `mdview_view_file` with:
-   - `project_root`: absolute path to the project root
-   - `relative_path`: the file relative to that root
-
-   It returns the same fields.
+It prints JSON whose `url` is the link to share (plus a `urls` array when
+several hosts are reachable), registering the project and starting the daemon
+if needed.
 
 ## Reporting the URL
 

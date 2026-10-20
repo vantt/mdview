@@ -56,6 +56,7 @@ pub fn run(as_json: bool, dry_run: bool, fix: bool, mcp: bool) -> Result<()> {
     checks.push(check_mcp_claude(dry_run, fix, mcp));
     checks.push(check_mcp_codex(dry_run, fix, mcp));
     checks.push(check_mcp_antigravity(dry_run, fix, mcp));
+    checks.push(check_mcp_claude_desktop(dry_run, fix, mcp));
     checks.push(check_agent_instruction(dry_run, fix));
     checks.push(check_skill(dry_run, fix));
 
@@ -495,10 +496,16 @@ fn antigravity_present() -> bool {
     home().join(".gemini").join("config").is_dir() || bin_on_path("antigravity")
 }
 
-/// Register the `mdview` MCP server in a JSON config using the standard
-/// `mcpServers` object — Claude Code's `~/.claude.json` and Antigravity's
-/// `~/.gemini/config/mcp_config.json` share this shape. Merge-safe; backs up first.
-fn register_json_mcp(path: &Path, dry_run: bool, fix: bool) -> (Status, String) {
+/// The `mcpServers` entry that launches this binary directly.
+fn native_mcp_entry() -> Value {
+    json!({ "command": current_exe_str(), "args": ["mcp"] })
+}
+
+/// Register the `mdview` MCP server (`entry`) in a JSON config using the standard
+/// `mcpServers` object — Claude Code's `~/.claude.json`, Antigravity's
+/// `~/.gemini/config/mcp_config.json` and Claude Desktop's
+/// `claude_desktop_config.json` share this shape. Merge-safe; backs up first.
+fn register_json_mcp(path: &Path, entry: Value, dry_run: bool, fix: bool) -> (Status, String) {
     let mut root: Value = std::fs::read_to_string(path)
         .ok()
         .and_then(|t| serde_json::from_str(&t).ok())
@@ -536,10 +543,7 @@ fn register_json_mcp(path: &Path, dry_run: bool, fix: bool) -> (Status, String) 
         .entry("mcpServers")
         .or_insert_with(|| json!({}));
     if let Some(obj) = servers.as_object_mut() {
-        obj.insert(
-            "mdview".to_string(),
-            json!({ "command": current_exe_str(), "args": ["mcp"] }),
-        );
+        obj.insert("mdview".to_string(), entry);
     }
     match serde_json::to_vec_pretty(&root)
         .map_err(anyhow::Error::from)
@@ -645,7 +649,8 @@ fn check_mcp_claude(dry_run: bool, fix: bool, mcp: bool) -> Check {
     if !claude_present() {
         return skipped(name, "Claude Code");
     }
-    let (status, detail) = register_json_mcp(&claude_config_path(), dry_run, fix);
+    let (status, detail) =
+        register_json_mcp(&claude_config_path(), native_mcp_entry(), dry_run, fix);
     Check {
         name: name.into(),
         status,
@@ -682,12 +687,147 @@ fn check_mcp_antigravity(dry_run: bool, fix: bool, mcp: bool) -> Check {
         .join(".gemini")
         .join("config")
         .join("mcp_config.json");
-    let (status, detail) = register_json_mcp(&path, dry_run, fix);
+    let (status, detail) = register_json_mcp(&path, native_mcp_entry(), dry_run, fix);
     Check {
         name: name.into(),
         status,
         detail,
     }
+}
+
+/// Where Claude Desktop's config lives and how this machine reaches mdview.
+/// Gathered from the environment once; kept as plain data so path discovery and
+/// entry construction are testable without touching the real home.
+struct DesktopCtx {
+    /// `std::env::consts::OS`.
+    os: &'static str,
+    home: PathBuf,
+    /// `%APPDATA%` (Windows only).
+    appdata: Option<PathBuf>,
+    /// Running inside WSL.
+    wsl: bool,
+    /// `WSL_DISTRO_NAME`.
+    wsl_distro: Option<String>,
+    /// Where WSL mounts the Windows user profiles (`/mnt/c/Users`).
+    windows_users: PathBuf,
+    exe: String,
+}
+
+impl DesktopCtx {
+    fn from_env() -> Self {
+        let wsl_distro = std::env::var("WSL_DISTRO_NAME")
+            .ok()
+            .filter(|d| !d.is_empty());
+        let wsl = wsl_distro.is_some()
+            || std::fs::read_to_string("/proc/version")
+                .map(|v| v.to_ascii_lowercase().contains("microsoft"))
+                .unwrap_or(false);
+        Self {
+            os: std::env::consts::OS,
+            home: home(),
+            appdata: std::env::var_os("APPDATA").map(PathBuf::from),
+            wsl,
+            wsl_distro,
+            windows_users: PathBuf::from("/mnt/c/Users"),
+            exe: current_exe_str(),
+        }
+    }
+}
+
+const DESKTOP_CONFIG_FILE: &str = "claude_desktop_config.json";
+
+/// `claude_desktop_config.json` of every Claude Desktop install this machine
+/// can reach. Only a directory that already exists counts: that is the app being
+/// installed, and nothing is created for an app that is not there. From WSL the
+/// app runs on the Windows side, so every Windows profile is searched.
+fn claude_desktop_config_paths(ctx: &DesktopCtx) -> Vec<PathBuf> {
+    let dirs: Vec<PathBuf> = if ctx.wsl {
+        let mut users: Vec<PathBuf> = std::fs::read_dir(&ctx.windows_users)
+            .map(|rd| rd.filter_map(|e| e.ok()).map(|e| e.path()).collect())
+            .unwrap_or_default();
+        users.sort();
+        users
+            .into_iter()
+            .map(|u| u.join("AppData").join("Roaming").join("Claude"))
+            .collect()
+    } else if ctx.os == "windows" {
+        ctx.appdata.iter().map(|a| a.join("Claude")).collect()
+    } else if ctx.os == "macos" {
+        vec![ctx
+            .home
+            .join("Library")
+            .join("Application Support")
+            .join("Claude")]
+    } else {
+        Vec::new()
+    };
+    dirs.into_iter()
+        .filter(|d| d.is_dir())
+        .map(|d| d.join(DESKTOP_CONFIG_FILE))
+        .collect()
+}
+
+/// The entry Claude Desktop should launch. From WSL it goes through `wsl.exe`,
+/// since the app is a Windows process; `None` when the distro name is unknown.
+fn claude_desktop_entry(ctx: &DesktopCtx) -> Option<Value> {
+    if ctx.wsl {
+        let distro = ctx.wsl_distro.as_deref()?;
+        return Some(json!({
+            "command": "wsl.exe",
+            "args": ["-d", distro, "-e", ctx.exe, "mcp"]
+        }));
+    }
+    Some(json!({ "command": ctx.exe, "args": ["mcp"] }))
+}
+
+/// Pick the check status that best summarises several config files.
+fn worst_status(statuses: impl Iterator<Item = Status>) -> Status {
+    let all: Vec<Status> = statuses.collect();
+    [Status::Manual, Status::Warn, Status::Fixed, Status::Ok]
+        .into_iter()
+        .find(|s| all.contains(s))
+        .unwrap_or(Status::Skip)
+}
+
+fn check_mcp_claude_desktop(dry_run: bool, fix: bool, mcp: bool) -> Check {
+    check_mcp_claude_desktop_in(&DesktopCtx::from_env(), dry_run, fix, mcp)
+}
+
+fn check_mcp_claude_desktop_in(ctx: &DesktopCtx, dry_run: bool, fix: bool, mcp: bool) -> Check {
+    let name = "MCP · Claude Desktop";
+    if !mcp {
+        return mcp_not_requested(name);
+    }
+    let paths = claude_desktop_config_paths(ctx);
+    if paths.is_empty() {
+        return skipped(name, "Claude Desktop");
+    }
+    let Some(entry) = claude_desktop_entry(ctx) else {
+        return Check {
+            name: name.into(),
+            status: Status::Manual,
+            detail: "running in WSL but WSL_DISTRO_NAME is not set; cannot build the wsl.exe entry"
+                .into(),
+        };
+    };
+    let results: Vec<(Status, String)> = paths
+        .iter()
+        .map(|p| register_json_mcp(p, entry.clone(), dry_run, fix))
+        .collect();
+    Check {
+        name: name.into(),
+        status: worst_status(results.iter().map(|(s, _)| *s)),
+        detail: results
+            .into_iter()
+            .map(|(_, d)| d)
+            .collect::<Vec<_>>()
+            .join("; "),
+    }
+}
+
+/// Claude Desktop config files that may hold an mdview entry (for uninstall).
+pub(crate) fn claude_desktop_configs() -> Vec<PathBuf> {
+    claude_desktop_config_paths(&DesktopCtx::from_env())
 }
 
 /// Preamble + `---` + the actual agent-facing snippet; only the latter half
@@ -882,6 +1022,68 @@ fn check_skill_at(path: &std::path::Path, dry_run: bool, fix: bool) -> Check {
     }
 }
 
+/// Post-update step, run by `mdview update` through the freshly installed
+/// binary so the templates it compiles in are the new ones. Only content that
+/// ships with the binary is refreshed; everything version-independent
+/// (permission, MCP registration, legacy index files) is left to `doctor --fix`.
+pub fn after_update() {
+    // The skill is mdview-owned and global: refresh it, but never install one
+    // the user has not (or has removed).
+    let skill = skill_path();
+    if skill.exists() {
+        let c = check_skill_at(&skill, false, true);
+        if c.status != Status::Ok {
+            println!("{}", c.detail);
+        }
+    }
+
+    // Instruction blocks live in user files of each project: only point at a
+    // stale one here, since `update` may run from any directory.
+    let stale = stale_agent_blocks(|name| std::fs::read_to_string(name).ok());
+    if !stale.is_empty() {
+        println!(
+            "The MDView block in {} is outdated; run `mdview doctor --fix` here (and in other projects that carry it).",
+            stale.join(", ")
+        );
+    }
+}
+
+/// Agent files that carry a managed block that differs from the current one.
+/// Files without a block are not reported: they never opted in.
+fn stale_agent_blocks(read: impl Fn(&str) -> Option<String>) -> Vec<&'static str> {
+    AGENT_FILES
+        .into_iter()
+        .filter(|name| {
+            read(name)
+                .map(|t| managed_block_range(&t).is_some() && !agent_block_in_sync(&t))
+                .unwrap_or(false)
+        })
+        .collect()
+}
+
+#[cfg(test)]
+mod after_update_tests {
+    use super::*;
+
+    #[test]
+    fn reports_only_files_with_an_outdated_block() {
+        let current = agent_block();
+        let outdated = format!("# Mine\n\n{MDVIEW_START}\nold text\n{MDVIEW_END}\n");
+        let read = |name: &str| match name {
+            "AGENTS.md" => Some(outdated.clone()),
+            "CLAUDE.md" => Some(format!("# Mine\n\n{current}")),
+            _ => None,
+        };
+        assert_eq!(stale_agent_blocks(read), vec!["AGENTS.md"]);
+    }
+
+    #[test]
+    fn files_without_a_block_or_missing_are_not_reported() {
+        assert!(stale_agent_blocks(|_| Some("# no block here\n".into())).is_empty());
+        assert!(stale_agent_blocks(|_| None).is_empty());
+    }
+}
+
 #[cfg(test)]
 mod daemon_version_tests {
     use super::*;
@@ -939,8 +1141,8 @@ mod agent_instruction_tests {
     fn skill_template_is_a_valid_skill_file() {
         assert!(SKILL_TEMPLATE.starts_with("---"));
         assert!(SKILL_TEMPLATE.contains("name: mdview"));
-        // Carries the CLI-vs-MCP guidance the feature is about.
-        assert!(SKILL_TEMPLATE.contains("mdview_view_file"));
+        // CLI only: the skill must not steer an agent to the MCP tool.
+        assert!(!SKILL_TEMPLATE.contains("mdview_view_file"));
         assert!(SKILL_TEMPLATE.contains("mdview open"));
     }
 
@@ -1045,18 +1247,130 @@ mod mcp_register_tests {
         ))
     }
 
+    fn desktop_ctx(os: &'static str, root: &Path) -> DesktopCtx {
+        DesktopCtx {
+            os,
+            home: root.join("home"),
+            appdata: Some(root.join("appdata")),
+            wsl: false,
+            wsl_distro: None,
+            windows_users: root.join("Users"),
+            exe: "/home/me/.local/bin/mdview".into(),
+        }
+    }
+
+    #[test]
+    fn desktop_wsl_finds_only_installed_profiles_and_uses_wsl_exe() {
+        let root = tmp("desk-wsl");
+        let users = root.join("Users");
+        std::fs::create_dir_all(users.join("alice/AppData/Roaming/Claude")).unwrap();
+        std::fs::create_dir_all(users.join("bob/AppData/Roaming")).unwrap(); // no Claude
+        std::fs::create_dir_all(users.join("Public")).unwrap();
+        let mut ctx = desktop_ctx("linux", &root);
+        ctx.wsl = true;
+        ctx.wsl_distro = Some("Ubuntu".into());
+
+        assert_eq!(
+            claude_desktop_config_paths(&ctx),
+            vec![users.join("alice/AppData/Roaming/Claude/claude_desktop_config.json")]
+        );
+        assert_eq!(
+            claude_desktop_entry(&ctx).unwrap(),
+            json!({
+                "command": "wsl.exe",
+                "args": ["-d", "Ubuntu", "-e", "/home/me/.local/bin/mdview", "mcp"]
+            })
+        );
+    }
+
+    #[test]
+    fn desktop_wsl_without_a_distro_name_has_no_entry() {
+        let root = tmp("desk-nodistro");
+        let mut ctx = desktop_ctx("linux", &root);
+        ctx.wsl = true;
+        assert!(claude_desktop_entry(&ctx).is_none());
+    }
+
+    #[test]
+    fn desktop_native_paths_per_os_require_the_app_directory() {
+        let root = tmp("desk-native");
+        let win = desktop_ctx("windows", &root);
+        assert!(claude_desktop_config_paths(&win).is_empty());
+        std::fs::create_dir_all(root.join("appdata/Claude")).unwrap();
+        assert_eq!(
+            claude_desktop_config_paths(&win),
+            vec![root.join("appdata/Claude/claude_desktop_config.json")]
+        );
+        assert_eq!(
+            claude_desktop_entry(&win).unwrap(),
+            json!({ "command": "/home/me/.local/bin/mdview", "args": ["mcp"] })
+        );
+
+        let mac = desktop_ctx("macos", &root);
+        assert!(claude_desktop_config_paths(&mac).is_empty());
+        let dir = root.join("home/Library/Application Support/Claude");
+        std::fs::create_dir_all(&dir).unwrap();
+        assert_eq!(
+            claude_desktop_config_paths(&mac),
+            vec![dir.join("claude_desktop_config.json")]
+        );
+
+        // Plain Linux has no Claude Desktop.
+        assert!(claude_desktop_config_paths(&desktop_ctx("linux", &root)).is_empty());
+    }
+
+    #[test]
+    fn desktop_check_skips_without_the_app_and_registers_with_it() {
+        let root = tmp("desk-check");
+        let ctx = desktop_ctx("macos", &root);
+        assert!(matches!(
+            check_mcp_claude_desktop_in(&ctx, false, true, true).status,
+            Status::Skip
+        ));
+        assert!(matches!(
+            check_mcp_claude_desktop_in(&ctx, false, true, false).status,
+            Status::Skip
+        ));
+
+        let dir = root.join("home/Library/Application Support/Claude");
+        std::fs::create_dir_all(&dir).unwrap();
+        let cfg = dir.join("claude_desktop_config.json");
+        std::fs::write(&cfg, r#"{"preferences":{"a":1}}"#).unwrap();
+        // Without --fix nothing is written.
+        assert!(matches!(
+            check_mcp_claude_desktop_in(&ctx, false, false, true).status,
+            Status::Manual
+        ));
+        assert!(!cfg
+            .with_file_name("claude_desktop_config.json.bak")
+            .exists());
+
+        assert!(matches!(
+            check_mcp_claude_desktop_in(&ctx, false, true, true).status,
+            Status::Fixed
+        ));
+        let v: Value = serde_json::from_str(&std::fs::read_to_string(&cfg).unwrap()).unwrap();
+        assert_eq!(v["preferences"]["a"], 1);
+        assert_eq!(v["mcpServers"]["mdview"]["args"][0], "mcp");
+        assert!(backup_path(&cfg).exists());
+        assert!(matches!(
+            check_mcp_claude_desktop_in(&ctx, false, true, true).status,
+            Status::Ok
+        ));
+    }
+
     #[test]
     fn json_registers_preserving_others_and_is_idempotent() {
         let p = tmp("json");
         std::fs::write(&p, r#"{"mcpServers":{"other":{"command":"x"}},"foo":1}"#).unwrap();
-        let (s, _) = register_json_mcp(&p, false, true);
+        let (s, _) = register_json_mcp(&p, native_mcp_entry(), false, true);
         assert_eq!(s, Status::Fixed);
         let v: Value = serde_json::from_str(&std::fs::read_to_string(&p).unwrap()).unwrap();
         assert_eq!(v["mcpServers"]["mdview"]["args"][0].as_str(), Some("mcp"));
         assert_eq!(v["mcpServers"]["other"]["command"], "x"); // untouched
         assert_eq!(v["foo"], 1); // unrelated key untouched
         assert!(backup_path(&p).exists());
-        let (s2, _) = register_json_mcp(&p, false, true);
+        let (s2, _) = register_json_mcp(&p, native_mcp_entry(), false, true);
         assert_eq!(s2, Status::Ok); // idempotent
         std::fs::remove_file(&p).ok();
         std::fs::remove_file(backup_path(&p)).ok();
@@ -1065,7 +1379,7 @@ mod mcp_register_tests {
     #[test]
     fn json_dry_run_writes_nothing() {
         let p = tmp("jsondry");
-        let (s, _) = register_json_mcp(&p, true, true);
+        let (s, _) = register_json_mcp(&p, native_mcp_entry(), true, true);
         assert_eq!(s, Status::Manual);
         assert!(!p.exists());
     }
