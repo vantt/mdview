@@ -39,10 +39,29 @@ Write-Info "target: $Target"
 Write-Info "into:   $InstallDir"
 
 $DestExe = Join-Path $InstallDir "$Bin.exe"
+$TmpExe = "$DestExe.download"
+$Downloaded = $false
 try {
-    Invoke-WebRequest -Uri $Url -OutFile $DestExe -UseBasicParsing
-    Write-Info "downloaded prebuilt binary"
+    Invoke-WebRequest -Uri $Url -OutFile $TmpExe -UseBasicParsing
+    $Downloaded = $true
 } catch {
+    Remove-Item -Force $TmpExe -ErrorAction SilentlyContinue
+    $status = $_.Exception.Response.StatusCode.value__
+    if ($status -ne 404) {
+        Write-ErrExit "download failed ($($_.Exception.Message)) from $Url; check your network and re-run"
+    }
+}
+if ($Downloaded) {
+    # A running mdview.exe (e.g. `mdview serve`) cannot be overwritten, but it
+    # can be renamed: move it aside, then put the new binary in place.
+    if (Test-Path $DestExe) {
+        $OldExe = "$DestExe.old"
+        Remove-Item -Force $OldExe -ErrorAction SilentlyContinue
+        Move-Item -Force $DestExe $OldExe
+    }
+    Move-Item -Force $TmpExe $DestExe
+    Write-Info "downloaded prebuilt binary"
+} else {
     if (Get-Command cargo -ErrorAction SilentlyContinue) {
         Write-Info "no prebuilt release found; building from source with cargo..."
         cargo install --git "https://github.com/$Repo" $Bin --root $InstallDir

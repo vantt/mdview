@@ -53,11 +53,21 @@ fi
 info "target: $TARGET"
 info "into:   $DIR"
 
-if curl -fsSL "$URL" -o "$DIR/$BIN" 2>/dev/null; then
-  chmod +x "$DIR/$BIN"
+# Download beside the target, then rename over it: writing straight into the
+# binary fails with "Text file busy" while an `mdview serve` daemon runs from it,
+# whereas a rename replaces it safely (the running daemon keeps the old inode).
+TMP="$DIR/.$BIN.download.$$"
+trap 'rm -f "$TMP"' EXIT
+HTTP_CODE="$(curl -sSL -w '%{http_code}' -o "$TMP" "$URL")" || true
+
+if [ "$HTTP_CODE" = "200" ]; then
+  chmod +x "$TMP"
+  mv -f "$TMP" "$DIR/$BIN"
   info "downloaded prebuilt binary"
+elif [ "$HTTP_CODE" != "404" ]; then
+  err "download failed (HTTP ${HTTP_CODE:-none}) from $URL — check your network and re-run"
 elif command -v cargo >/dev/null 2>&1; then
-  info "no prebuilt release found; building from source with cargo…"
+  info "no prebuilt binary for $TARGET in release $VERSION; building from source with cargo…"
   cargo install --git "https://github.com/$REPO" "$BIN" --root "${DIR%/bin}"
 else
   err "no prebuilt binary for $TARGET and cargo not found. Install Rust, then: cargo install --git https://github.com/$REPO"
