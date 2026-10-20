@@ -2489,7 +2489,7 @@ dependencies = [
 
 [[package]]
 name = "mdview-core"
-version = "0.8.7"
+version = "0.8.8"
 dependencies = [
  "ammonia",
  "anyhow",

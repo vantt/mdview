@@ -7,7 +7,7 @@ members = ["crates/mdview-core", "crates/mdview"]
 exclude = ["crates/mdview-desktop"]
 
 [workspace.package]
-version = "0.8.7"
+version = "0.8.8"
 edition = "2021"
 license = "MIT"
 authors = ["Van Tran"]
