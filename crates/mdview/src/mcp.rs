@@ -179,20 +179,24 @@ fn view_result(stdout: &str) -> Result<Value, String> {
 /// daemon), so keeping the formatting separate is what makes this behaviour
 /// testable at all.
 ///
-/// The file's path rides along as ordinary text next to the short link, because
+/// Each URL is a markdown link on its own line: Claude Desktop renders that as
+/// clickable, while a bare URL after an arrow or one in backticks is not
+/// reliably linked.
+///
+/// The file's path rides along as the link text next to the short link, because
 /// the link itself is opaque — without it, a transcript full of `/s/…` codes
 /// tells a reader nothing about which document each one was.
 fn viewable_text(urls: &[String], rel_path: &str, project_id: &str) -> String {
     let viewable = if urls.len() > 1 {
         let lines = urls
             .iter()
-            .map(|u| format!("  {rel_path} → {u}"))
+            .map(|u| format!("[{rel_path}]({u})"))
             .collect::<Vec<_>>()
             .join("\n");
         format!("Viewable at (pick a reachable IP):\n{lines}")
     } else {
         let primary = urls.first().map(String::as_str).unwrap_or_default();
-        format!("Viewable at: {rel_path} → {primary}")
+        format!("Viewable at:\n[{rel_path}]({primary})")
     };
     format!("{viewable}\nproject_id: {project_id}")
 }
@@ -224,10 +228,10 @@ mod tests {
         );
         assert_eq!(
             text,
-            "Viewable at: docs/history/short-link/DISCUSSION.md → \
-             http://design-lap:7700/s/a3f9c1d20b74\nproject_id: mdview"
+            "Viewable at:\n[docs/history/short-link/DISCUSSION.md]\
+             (http://design-lap:7700/s/a3f9c1d20b74)\nproject_id: mdview"
         );
-        assert_eq!(text.lines().count(), 2);
+        assert_eq!(text.lines().count(), 3);
     }
 
     #[test]
@@ -241,8 +245,8 @@ mod tests {
             "mdview",
         );
         assert!(text.contains("pick a reachable IP"));
-        assert!(text.contains("  docs/a.md → http://192.168.1.10:7700/s/a3f9c1d20b74"));
-        assert!(text.contains("  docs/a.md → http://10.0.0.5:7700/s/a3f9c1d20b74"));
+        assert!(text.contains("\n[docs/a.md](http://192.168.1.10:7700/s/a3f9c1d20b74)\n"));
+        assert!(text.contains("\n[docs/a.md](http://10.0.0.5:7700/s/a3f9c1d20b74)\n"));
     }
 
     /// The whole point of the feature: the emitted line has to stay inside a
@@ -255,8 +259,8 @@ mod tests {
             deep,
             "mdview",
         );
-        let url_line = text.lines().next().unwrap();
-        let url = url_line.split(" → ").nth(1).unwrap();
+        let url_line = text.lines().nth(1).unwrap();
+        let url = url_line.rsplit('(').next().unwrap().trim_end_matches(')');
         assert!(url.len() <= 40, "short url grew to {}: {url}", url.len());
     }
 
@@ -268,7 +272,7 @@ mod tests {
         let r = view_result(stdout).unwrap();
         assert_eq!(
             r["content"][0]["text"],
-            "Viewable at: a.md → http://h:7700/s/abc\nproject_id: mdview"
+            "Viewable at:\n[a.md](http://h:7700/s/abc)\nproject_id: mdview"
         );
         let s = &r["structuredContent"];
         assert_eq!(s["url"], "http://h:7700/s/abc");

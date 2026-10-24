@@ -28,7 +28,10 @@ if needed.
 
 ## Reporting the URL
 
-Tell the user: "You can view this at: `<url>`".
+Tell the user "You can view this at:" followed by the short `url` as a markdown
+link on its own line, `[<relative_path>](<url>)`. Never put the URL in backticks
+or a code block (Claude Desktop does not turn code into a link), and add no
+trailing punctuation. Use `url`, not `long_url`, which is not percent-encoded.
 
 When more than one URL comes back — the daemon is bound to `0.0.0.0` with no
 configured `hostname`, so it lists every reachable IP — show all of them and
