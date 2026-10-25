@@ -16,6 +16,7 @@ crates/mdview-desktop/target/
 # re-include a file inside an excluded directory.
 /.fgos/*
 !/.fgos/events.jsonl
+!/.fgos/events
 /.claude/worktrees/
 
 # Local agent tooling (AgentKit kit install + session state) — machine-local.
