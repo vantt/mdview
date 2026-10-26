@@ -1,7 +1,7 @@
 <h1 align="center">mdview</h1>
 
 <p align="center">
-  <strong>The markdown viewer built for the docs your AI agent actually writes.</strong>
+  <strong>Click, read and fix the docs your AI agent writes — even on a remote server.</strong>
 </p>
 
 <p align="center">
@@ -12,15 +12,15 @@
 </p>
 
 <p align="center">
-  One command turns a sprawling, multi-folder pile of markdown into a fast, linked,
-  live-reloading site in your browser — <strong>cross-folder links that never 404</strong>,
-  full-text search, Mermaid diagrams you can zoom, and a one-call hook so your AI agent
-  can open any doc it just wrote.
+  Your agent finishes with <code>Wrote docs/plans/payment-retry.md</code>, a path you can't click.
+  mdview turns it into a link: click it and the doc opens in your browser, rendered for
+  comfortable reading, with an Edit button when something's wrong.
+  No IDE, no hunting through folders, no extra tool.
 </p>
 
-<!-- ▶ HERO DEMO — add docs/assets/hero-demo.gif (or .mp4), then uncomment:
+<!-- ▶ HERO DEMO — add docs/assets/hero-demo.mp4 (or .gif), then uncomment:
 <p align="center">
-  <img src="docs/assets/hero-demo.gif" alt="mdview turning a project's markdown into a linked, live-reloading site" width="820">
+  <img src="docs/assets/hero-demo.gif" alt="An agent on a remote server hands back a link; one click opens the doc in the browser, where it is read and edited" width="820">
 </p>
 -->
 
@@ -28,23 +28,25 @@
 
 ## Why mdview?
 
-AI coding agents generate docs like a firehose: nested folders, `../src/api/README.md`
-links, Mermaid diagrams, tables, long code blocks. Open that in a typical single-folder
-viewer and half the links 404, there's no search, and every edit means a manual refresh.
+Coding agents increasingly run where the code runs: a dev server over SSH, a cloud box,
+a VM, WSL. They write plans, specs and reports there, then hand back a relative path.
+To read one, you connect an IDE, dig through the tree, and squint at raw markdown —
+tables out of line, Mermaid as code.
 
-mdview serves the **whole project** — at any folder depth — rewrites every internal link
-into its own URL namespace, and live-reloads on save. The docs your agent generates just… work.
+mdview runs next to your agent. The agent hands you a URL instead of a path, you click it
+from your laptop or phone, and the whole project is there: every cross-folder link
+resolved, diagrams drawn, search across all docs, and live reload while the agent keeps writing.
 
 | | |
 |---|---|
+| 🤖 **A link, not a path** | `mdview open --json <file>` (or the `mdview_view_file` MCP tool when there is no shell) hands your agent a clickable URL the moment it writes a doc. |
+| 📱 **Read anywhere** | Responsive layout, mobile sidebar drawer, light & dark. Browse from your laptop or phone over the LAN or an SSH tunnel. There is no login, so keep it on a network you trust. |
+| ✏️ **Edit in place** | Hit Edit on any doc, fix it in a CodeMirror editor with markdown highlighting, Ctrl+S saves straight to disk and re-renders. Refuses to clobber a file your agent changed meanwhile. |
+| 📊 **Diagrams that move** | Mermaid renders client-side with pan / zoom / fullscreen — and pinch-to-zoom on mobile. |
+| 📋 **Copy-ready code** | Syntax-highlighted code blocks with a one-tap copy button. |
 | 🔗 **Nothing 404s** | Every internal link across every folder is resolved into one URL namespace. Click straight through `../`, `./sub/`, anchors — no dead ends. |
 | ⚡ **Live reload** | A filesystem watcher pushes changes over WebSocket. Save on disk, the page updates itself. |
 | 🔍 **Find anything** | Full-text search across the entire project (SQLite FTS5) plus fuzzy file-jump. |
-| 📊 **Diagrams that move** | Mermaid renders client-side with pan / zoom / fullscreen — and pinch-to-zoom on mobile. |
-| 📋 **Copy-ready code** | Syntax-highlighted code blocks with a one-tap copy button. |
-| ✏️ **Edit in place** | Hit Edit on any doc, fix it in a CodeMirror editor with markdown highlighting, Ctrl+S saves straight to disk and re-renders. Refuses to clobber a file your agent changed meanwhile. |
-| 🤖 **Agent-native** | `mdview open --json <file>` (or the `mdview_view_file` MCP tool when there is no shell) hands your agent a clickable URL the moment it writes a doc. |
-| 📱 **Read anywhere** | Responsive layout, mobile sidebar drawer, light & dark. Browse from your phone over the LAN or an SSH tunnel. |
 | 🦀 **One binary** | Written in Rust. No runtime, no Node, no Docker. Install and go. |
 
 ---
