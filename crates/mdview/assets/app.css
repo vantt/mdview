@@ -568,6 +568,17 @@ main.fg-page {
 .breadcrumb + .fg-reading {
   margin-top: var(--space-5);
 }
+/* `.fg-reading` centres its column with two `minmax(0, 1fr)` side tracks,
+   which collapse to 0 once `.content` is narrower than the reading column
+   plus gutters (sidebar open, under ~1300px wide): the text then sits flush
+   against the sidebar's edge. Keep the same inline gutter the breadcrumb bar
+   above uses. Split view sets its own padding (`.content.is-split`); phones
+   (≤700px) already get their gutter elsewhere, so they are left alone. */
+@media (min-width: 701px) {
+  .content > .fg-reading {
+    padding-inline: var(--space-6);
+  }
+}
 .breadcrumb .sep {
   margin: 0 var(--space-0);
   color: var(--color-text-subtle);
