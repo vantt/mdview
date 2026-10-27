@@ -8,7 +8,7 @@
   <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-blue.svg"></a>
   <img alt="Built with Rust" src="https://img.shields.io/badge/built%20with-Rust-orange?logo=rust&logoColor=white">
   <img alt="Single binary" src="https://img.shields.io/badge/single-binary-brightgreen">
-  <img alt="Works with Claude Code" src="https://img.shields.io/badge/works%20with-Claude%20Code%20(MCP)-8A63D2">
+  <img alt="Works with Claude Code, Codex and Claude Desktop" src="https://img.shields.io/badge/works%20with-Claude%20Code%20%C2%B7%20Codex%20%C2%B7%20Claude%20Desktop-8A63D2">
 </p>
 
 <p align="center">
@@ -17,12 +17,6 @@
   comfortable reading, with an Edit button when something's wrong.
   No IDE, no hunting through folders, no extra tool.
 </p>
-
-<!-- ▶ HERO DEMO — add docs/assets/hero-demo.mp4 (or .gif), then uncomment:
-<p align="center">
-  <img src="docs/assets/hero-demo.gif" alt="An agent on a remote server hands back a link; one click opens the doc in the browser, where it is read and edited" width="820">
-</p>
--->
 
 ---
 
@@ -41,12 +35,13 @@ resolved, diagrams drawn, search across all docs, and live reload while the agen
 |---|---|
 | 🤖 **A link, not a path** | `mdview open --json <file>` (or the `mdview_view_file` MCP tool when there is no shell) hands your agent a clickable URL the moment it writes a doc. |
 | 📱 **Read anywhere** | Responsive layout, mobile sidebar drawer, light & dark. Browse from your laptop or phone over the LAN or an SSH tunnel, behind a login token. |
-| ✏️ **Edit in place** | Hit Edit on any doc, fix it in a CodeMirror editor with markdown highlighting, Ctrl+S saves straight to disk and re-renders. Refuses to clobber a file your agent changed meanwhile. |
-| 📊 **Diagrams that move** | Mermaid renders client-side with pan / zoom / fullscreen — and pinch-to-zoom on mobile. |
-| 📋 **Copy-ready code** | Syntax-highlighted code blocks with a one-tap copy button. |
 | 🔗 **Nothing 404s** | Every internal link across every folder is resolved into one URL namespace. Click straight through `../`, `./sub/`, anchors — no dead ends. |
+| 📊 **Diagrams that move** | Mermaid renders client-side with pan / zoom / fullscreen — and pinch-to-zoom on mobile. |
+| ↔️ **Expandable tables** | Wide tables stay in the text column and scroll sideways; one click on the button in the header row widens them to the full page, and back. |
+| ✏️ **Edit in place** | Hit Edit on any doc, fix it in a CodeMirror editor with markdown highlighting, Ctrl+S saves straight to disk and re-renders. Refuses to clobber a file your agent changed meanwhile. |
 | ⚡ **Live reload** | A filesystem watcher pushes changes over WebSocket. Save on disk, the page updates itself. |
 | 🔍 **Find anything** | Full-text search across the entire project (SQLite FTS5) plus fuzzy file-jump. |
+| 📋 **Copy-ready code** | Syntax-highlighted code blocks with a one-tap copy button. |
 | 🦀 **One binary** | Written in Rust. No runtime, no Node, no Docker. Install and go. |
 
 ---
@@ -55,17 +50,26 @@ resolved, diagrams drawn, search across all docs, and live reload while the agen
 
 https://github.com/user-attachments/assets/ddc36bcb-4bcc-4894-b2fe-fb93639fa853
 
-<!-- ▶ SCREENSHOTS — see "Media checklist" at the bottom for exact shots/sizes. -->
 <table>
   <tr>
-    <td width="50%"><img src="docs/assets/shot-reading.png" alt="Reading view: sidebar file tree, rendered doc, on-this-page TOC"><br><em align="center">Reading view — file tree, rendered doc, live TOC</em></td>
+    <td colspan="2"><img src="docs/assets/shot-reading.png" alt="Reading view: sidebar file tree, rendered plan with a table, on-this-page TOC and backlinks"><br><em>Reading view — file tree, rendered doc, on-this-page TOC, backlinks</em></td>
+  </tr>
+  <tr>
+    <td width="50%"><img src="docs/assets/shot-mermaid.png" alt="Mermaid sequence diagram with zoom and fullscreen controls"><br><em>Mermaid with pan / zoom / fullscreen</em></td>
     <td width="50%"><img src="docs/assets/shot-search.png" alt="Full-text search results across a project"><br><em>Project-wide full-text search</em></td>
   </tr>
   <tr>
-    <td><img src="docs/assets/shot-mermaid.png" alt="Mermaid diagram with zoom controls"><br><em>Mermaid with pan / zoom / fullscreen</em></td>
-    <td><img src="docs/assets/shot-mobile.png" alt="mdview on a phone with the sidebar drawer open"><br><em>Mobile — sidebar drawer, pinch-zoom diagrams</em></td>
+    <td><img src="docs/assets/shot-edit.png" alt="Editor with markdown source on the left and the live preview on the right"><br><em>Edit in place — the preview follows as you type</em></td>
+    <td><img src="docs/assets/shot-tables.png" alt="Eight-column table widened to the full page"><br><em>Wide table widened to the full page</em></td>
   </tr>
 </table>
+
+<p align="center">
+  <img src="docs/assets/shot-mobile.png" alt="mdview on a phone showing the same plan" width="260">
+  &nbsp;
+  <img src="docs/assets/shot-mobile-drawer.png" alt="mdview on a phone with the folder drawer open" width="260">
+  <br><em>On a phone — the same doc, and the folder drawer</em>
+</p>
 
 ---
 
@@ -73,15 +77,17 @@ https://github.com/user-attachments/assets/ddc36bcb-4bcc-4894-b2fe-fb93639fa853
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/vantt/mdview/main/install.sh | sh
-mdview doctor --fix     # let agents run `mdview open` and install the /mdview skill
 ```
 
 Windows (PowerShell):
 
 ```powershell
 irm https://raw.githubusercontent.com/vantt/mdview/main/install.ps1 | iex
-mdview doctor --fix     # let agents run `mdview open` and install the /mdview skill
 ```
+
+The shell installer puts `mdview` in the first writable folder of `/usr/local/bin`,
+`~/.local/bin` and `~/.mdview/bin` (on Windows: `%USERPROFILE%\.mdview\bin`). If it warns
+that the folder is not on your `PATH`, add it (or open a new shell) before you go on.
 
 Upgrade later with `mdview update` (`--check` to only look; see [usage](docs/usage.md#upgrading)).
 Remove it with `mdview uninstall` (`--purge` also deletes config and index; see [usage](docs/usage.md#uninstalling)).
@@ -94,22 +100,50 @@ cargo install --git https://github.com/vantt/mdview mdview
 
 ---
 
-## Agent integration (CLI first)
+## Quick start
 
+```sh
+mdview open docs/architecture.md
 ```
+
+This starts mdview's background server (the *daemon*) if it is not running yet, indexes the
+file and its neighbours, and prints a link. Open it and sign in with the login token
+**`demo`**. <http://localhost:7700> lists every project you have opened; edits on disk
+live-reload the page.
+
+Out of the box the daemon listens on every network interface (port 7700) with that default
+token, so it works from your laptop or phone right away. To lock it down, set your own
+`web_secret` in `~/.mdview/config.toml` (`mdview config edit`) and run `mdview restart`.
+
+---
+
+## Use it with your agent
+
+Run this once in each project, from the project root:
+
+```sh
 mdview doctor --fix
 ```
 
-Agents call the CLI: `mdview open --json <absolute-path-to-file.md>` prints a JSON object
-with `url`, `urls`, `long_url`, `long_urls`, `path`, `code` and `project_id`, auto-registering
-the project and starting the daemon. `doctor --fix` adds the Claude Code permission
-`Bash(mdview open:*)` to `~/.claude/settings.json` (after a timestamped backup; a settings
-file that is not valid JSON is never touched), installs the `/mdview` skill, and syncs the
-agent instruction block. It no longer registers the MCP server by default.
+It sets up three things:
 
-MCP is only needed for clients with no shell, chiefly **Claude Desktop**:
+- **An instruction block** in `AGENTS.md` and `CLAUDE.md` in the current folder (it creates
+  them if they are missing). It tells the agent to run `mdview open --json <file>` after it
+  writes a doc and to hand you the link, so you don't have to ask.
+- **A Claude Code permission**, `Bash(mdview open:*)` in `~/.claude/settings.json`, so Claude
+  Code runs that command without prompting (after a timestamped backup; a settings file that
+  is not valid JSON is never touched).
+- **The `/mdview` skill** for Claude Code: type `/mdview docs/spec/prd.md` to get a link on
+  demand.
 
-```
+The permission and the skill are global; the instruction block is per project. To add the
+block by hand (say, to your global `~/.claude/CLAUDE.md`), copy it from
+[`docs/mdview-agents-template.md`](docs/mdview-agents-template.md).
+
+**No shell, as in Claude Desktop?** Use MCP (Model Context Protocol, how such apps call
+external tools) instead:
+
+```sh
 mdview doctor --fix --mcp
 ```
 
@@ -119,61 +153,30 @@ detected. It is a thin proxy that runs `mdview` per call, so an `mdview update` 
 without reconnecting. With mdview inside WSL, Claude Desktop on Windows is registered
 through `wsl.exe`.
 
-Drop the snippet from [`docs/mdview-agents-template.md`](docs/mdview-agents-template.md)
-into your project's `AGENTS.md` / `CLAUDE.md`, and your agent will surface a viewable URL
-the moment it finishes writing docs.
-
-**Indexing is on demand.** Nothing scans the whole repo in the background: a file is
-indexed when its URL is opened (together with its link targets and sibling markdown files),
-and a project is fully indexed on its first content search. `mdview refresh` forces a full
-sync. Projects idle for 14 days are cleaned up automatically.
-
-**Upgrading.** The registry is rebuilt as `~/.mdview/registry-v4.db` (it is a disposable
-cache); `doctor --fix` removes the old `registry.db`. A running daemon from an older build is
-restarted automatically the next time the CLI needs it; older builds keep using
-`registry.db`.
-
-<!-- ▶ OPTIONAL VIDEO — agent → view_file → browser. See "Media checklist". -->
-
 ---
 
-## Use in 30 seconds
+## Reading from a remote server
 
-```sh
-mdview open docs/architecture.md
-```
+Install mdview on the server, next to your agent. Nothing to configure: the daemon listens
+on `0.0.0.0:7700` and the links it hands out carry the server's address, so any laptop or
+phone that can reach the server (same LAN, a VPN, Tailscale) opens them with a click.
 
-That's it. The daemon **auto-starts**, indexes the file and its neighbours, resolves the links, and prints
-a browser URL. Open <http://localhost:7700> to browse every project; edits on disk
-live-reload the page.
+To show a friendlier name in the links, such as `build-01` or a Tailscale name, set
+`hostname` under `[server]` in `~/.mdview/config.toml` and run `mdview restart`.
 
-**From inside an AI agent (Claude Code, Codex, …):** say your agent just wrote
-`docs/spec/prd.md`. Two ways to see it:
-
-- **Skill:** run `/mdview docs/spec/prd.md` in the agent's terminal — it replies with a URL to open.
-- **Agent wired up (`doctor --fix`)?** No need to ask — the agent runs `mdview open --json`
-  itself and hands you the URL right after it
-  finishes writing the file.
-
-**Reading from a remote server over SSH?** Forward the port and browse locally:
-
-```sh
-ssh -L 7700:localhost:7700 user@host   # then open http://localhost:7700
-```
-
-> mdview can also bind your LAN (`mdview serve --host 0.0.0.0`) to read from a phone or
-> another machine. Sign-in is required (a login token, auto-generated on first start —
-> or Cloudflare Access, if you configure it) — details in the [usage guide](docs/usage.md).
+**Only have SSH?** Forward the port with `ssh -L 7700:localhost:7700 user@host` and set
+`hostname = "localhost"`, so the links open through the tunnel. Cloudflare Access can stand
+in for the login token; see the [usage guide](docs/usage.md#authentication).
 
 ---
-
 
 ## CLI
 
 ```sh
 mdview open <file.md>                # print the browser URL (auto-starts the daemon)
+mdview list                          # registered projects and their ids
+mdview search "query" --project ID   # full-text search in one project (FTS5)
 mdview register <dir> [--name ...]   # register a project (indexed on view/search)
-mdview search "query"                # full-text search (FTS5)
 mdview status                        # is the daemon up?
 mdview config edit                   # edit ~/.mdview/config.toml in $EDITOR
 mdview restart                       # restart the daemon (apply config changes)
@@ -181,8 +184,8 @@ mdview doctor [--fix] [--mcp]        # diagnose & repair the integration
 mdview serve [--host H] [--port P]   # optional: pre-start / bind a custom address
 ```
 
-Most commands accept `--json` for scripting. Full reference, SSH workflows, settings, and
-the desktop app live in the **[usage guide](docs/usage.md)**.
+Most commands accept `--json` for scripting. Full reference, settings, upgrading and the
+desktop app live in the **[usage guide](docs/usage.md)**.
 
 ---
 
@@ -191,8 +194,9 @@ the desktop app live in the **[usage guide](docs/usage.md)**.
 One daemon owns the registry (`~/.mdview/registry-v4.db`); browser tabs are just clients. On an
 `open` / `view_file` call the server auto-creates the project, indexes the target file (plus its
 link targets and sibling markdown files), and returns the URL; the whole project is indexed on
-its first content search. A filesystem watcher keeps the index current
-and pushes a reload signal over WebSocket.
+its first content search. Nothing scans the repo in the background, and projects idle for
+14 days are cleaned up. A filesystem watcher keeps the index current and pushes a reload
+signal over WebSocket.
 
 - **Rendering:** comrak (GFM) → server-side syntect highlight → ammonia sanitize. Mermaid renders client-side.
 - **Search:** SQLite FTS5.
