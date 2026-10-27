@@ -439,49 +439,14 @@ async fn project_home(
     State(st): State<AppState>,
     Path(id): Path<String>,
 ) -> Response {
-    let engine = st.engine.clone();
-    let project_id = id.clone();
-    let listed = tokio::task::spawn_blocking(move || engine.sidebar_files(&project_id)).await;
-    let listed = match listed {
-        Ok(r) => r,
-        Err(e) => return internal_error(&format!("listing task failed: {e}")),
+    let Ok(Some(project)) = st.engine.get_project(&id) else {
+        return not_found("project not found");
     };
-    match listed {
-        Ok(files) if !files.is_empty() => {
-            let entry = pick_entry_file(&files).unwrap_or(&files[0]);
-            Redirect::to(&format!("/p/{}/{}", id, entry.rel_path)).into_response()
-        }
-        Ok(_) => not_found("project has no markdown files"),
-        Err(_) => not_found("project not found"),
-    }
+    folder_response(&st, project, String::new()).await
 }
 
-/// Which file a project opens to — a fixed, predictable rule instead of
-/// "whatever the index lists first". Precedence: a `README.md` wins over
-/// everything, then an `index.md`, then any other file; within the same rank the
-/// shallowest path wins, then case-insensitive alphabetical order. So a
-/// project's README is the landing page when it has one, and the choice never
-/// looks random.
-fn pick_entry_file(
-    files: &[mdview_core::domain::IndexedFile],
-) -> Option<&mdview_core::domain::IndexedFile> {
-    fn depth(rel: &str) -> usize {
-        rel.bytes().filter(|&b| b == b'/').count()
-    }
-    files.iter().min_by(|a, b| {
-        entry_rank(&a.rel_path)
-            .cmp(&entry_rank(&b.rel_path))
-            .then_with(|| depth(&a.rel_path).cmp(&depth(&b.rel_path)))
-            .then_with(|| {
-                a.rel_path
-                    .to_ascii_lowercase()
-                    .cmp(&b.rel_path.to_ascii_lowercase())
-            })
-    })
-}
-
-/// README beats index.md beats everything else — the ranking `pick_entry_file`
-/// and `pick_folder_landing` both sort by.
+/// README beats index.md beats everything else — the ranking
+/// `pick_folder_landing` sorts by.
 fn entry_rank(rel: &str) -> u8 {
     match rel
         .rsplit('/')
@@ -496,11 +461,10 @@ fn entry_rank(rel: &str) -> u8 {
     }
 }
 
-/// The README/index a folder's *direct* children offer, if any. Same
-/// precedence as `pick_entry_file`, but scoped to one folder's immediate
-/// files (not the whole project) and with no "just pick something" fallback:
-/// a folder whose only files are ordinary docs stays a 404 rather than
-/// guessing which one the visitor meant. `folder` is a rel-path prefix with
+/// The README/index a folder's *direct* children offer, if any, README
+/// first. No "just pick something" fallback: a folder whose only files are
+/// ordinary docs gets a listing rather than a guess at which one the visitor
+/// meant. `folder` is a rel-path prefix with
 /// no trailing slash (`""` for the project root).
 fn pick_folder_landing<'a>(
     files: &'a [mdview_core::domain::IndexedFile],
@@ -573,25 +537,64 @@ async fn project_path(
             return asset_response(&abs, bytes);
         }
     }
-    // Neither a file nor an asset — if it names a folder with a README
-    // (or index) among its direct children, redirect there, the same
-    // landing-page convention project_home uses at the project root. A
-    // folder without one gets a listing of its docs instead; only a path
-    // with no docs under it at all is a 404.
+    // Neither a file nor an asset — maybe a folder.
+    folder_response(&st, project, path.trim_end_matches('/').to_string()).await
+}
+
+/// What a Docs-section folder URL shows.
+enum FolderView {
+    /// Its README/index, by relative path.
+    Landing(String),
+    /// A rendered listing of the docs under it.
+    Listing(String),
+    /// No docs under it, but the Code section can open it.
+    Code,
+    NotFound,
+}
+
+/// Resolve a folder (`""` = project root) for the Docs section: land on its
+/// README/index, else list its docs, else hand a real folder with no docs to
+/// the Code section, else 404. Every folder — root included — follows the
+/// same rule, so a folder click always opens that folder.
+fn resolve_folder(
+    engine: &Engine,
+    project: &mdview_core::domain::Project,
+    folder: &str,
+) -> FolderView {
+    let files = engine.sidebar_files(&project.id).unwrap_or_default();
+    if let Some(f) = pick_folder_landing(&files, folder) {
+        return FolderView::Landing(f.rel_path.clone());
+    }
+    // The same folder as the Code section sees it (`list_dir` applies Code's
+    // access rules); `None` when Code can't open it, so no link leads to a 404.
+    let code = mdview_core::code_source::list_dir(
+        &project.root_path,
+        folder,
+        &engine.config.indexing.exclude_patterns,
+    )
+    .ok();
+    match views::docs_dir_page(project, folder, &files, code.as_ref()) {
+        Some(page) => FolderView::Listing(page),
+        None if code.is_some() => FolderView::Code,
+        None => FolderView::NotFound,
+    }
+}
+
+async fn folder_response(
+    st: &AppState,
+    project: mdview_core::domain::Project,
+    folder: String,
+) -> Response {
     let engine = st.engine.clone();
-    let (land_id, folder) = (id.clone(), path.trim_end_matches('/').to_string());
-    let landing = tokio::task::spawn_blocking(move || {
-        let files = engine.sidebar_files(&land_id).unwrap_or_default();
-        match pick_folder_landing(&files, &folder) {
-            Some(f) => Ok(f.rel_path.clone()),
-            None => Err(views::docs_dir_page(&project, &folder, &files)),
-        }
-    })
-    .await;
-    match landing {
-        Ok(Ok(rel)) => Redirect::to(&format!("/p/{id}/{rel}")).into_response(),
-        Ok(Err(Some(page))) => Html(page).into_response(),
-        Ok(Err(None)) => not_found("file not found"),
+    let id = project.id.clone();
+    let rel = folder.clone();
+    let view =
+        tokio::task::spawn_blocking(move || resolve_folder(&engine, &project, &folder)).await;
+    match view {
+        Ok(FolderView::Landing(file)) => Redirect::to(&format!("/p/{id}/{file}")).into_response(),
+        Ok(FolderView::Listing(page)) => Html(page).into_response(),
+        Ok(FolderView::Code) => Redirect::to(&format!("/p/{id}/_code/{rel}")).into_response(),
+        Ok(FolderView::NotFound) => not_found("file not found"),
         Err(e) => internal_error(&format!("listing task failed: {e}")),
     }
 }
@@ -1190,33 +1193,6 @@ mod asset_response_tests {
     }
 
     #[test]
-    fn entry_file_prefers_readme_then_index_then_shallow_alpha() {
-        // README wins even when a non-README sorts earlier alphabetically.
-        let files = vec![f("architecture.md"), f("README.md"), f("guide.md")];
-        assert_eq!(pick_entry_file(&files).unwrap().rel_path, "README.md");
-
-        // README anywhere beats a root-level non-README (README is the rule).
-        let files = vec![f("guide.md"), f("docs/README.md")];
-        assert_eq!(pick_entry_file(&files).unwrap().rel_path, "docs/README.md");
-
-        // A shallower README beats a deeper one.
-        let files = vec![f("docs/README.md"), f("README.md")];
-        assert_eq!(pick_entry_file(&files).unwrap().rel_path, "README.md");
-
-        // No README → index.md wins.
-        let files = vec![f("zoo.md"), f("index.md"), f("apple.md")];
-        assert_eq!(pick_entry_file(&files).unwrap().rel_path, "index.md");
-
-        // Neither → shallowest, then alphabetical.
-        let files = vec![f("docs/a.md"), f("beta.md"), f("alpha.md")];
-        assert_eq!(pick_entry_file(&files).unwrap().rel_path, "alpha.md");
-
-        // Case-insensitive basename match.
-        let files = vec![f("intro.md"), f("ReadMe.md")];
-        assert_eq!(pick_entry_file(&files).unwrap().rel_path, "ReadMe.md");
-    }
-
-    #[test]
     fn folder_landing_prefers_readme_then_index_direct_children_only() {
         // README among direct children wins.
         let files = vec![
@@ -1239,7 +1215,7 @@ mod asset_response_tests {
             "docs/architect/index.md"
         );
 
-        // Neither README nor index among direct children → no guess, 404.
+        // Neither README nor index among direct children → no guess.
         let files = vec![f("docs/architect/guide.md")];
         assert!(pick_folder_landing(&files, "docs/architect").is_none());
 
@@ -1651,8 +1627,10 @@ mod auth_wiring_tests {
         std::fs::remove_dir_all(&dir).ok();
     }
 
-    /// A Docs-section folder URL lands on its README when it has one, lists
-    /// its docs when it doesn't, and 404s only when no doc lives under it.
+    /// A Docs-section folder URL — the project root included — lands on its
+    /// README when it has one, lists its docs when it doesn't (pointing at
+    /// Code for everything else in it), hands a folder with no docs to Code,
+    /// and 404s only when Code can't open it either.
     #[tokio::test]
     async fn docs_folder_redirects_to_readme_else_lists_its_docs() {
         let dir = std::env::temp_dir().join(format!("mdview-srv-folder-{}", std::process::id()));
@@ -1662,6 +1640,8 @@ mod auth_wiring_tests {
             ("with/README.md", "# With\n"),
             ("plain/guide.md", "# The Guide\n"),
             ("plain/deep/note.md", "# Note\n"),
+            ("plain/data.json", "{}\n"),
+            ("plain/src/lib.rs", "\n"),
             ("assets/logo.txt", "no docs here\n"),
         ] {
             let abs = dir.join(rel);
@@ -1680,12 +1660,16 @@ mod auth_wiring_tests {
             router(state.clone()).oneshot(req)
         };
 
-        let res = fetch("with/").await.unwrap();
-        assert_eq!(res.status(), StatusCode::SEE_OTHER);
-        assert_eq!(
-            res.headers()[header::LOCATION],
-            format!("/p/{}/with/README.md", project.id)
-        );
+        let pid = &project.id;
+        for (path, to) in [
+            ("", format!("/p/{pid}/README.md")),
+            ("with/", format!("/p/{pid}/with/README.md")),
+            ("assets", format!("/p/{pid}/_code/assets")),
+        ] {
+            let res = fetch(path).await.unwrap();
+            assert_eq!(res.status(), StatusCode::SEE_OTHER, "{path}");
+            assert_eq!(res.headers()[header::LOCATION], to, "{path}");
+        }
 
         let res = fetch("plain").await.unwrap();
         assert_eq!(res.status(), StatusCode::OK);
@@ -1693,7 +1677,6 @@ mod auth_wiring_tests {
             .await
             .unwrap();
         let html = String::from_utf8(bytes.to_vec()).unwrap();
-        let pid = &project.id;
         assert!(
             html.contains(&format!("href=\"/p/{pid}/plain/guide.md\"")),
             "{html}"
@@ -1702,9 +1685,14 @@ mod auth_wiring_tests {
             html.contains(&format!("href=\"/p/{pid}/plain/deep\"")),
             "{html}"
         );
-        assert!(!html.contains("_code/plain"), "{html}");
+        // data.json and src/ (no docs inside) are summed up, not listed.
+        assert!(!html.contains("plain/data.json"), "{html}");
+        assert!(
+            html.contains(&format!("href=\"/p/{pid}/_code/plain\">2 other items")),
+            "{html}"
+        );
 
-        for missing in ["assets", "nope/", "plain/missing"] {
+        for missing in ["nope/", "plain/missing", "../outside"] {
             let res = fetch(missing).await.unwrap();
             assert_eq!(res.status(), StatusCode::NOT_FOUND, "{missing}");
         }

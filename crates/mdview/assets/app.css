@@ -1730,3 +1730,7 @@ pre.mermaid.zoomable:focus-within .mermaid-controls {
 .fg-toggle__opt[aria-current="true"] { background: var(--color-warning-tint); color: var(--color-text); }
 .fg-search-status { margin: 4px 0 12px; color: var(--color-text-subtle); font-size: 0.8125rem; }
 .fg-search-error { color: var(--color-text); }
+.codelist__more {
+  color: var(--color-link);
+  white-space: nowrap;
+}

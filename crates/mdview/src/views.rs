@@ -431,7 +431,7 @@ pub fn code_dir_page(project: &Project, listing: &DirListing) -> String {
             modified: entry.modified,
         })
         .collect();
-    let main = folder_listing(project, "_code/", &listing.rel_path, &rows);
+    let main = folder_listing(project, "_code/", &listing.rel_path, &rows, "");
     dir_page(
         project,
         Section::Code,
@@ -446,10 +446,17 @@ pub fn code_dir_page(project: &Project, listing: &DirListing) -> String {
 /// Docs sidebar focused on that folder, and a main pane listing what the
 /// docs index holds there — subfolders that contain markdown, and the
 /// folder's own markdown files (by file name, with their title as a hint).
-/// Built from the indexed file list, not the filesystem, so it shows exactly
-/// what the Docs section can open. `None` when nothing indexed lives under
-/// `folder`, so the caller can 404 as before.
-pub fn docs_dir_page(project: &Project, folder: &str, files: &[IndexedFile]) -> Option<String> {
+/// Built from the same file list as the Docs sidebar, so the two always
+/// agree and every row opens in Docs. `code` is the folder as the Code
+/// section lists it, when Code can open it: whatever it holds beyond these
+/// rows is summed up in one "N other items · View in Code" link. `None` when
+/// no doc lives under `folder`.
+pub fn docs_dir_page(
+    project: &Project,
+    folder: &str,
+    files: &[IndexedFile],
+    code: Option<&DirListing>,
+) -> Option<String> {
     let prefix = if folder.is_empty() {
         String::new()
     } else {
@@ -503,7 +510,26 @@ pub fn docs_dir_page(project: &Project, folder: &str, files: &[IndexedFile]) -> 
     // that the folder itself, and matches no file, so nothing is marked active.
     let tree = file_tree(project, files, &prefix);
     let breadcrumb = breadcrumb(project, "", folder, false, "");
-    let main = folder_listing(project, "", folder, &rows);
+    let others = code
+        .map(|l| {
+            l.entries
+                .iter()
+                .filter(|e| !rows.iter().any(|r| r.name == e.name))
+                .count()
+        })
+        .unwrap_or(0);
+    let others = if others == 0 {
+        String::new()
+    } else {
+        format!(
+            " &middot; <a class=\"codelist__more\" href=\"/p/{pid}/_code/{folder}\">{n} \
+             · View in Code →</a>",
+            pid = esc(&project.id),
+            folder = esc(folder),
+            n = plural(others, "other item", "other items"),
+        )
+    };
+    let main = folder_listing(project, "", folder, &rows, &others);
     Some(dir_page(
         project,
         Section::Docs,
@@ -559,12 +585,19 @@ fn dir_page(
 }
 
 /// The main pane of a folder page: a column-aligned table (name / size /
-/// modified) under a folder header with counts. Links are
+/// modified) under a folder header with counts, followed by `meta_extra`
+/// (trusted HTML). Links are
 /// `/p/{pid}/{base}{rel}`, so `base` picks the section (`"_code/"` or `""`).
 /// The filter box and arrow-key row navigation are progressive enhancements
 /// wired by `app.js`, so the listing still works as plain links without
 /// scripts.
-fn folder_listing(project: &Project, base: &str, rel_path: &str, entries: &[ListingRow]) -> String {
+fn folder_listing(
+    project: &Project,
+    base: &str,
+    rel_path: &str,
+    entries: &[ListingRow],
+    meta_extra: &str,
+) -> String {
     let pid = esc(&project.id);
     let now = std::time::SystemTime::now();
 
@@ -681,7 +714,7 @@ fn folder_listing(project: &Project, base: &str, rel_path: &str, entries: &[List
       <header class="codelist__head">
         <div class="codelist__heading">
           <h1 class="codelist__title">{folder_icon}<span>{heading}</span></h1>
-          <p class="codelist__meta">{meta}</p>
+          <p class="codelist__meta">{meta}{meta_extra}</p>
         </div>
         {filter}
       </header>
