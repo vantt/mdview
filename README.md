@@ -136,6 +136,23 @@ It sets up three things:
 - **The `/mdview` skill** for Claude Code: type `/mdview docs/spec/prd.md` to get a link on
   demand.
 
+**What you'll see.** Ask for a doc the way you always do. When the agent is done, its reply
+ends with a link instead of a bare path:
+
+> **You:** Plan how we retry failed card payments. Put it in docs/plans.
+>
+> **Agent:** Wrote the plan: a retry schedule, a sequence diagram of the flow, and the
+> config change.
+>
+> [docs/plans/payment-retry.md](docs/assets/shot-reading.png)
+
+Click it and the doc opens in your browser (in this README, the link shows what opens). The
+agent does this on its own for docs that read better rendered: long ones, tables, Mermaid,
+several files. For anything else, ask it to "open it in mdview", or type `/mdview <file>`.
+With no `hostname` set (see [Reading from a remote server](#reading-from-a-remote-server))
+and several network addresses on the machine, you get one link per address; click the one
+your browser can reach.
+
 The permission and the skill are global; the instruction block is per project. To add the
 block by hand (say, to your global `~/.claude/CLAUDE.md`), copy it from
 [`docs/mdview-agents-template.md`](docs/mdview-agents-template.md).
