@@ -1,0 +1,22 @@
+{
+  "name": "mdview-hero-video",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "studio": "remotion studio",
+    "draft": "remotion render Hero ../out/hero-draft.mp4 --scale=0.5 --crf=30",
+    "render": "remotion render Hero ../out/hero-45s.mp4",
+    "render:readme": "remotion render HeroReadme ../out/hero-30s.mp4"
+  },
+  "dependencies": {
+    "@remotion/cli": "4.0.531",
+    "@remotion/media": "4.0.531",
+    "react": "19.3.0",
+    "react-dom": "19.3.0",
+    "remotion": "4.0.531"
+  },
+  "devDependencies": {
+    "@types/react": "19.2.2",
+    "typescript": "5.9.3"
+  }
+}

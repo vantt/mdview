@@ -1,0 +1,7 @@
+{
+  "theme": "terminal",
+  "editor": {
+    "restore_previous_session": false,
+    "hot_exit": false
+  }
+}
