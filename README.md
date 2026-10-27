@@ -1,7 +1,3 @@
-
-
-https://github.com/user-attachments/assets/ddc36bcb-4bcc-4894-b2fe-fb93639fa853
-
 <h1 align="center">mdview</h1>
 
 <p align="center">
@@ -56,6 +52,8 @@ resolved, diagrams drawn, search across all docs, and live reload while the agen
 ---
 
 ## See it
+
+https://github.com/user-attachments/assets/ddc36bcb-4bcc-4894-b2fe-fb93639fa853
 
 <!-- ▶ SCREENSHOTS — see "Media checklist" at the bottom for exact shots/sizes. -->
 <table>
