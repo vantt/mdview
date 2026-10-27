@@ -414,29 +414,174 @@ fn code_view_switch() -> &'static str {
 /// A directory in the Code section: the same listing rendered both in the
 /// sidebar (compact nav) and the main pane (with sizes and ages) — the two
 /// panes serve different roles, same as a file-explorer's tree-plus-detail
-/// split. The main pane is a column-aligned table (name / size / modified)
-/// under a folder header with counts; the filter box and arrow-key row
-/// navigation are progressive enhancements wired by `app.js`, so the
-/// listing still works as plain links without scripts.
+/// split. The main pane is `folder_listing`, shared with the Docs section's
+/// folder page.
 pub fn code_dir_page(project: &Project, listing: &DirListing) -> String {
     let tree = code_tree(project, listing, None);
     let breadcrumb = breadcrumb(project, "_code/", &listing.rel_path, false, "");
+    let rows: Vec<ListingRow> = listing
+        .entries
+        .iter()
+        .map(|entry| ListingRow {
+            rel: child_rel(&listing.rel_path, &entry.name),
+            name: entry.name.clone(),
+            hint: None,
+            is_dir: entry.is_dir,
+            size: entry.size,
+            modified: entry.modified,
+        })
+        .collect();
+    let main = folder_listing(project, "_code/", &listing.rel_path, &rows);
+    dir_page(
+        project,
+        Section::Code,
+        &tree,
+        &breadcrumb,
+        &main,
+        &listing.rel_path,
+    )
+}
+
+/// A folder in the Docs section that has no README/index to land on: the
+/// Docs sidebar focused on that folder, and a main pane listing what the
+/// docs index holds there — subfolders that contain markdown, and the
+/// folder's own markdown files (by file name, with their title as a hint).
+/// Built from the indexed file list, not the filesystem, so it shows exactly
+/// what the Docs section can open. `None` when nothing indexed lives under
+/// `folder`, so the caller can 404 as before.
+pub fn docs_dir_page(project: &Project, folder: &str, files: &[IndexedFile]) -> Option<String> {
+    let prefix = if folder.is_empty() {
+        String::new()
+    } else {
+        format!("{folder}/")
+    };
+    let mut rows: Vec<ListingRow> = Vec::new();
+    for f in files {
+        let Some(rest) = f.rel_path.strip_prefix(prefix.as_str()) else {
+            continue;
+        };
+        let modified = time::OffsetDateTime::parse(
+            &f.modified_at,
+            &time::format_description::well_known::Rfc3339,
+        )
+        .ok()
+        .map(std::time::SystemTime::from);
+        match rest.split_once('/') {
+            // A nested file: count it toward its top-level subfolder, whose
+            // age is that of its most recently modified doc.
+            Some((sub, _)) => match rows.iter_mut().find(|r| r.is_dir && r.name == sub) {
+                Some(row) => row.modified = row.modified.max(modified),
+                None => rows.push(ListingRow {
+                    rel: format!("{prefix}{sub}"),
+                    name: sub.to_string(),
+                    hint: None,
+                    is_dir: true,
+                    size: 0,
+                    modified,
+                }),
+            },
+            None => {
+                let hint = (!f.title.is_empty() && f.title != rest).then(|| f.title.clone());
+                rows.push(ListingRow {
+                    rel: f.rel_path.clone(),
+                    name: rest.to_string(),
+                    hint,
+                    is_dir: false,
+                    size: f.size_bytes,
+                    modified,
+                });
+            }
+        }
+    }
+    if rows.is_empty() {
+        return None;
+    }
+    rows.sort_by(|a, b| {
+        (!a.is_dir, a.name.to_lowercase()).cmp(&(!b.is_dir, b.name.to_lowercase()))
+    });
+    // The sidebar focuses the folder of `data-current`; a trailing slash makes
+    // that the folder itself, and matches no file, so nothing is marked active.
+    let tree = file_tree(project, files, &prefix);
+    let breadcrumb = breadcrumb(project, "", folder, false, "");
+    let main = folder_listing(project, "", folder, &rows);
+    Some(dir_page(
+        project,
+        Section::Docs,
+        &tree,
+        &breadcrumb,
+        &main,
+        folder,
+    ))
+}
+
+/// One entry of a folder listing's main pane — the shape both the Code
+/// (filesystem) and Docs (indexed markdown) listings reduce to.
+struct ListingRow {
+    /// Project-relative path; the link is `/p/{pid}/{base}{rel}`.
+    rel: String,
+    name: String,
+    /// Secondary text after the name (a doc's title).
+    hint: Option<String>,
+    is_dir: bool,
+    /// Bytes; ignored for folders.
+    size: u64,
+    modified: Option<std::time::SystemTime>,
+}
+
+/// Page shell around a folder listing: top bar with the section switch,
+/// sidebar, breadcrumb, then `main` in the Code-styled content pane.
+fn dir_page(
+    project: &Project,
+    section: Section,
+    tree: &str,
+    breadcrumb: &str,
+    main: &str,
+    rel_path: &str,
+) -> String {
+    let title = if rel_path.is_empty() {
+        project.name.as_str()
+    } else {
+        rel_path
+    };
+    let body_html = format!(
+        r#"{topbar}
+<div class="layout">
+  <aside id="sidebar" class="sidebar">{tree}</aside>
+  <div class="sidebar-backdrop"></div>
+  <main class="content content--code">
+    {breadcrumb}
+    {main}
+  </main>
+</div>"#,
+        topbar = topbar_full(sidebar_toggle(), &section_switch(project, section), ""),
+    );
+    layout(title, "", &body_html)
+}
+
+/// The main pane of a folder page: a column-aligned table (name / size /
+/// modified) under a folder header with counts. Links are
+/// `/p/{pid}/{base}{rel}`, so `base` picks the section (`"_code/"` or `""`).
+/// The filter box and arrow-key row navigation are progressive enhancements
+/// wired by `app.js`, so the listing still works as plain links without
+/// scripts.
+fn folder_listing(project: &Project, base: &str, rel_path: &str, entries: &[ListingRow]) -> String {
     let pid = esc(&project.id);
     let now = std::time::SystemTime::now();
 
     let mut rows = String::new();
-    if !listing.rel_path.is_empty() {
-        let parent = parent_dir(&listing.rel_path);
+    if !rel_path.is_empty() {
+        let parent = parent_dir(rel_path);
         let parent_name = if parent.is_empty() {
             project.name.as_str()
         } else {
             base_name(parent)
         };
         rows.push_str(&format!(
-            "<li><a class=\"codelist__row codelist__row--up\" href=\"/p/{pid}/_code/{parent}\" data-up>\
+            "<li><a class=\"codelist__row codelist__row--up\" href=\"/p/{pid}/{base}{parent}\" data-up>\
              <span class=\"codelist__name\">{icon}<span class=\"codelist__label\">..</span>\
              <span class=\"codelist__hint\">Up to {parent_name}</span></span></a></li>",
             pid = pid,
+            base = base,
             parent = esc(parent),
             icon = ICON_UP,
             parent_name = esc(parent_name),
@@ -444,8 +589,7 @@ pub fn code_dir_page(project: &Project, listing: &DirListing) -> String {
     }
 
     let (mut dir_count, mut file_count, mut total) = (0usize, 0usize, 0u64);
-    for entry in &listing.entries {
-        let rel = child_rel(&listing.rel_path, &entry.name);
+    for entry in entries {
         let (cls, icon, size) = if entry.is_dir {
             dir_count += 1;
             (
@@ -472,16 +616,23 @@ pub fn code_dir_page(project: &Project, listing: &DirListing) -> String {
                 )
             })
             .unwrap_or_default();
+        let hint = entry
+            .hint
+            .as_deref()
+            .map(|h| format!("<span class=\"codelist__hint\">{}</span>", esc(h)))
+            .unwrap_or_default();
         rows.push_str(&format!(
-            "<li><a class=\"{cls}\" href=\"/p/{pid}/_code/{rel}\" data-name=\"{name}\">\
-             <span class=\"codelist__name\">{icon}<span class=\"codelist__label\">{name}</span></span>\
+            "<li><a class=\"{cls}\" href=\"/p/{pid}/{base}{rel}\" data-name=\"{name}\">\
+             <span class=\"codelist__name\">{icon}<span class=\"codelist__label\">{name}</span>{hint}</span>\
              <span class=\"codelist__size\">{size}</span>\
              <span class=\"codelist__date\">{modified}</span></a></li>",
             cls = cls,
             pid = pid,
-            rel = esc(&rel),
+            base = base,
+            rel = esc(&entry.rel),
             name = esc(&entry.name),
             icon = icon,
+            hint = hint,
             size = size,
             modified = modified,
         ));
@@ -501,12 +652,12 @@ pub fn code_dir_page(project: &Project, listing: &DirListing) -> String {
         meta.join(" &middot; ")
     };
 
-    let heading = if listing.rel_path.is_empty() {
+    let heading = if rel_path.is_empty() {
         project.name.as_str()
     } else {
-        base_name(&listing.rel_path)
+        base_name(rel_path)
     };
-    let empty = if listing.entries.is_empty() {
+    let empty = if entries.is_empty() {
         "<p class=\"codelist__empty\">This folder is empty.</p>"
     } else {
         ""
@@ -518,26 +669,15 @@ pub fn code_dir_page(project: &Project, listing: &DirListing) -> String {
              <p class=\"codelist__nomatch\" hidden>No files or folders match “<span class=\"codelist__q\"></span>”.</p>\
              {empty}</div>",
     );
-    let filter = if listing.entries.len() > 1 {
+    let filter = if entries.len() > 1 {
         "<div class=\"codelist__filter\" hidden>\
          <input class=\"fg-input\" type=\"search\" placeholder=\"Filter this folder…\" aria-label=\"Filter this folder\" autocomplete=\"off\" spellcheck=\"false\" aria-controls=\"codelist-rows\"></div>"
     } else {
         ""
     };
 
-    let title = if listing.rel_path.is_empty() {
-        project.name.clone()
-    } else {
-        listing.rel_path.clone()
-    };
-    let body_html = format!(
-        r#"{topbar}
-<div class="layout">
-  <aside id="sidebar" class="sidebar">{tree}</aside>
-  <div class="sidebar-backdrop"></div>
-  <main class="content content--code">
-    {breadcrumb}
-    <div class="codelist"><div class="codelist__inner">
+    format!(
+        r#"<div class="codelist"><div class="codelist__inner">
       <header class="codelist__head">
         <div class="codelist__heading">
           <h1 class="codelist__title">{folder_icon}<span>{heading}</span></h1>
@@ -546,23 +686,10 @@ pub fn code_dir_page(project: &Project, listing: &DirListing) -> String {
         {filter}
       </header>
       {table}
-    </div></div>
-  </main>
-</div>"#,
-        topbar = topbar_full(
-            sidebar_toggle(),
-            &section_switch(project, Section::Code),
-            ""
-        ),
-        tree = tree,
-        breadcrumb = breadcrumb,
+    </div></div>"#,
         folder_icon = ICON_FOLDER_OPEN,
         heading = esc(heading),
-        meta = meta,
-        filter = filter,
-        table = table,
-    );
-    layout(&title, "", &body_html)
+    )
 }
 
 fn plural(n: usize, one: &str, many: &str) -> String {

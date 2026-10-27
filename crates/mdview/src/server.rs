@@ -574,19 +574,24 @@ async fn project_path(
         }
     }
     // Neither a file nor an asset — if it names a folder with a README
-    // (or index) among its direct children, redirect there instead of
-    // 404ing, the same landing-page convention project_home uses at the
-    // project root.
+    // (or index) among its direct children, redirect there, the same
+    // landing-page convention project_home uses at the project root. A
+    // folder without one gets a listing of its docs instead; only a path
+    // with no docs under it at all is a 404.
     let engine = st.engine.clone();
     let (land_id, folder) = (id.clone(), path.trim_end_matches('/').to_string());
     let landing = tokio::task::spawn_blocking(move || {
         let files = engine.sidebar_files(&land_id).unwrap_or_default();
-        pick_folder_landing(&files, &folder).map(|f| f.rel_path.clone())
+        match pick_folder_landing(&files, &folder) {
+            Some(f) => Ok(f.rel_path.clone()),
+            None => Err(views::docs_dir_page(&project, &folder, &files)),
+        }
     })
     .await;
     match landing {
-        Ok(Some(rel)) => Redirect::to(&format!("/p/{id}/{rel}")).into_response(),
-        Ok(None) => not_found("file not found"),
+        Ok(Ok(rel)) => Redirect::to(&format!("/p/{id}/{rel}")).into_response(),
+        Ok(Err(Some(page))) => Html(page).into_response(),
+        Ok(Err(None)) => not_found("file not found"),
         Err(e) => internal_error(&format!("listing task failed: {e}")),
     }
 }
@@ -1641,6 +1646,67 @@ mod auth_wiring_tests {
             assert_eq!(res.status(), StatusCode::NOT_FOUND, "{missing}");
             let body = json_body(res).await;
             assert_eq!(body, json!({ "ok": false, "error": "not_found" }));
+        }
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// A Docs-section folder URL lands on its README when it has one, lists
+    /// its docs when it doesn't, and 404s only when no doc lives under it.
+    #[tokio::test]
+    async fn docs_folder_redirects_to_readme_else_lists_its_docs() {
+        let dir = std::env::temp_dir().join(format!("mdview-srv-folder-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        for (rel, body) in [
+            ("README.md", "# Root\n"),
+            ("with/README.md", "# With\n"),
+            ("plain/guide.md", "# The Guide\n"),
+            ("plain/deep/note.md", "# Note\n"),
+            ("assets/logo.txt", "no docs here\n"),
+        ] {
+            let abs = dir.join(rel);
+            std::fs::create_dir_all(abs.parent().unwrap()).unwrap();
+            std::fs::write(abs, body).unwrap();
+        }
+        let state = test_state();
+        let (project, _) = state.engine.register(&dir, None).unwrap();
+        let sid = cookie_from(&login(router(state.clone()), TOKEN).await);
+        let fetch = |path: &str| {
+            let req = Request::builder()
+                .uri(format!("/p/{}/{path}", project.id))
+                .header(header::COOKIE, &sid)
+                .body(Body::empty())
+                .unwrap();
+            router(state.clone()).oneshot(req)
+        };
+
+        let res = fetch("with/").await.unwrap();
+        assert_eq!(res.status(), StatusCode::SEE_OTHER);
+        assert_eq!(
+            res.headers()[header::LOCATION],
+            format!("/p/{}/with/README.md", project.id)
+        );
+
+        let res = fetch("plain").await.unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        let bytes = axum::body::to_bytes(res.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let html = String::from_utf8(bytes.to_vec()).unwrap();
+        let pid = &project.id;
+        assert!(
+            html.contains(&format!("href=\"/p/{pid}/plain/guide.md\"")),
+            "{html}"
+        );
+        assert!(
+            html.contains(&format!("href=\"/p/{pid}/plain/deep\"")),
+            "{html}"
+        );
+        assert!(!html.contains("_code/plain"), "{html}");
+
+        for missing in ["assets", "nope/", "plain/missing"] {
+            let res = fetch(missing).await.unwrap();
+            assert_eq!(res.status(), StatusCode::NOT_FOUND, "{missing}");
         }
 
         std::fs::remove_dir_all(&dir).ok();
