@@ -23,9 +23,9 @@
     });
   }
 
-  // Chapter sidebar (C2 breadcrumb-zoom): always show exactly one folder —
-  // its subfolders (zoom in) and its files by title — with a clickable
-  // breadcrumb to zoom out. Default focus = the current file's folder.
+  // Chapter sidebar: always shows exactly one folder — its subfolders and its
+  // files by title — under a breadcrumb of its ancestors. Focus = the current
+  // file's folder; clicking a subfolder or crumb opens that folder's page.
   (function () {
     var root = document.getElementById("chapter");
     var data = document.getElementById("filelist");
@@ -46,43 +46,11 @@
       return e;
     }
 
-    // Direct (non-nested) files of a folder — same partition rule render()
-    // uses for its "here" list, factored out so a folder click can inspect
-    // its landing file before deciding whether to navigate or just zoom.
-    function directFilesOf(folder) {
-      var prefix = folder ? folder + "/" : "";
-      var out = [];
-      files.forEach(function (f) {
-        if (folder && f.p.indexOf(prefix) !== 0) return;
-        var rest = folder ? f.p.slice(prefix.length) : f.p;
-        if (rest.indexOf("/") < 0) out.push(f);
-      });
-      return out;
-    }
-
-    // A folder with no file of its own reads as dead air in the main pane —
-    // clicking it should open its README (or index, README taking priority)
-    // the way a file host would, instead of only zooming the sidebar.
-    function landingFileOf(folder) {
-      var readme = null, index = null;
-      directFilesOf(folder).forEach(function (f) {
-        var name = baseOf(f.p).toLowerCase().replace(/\.(md|markdown)$/, "");
-        if (name === "readme" && !readme) readme = f;
-        else if (name === "index" && !index) index = f;
-      });
-      return readme || index || null;
-    }
-
-    // Zoom the sidebar to `folder`; if it has a README/index, navigate the
-    // main pane to it too instead of leaving the folder click inert.
+    // A folder click opens that folder in the main pane: the server lands on
+    // its README/index when it has one, or lists its docs when it doesn't.
     function gotoFolder(folder) {
-      var landing = landingFileOf(folder);
-      if (landing) {
-        window.location.href = "/p/" + pid + "/" + landing.p;
-        return;
-      }
-      focus = folder;
-      render();
+      window.location.href = "/p/" + pid + "/" +
+        folder.split("/").map(encodeURIComponent).join("/");
     }
 
     var focus = dirOf(current); // start in the current file's folder
