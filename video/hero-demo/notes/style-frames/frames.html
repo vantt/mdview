@@ -1,0 +1,184 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>mdview style frames</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600;700&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  /* Bộ nhìn mdview: P1 (tối giản, nền tối, nét mảnh) + một màu nhấn kiểu P2.
+     Màu lấy từ design system Atelier của chính mdview (cocoa, ember). */
+  :root {
+    --bg: #0d0907;          /* sân khấu, tối hơn cocoa của UI */
+    --stage: #1a120e;       /* cocoa: nền UI mdview */
+    --panel: #221610;
+    --line: rgba(255, 236, 222, 0.07);
+    --line-strong: rgba(255, 236, 222, 0.16);
+    --text: #f4ede7;
+    --muted: #9b8a7f;
+    --dim: #5f524a;
+    --ember: #e9590c;       /* màu nhấn duy nhất */
+    --ember-hi: #ff7a2e;
+    --sans: 'Geist', system-ui, sans-serif;
+    --mono: 'Geist Mono', ui-monospace, monospace;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: #000; }
+  .frame {
+    position: relative; width: 1920px; height: 1080px; overflow: hidden;
+    background: radial-gradient(1200px 800px at 50% 45%, #171009 0%, var(--bg) 70%);
+    color: var(--text); font-family: var(--sans);
+  }
+  /* Vòng tròn nét mảnh như bản vẽ kỹ thuật */
+  .rings { position: absolute; inset: 0; pointer-events: none; }
+  .rings circle { fill: none; stroke: var(--line); }
+  .rings .tick { stroke: var(--line-strong); }
+  .caption {
+    position: absolute; left: 0; right: 0; bottom: 92px; text-align: center;
+    font-size: 54px; font-weight: 500; letter-spacing: -0.02em; line-height: 1.2;
+  }
+  .caption .sub { color: var(--muted); }
+  .mark { color: var(--ember); }
+
+  /* Cửa sổ terminal */
+  .term {
+    position: absolute; background: rgba(20, 14, 11, 0.92);
+    border: 1px solid var(--line-strong); border-radius: 18px;
+    box-shadow: 0 40px 120px rgba(0,0,0,.55);
+    font-family: var(--mono); font-size: 30px; line-height: 1.6; color: var(--text);
+  }
+  .term .bar { height: 54px; border-bottom: 1px solid var(--line); display: flex; align-items: center; padding: 0 22px; gap: 10px; }
+  .term .bar i { width: 13px; height: 13px; border-radius: 50%; background: var(--dim); display: block; opacity: .6; }
+  .term .bar span { margin-left: 14px; font-size: 20px; color: var(--muted); }
+  .term .body { padding: 34px 44px; }
+  .prompt { color: var(--muted); }
+  .host { color: var(--text); }
+  .agent { color: var(--text); }
+  .dot { color: var(--ember); }
+  .path { color: var(--muted); }
+  .link { color: var(--ember-hi); text-decoration: underline; text-underline-offset: 7px; text-decoration-thickness: 2px;
+          text-shadow: 0 0 24px rgba(255, 122, 46, .55); }
+
+  /* Cửa sổ trình duyệt */
+  .browser {
+    position: absolute; border-radius: 16px; overflow: hidden; background: var(--stage);
+    border: 1px solid rgba(233, 89, 12, .45);
+    box-shadow: 0 0 0 1px rgba(0,0,0,.4), 0 40px 140px rgba(0,0,0,.6), 0 0 90px rgba(233, 89, 12, .18);
+  }
+  .browser .bar { height: 46px; display: flex; align-items: center; gap: 9px; padding: 0 18px; background: #140e0b; border-bottom: 1px solid var(--line); }
+  .browser .bar i { width: 11px; height: 11px; border-radius: 50%; background: var(--dim); opacity: .6; display: block; }
+  .browser .url { margin-left: 18px; padding: 6px 16px; border-radius: 8px; background: #1f1611; font: 17px var(--mono); color: var(--muted); }
+  .browser .url b { color: var(--text); font-weight: 500; }
+  .browser .view { height: 690px; overflow: hidden; }
+  .browser img { display: block; width: 100%; }
+
+  /* Vòng click */
+  .click { position: absolute; width: 74px; height: 74px; border-radius: 50%;
+           border: 2px solid var(--ember-hi); box-shadow: 0 0 30px rgba(255,122,46,.6); }
+  .click::after { content: ''; position: absolute; inset: 24px; border-radius: 50%; background: var(--ember-hi); }
+
+  /* Bảng màu */
+  .sheet { padding: 110px 140px; }
+  .sheet h1 { font-size: 64px; font-weight: 600; letter-spacing: -0.03em; }
+  .sheet h1 small { display: block; font-size: 28px; font-weight: 400; color: var(--muted); margin-top: 14px; letter-spacing: 0; }
+  .swatches { display: flex; gap: 28px; margin-top: 80px; }
+  .sw { width: 230px; }
+  .sw div { height: 230px; border-radius: 18px; border: 1px solid var(--line-strong); }
+  .sw p { margin-top: 18px; font: 22px var(--mono); color: var(--muted); }
+  .sw p b { display: block; font: 600 24px var(--sans); color: var(--text); margin-bottom: 4px; }
+  .type { margin-top: 90px; display: flex; gap: 120px; align-items: baseline; }
+  .type .a { font-size: 88px; font-weight: 600; letter-spacing: -0.035em; }
+  .type .b { font: 34px var(--mono); color: var(--muted); }
+  .rules { margin-top: 60px; font-size: 26px; color: var(--muted); line-height: 1.7; }
+  .rules b { color: var(--text); font-weight: 500; }
+
+  /* CTA */
+  .cta { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+  .word { font-size: 168px; font-weight: 600; letter-spacing: -0.055em; display: flex; align-items: center; gap: 26px; }
+  .word .glyph { width: 30px; height: 30px; border-radius: 50%; background: var(--ember); box-shadow: 0 0 50px rgba(233,89,12,.8); margin-top: 40px; }
+  .tag { margin-top: 26px; font-size: 44px; color: var(--muted); letter-spacing: -0.015em; }
+  .tag b { color: var(--text); font-weight: 500; }
+  .cmd { margin-top: 72px; padding: 22px 38px; border-radius: 14px; border: 1px solid var(--line-strong); background: rgba(26,18,14,.8);
+         font: 30px var(--mono); color: var(--text); }
+  .cmd .p { color: var(--ember); margin-right: 14px; }
+  .meta { margin-top: 34px; font: 24px var(--mono); color: var(--dim); letter-spacing: .02em; }
+</style>
+</head>
+<body>
+
+<!-- Vòng tròn nền dùng chung -->
+<svg width="0" height="0" style="position:absolute">
+  <defs>
+    <g id="rings" fill="none" stroke="rgba(255,236,222,0.07)" stroke-width="1.5">
+      <circle cx="960" cy="540" r="300"/><circle cx="960" cy="540" r="480"/>
+      <circle cx="960" cy="540" r="680"/><circle cx="960" cy="540" r="900"/>
+      <line stroke="rgba(255,236,222,0.18)" x1="960" y1="40" x2="960" y2="70"/><line stroke="rgba(255,236,222,0.18)" x1="960" y1="1010" x2="960" y2="1040"/>
+      <line stroke="rgba(255,236,222,0.18)" x1="250" y1="540" x2="280" y2="540"/><line stroke="rgba(255,236,222,0.18)" x1="1640" y1="540" x2="1670" y2="540"/>
+    </g>
+  </defs>
+</svg>
+
+<!-- 0. Bảng màu và chữ -->
+<section class="frame" id="m0-palette">
+  <svg class="rings" viewBox="0 0 1920 1080"><use href="#rings" transform="translate(700 260)"/></svg>
+  <div class="sheet">
+    <h1>mdview · look<small>P1 calm, dark, precise lines + one P2 accent. Colours from mdview's own Atelier theme.</small></h1>
+    <div class="swatches">
+      <div class="sw"><div style="background:#0d0907"></div><p><b>Stage</b>#0d0907</p></div>
+      <div class="sw"><div style="background:#1a120e"></div><p><b>Cocoa (UI)</b>#1a120e</p></div>
+      <div class="sw"><div style="background:#f4ede7"></div><p><b>Text</b>#f4ede7</p></div>
+      <div class="sw"><div style="background:#9b8a7f"></div><p><b>Muted</b>#9b8a7f</p></div>
+      <div class="sw"><div style="background:#e9590c;box-shadow:0 0 60px rgba(233,89,12,.5)"></div><p><b>Ember (accent)</b>#e9590c</p></div>
+    </div>
+    <div class="type"><span class="a">Geist 600</span><span class="b">Geist Mono · terminal, code</span></div>
+    <p class="rules"><b>Ember only on what you should click or notice.</b> Everything else stays quiet. Slow, eased camera moves; no bounce, no sticker art.</p>
+  </div>
+</section>
+
+<!-- 1. Hook: agent trên server trả về đường dẫn chết -->
+<section class="frame" id="m1-hook">
+  <svg class="rings" viewBox="0 0 1920 1080"><use href="#rings"/></svg>
+  <div class="term" style="left:260px; top:170px; width:1400px;">
+    <div class="bar"><i></i><i></i><i></i><span>ssh dev@build-01</span></div>
+    <div class="body">
+      <div><span class="prompt">dev@</span><span class="host">build-01</span><span class="prompt"> ~/acme-payments $</span> claude</div>
+      <div style="margin-top:18px" class="prompt">&gt; Write an implementation plan for retrying failed payments.</div>
+      <div style="margin-top:26px" class="agent"><span class="dot">●</span> Wrote the plan to <span class="path">docs/plans/payment-retry.md</span></div>
+      <div style="margin-top:10px; color:var(--dim)">&nbsp;&nbsp;1 table · 1 diagram · 4 links</div>
+    </div>
+  </div>
+  <div class="caption">Your agent runs on a server.<br><span class="sub">Its docs stay there.</span></div>
+</section>
+
+<!-- 3. Điểm nhấn: cùng câu trả lời, giờ là link; click mở trang -->
+<section class="frame" id="m3-link">
+  <svg class="rings" viewBox="0 0 1920 1080"><use href="#rings" transform="translate(-380 0)"/></svg>
+  <div class="term" style="left:90px; top:250px; width:820px; font-size:26px;">
+    <div class="bar"><i></i><i></i><i></i><span>ssh dev@build-01</span></div>
+    <div class="body">
+      <div class="agent"><span class="dot">●</span> Plan written. View it:</div>
+      <div style="margin-top:10px"><span class="link">http://build-01:7700/s/7f3a2c</span></div>
+      <div style="margin-top:22px; color:var(--dim)">&nbsp;&nbsp;docs/plans/payment-retry.md</div>
+    </div>
+  </div>
+  <div class="click" style="left:612px; top:376px;"></div>
+  <div class="browser" style="left:860px; top:150px; width:980px;">
+    <div class="bar"><i></i><i></i><i></i><span class="url"><b>build-01</b>:7700/p/acme-payments/docs/plans/payment-retry.md</span></div>
+    <div class="view"><img src="ui-reading.png" alt=""></div>
+  </div>
+  <div class="caption" style="bottom:70px">Same agent. <span class="mark">Now it hands you a link.</span></div>
+</section>
+
+<!-- 7. CTA -->
+<section class="frame" id="m7-cta">
+  <svg class="rings" viewBox="0 0 1920 1080"><use href="#rings"/></svg>
+  <div class="cta">
+    <div class="word">mdview<span class="glyph"></span></div>
+    <div class="tag"><b>Click, read and fix</b> the docs your AI agent writes.</div>
+    <div class="cmd"><span class="p">$</span>curl -fsSL https://raw.githubusercontent.com/vantt/mdview/main/install.sh | sh</div>
+    <div class="meta">Single Rust binary · MIT · github.com/vantt/mdview</div>
+  </div>
+</section>
+
+</body>
+</html>

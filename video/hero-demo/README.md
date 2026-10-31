@@ -1,8 +1,8 @@
 # Hero demo video
 
 Tools to shoot the README hero video: an agent on a remote server hands back a link, one click opens
-the doc, and it is read and fixed in the browser. Script and shot list:
-`vlog/docs/video-ideas/a1-mdview-hero-demo.md` (outside this repo). Look: dark stage, one ember accent.
+the doc, and it is read and fixed in the browser. Script, shot list, style frames and the lessons log are in
+[notes/](notes/README.md). Look: dark stage, one ember accent.
 
 | Path | What it is | In Git |
 |---|---|---|
@@ -12,6 +12,7 @@ the doc, and it is read and fixed in the browser. Script and shot list:
 | `tapes/` | VHS tapes (`scene12-path-hunt`, `scene3-link`, `warmup`, the older `scene1-path`), the shared `settings.tape`, and `render.sh`, which records the whole video | yes |
 | `fresh.json`, `wezterm.lua`, `wezterm.sh` | Editor look for scene 2, and the WezTerm setup for recording it by hand | yes |
 | `edit/` | Remotion project that cuts the recordings into the 45 s video and the 30 s README cut: `src/data.ts` is the cut (shots, captions, clicks) | yes (not `node_modules`, `public/fonts`, the music) |
+| `notes/` | Script, style frames, manual scene 2 guide, lessons log, README review | yes |
 | `out/` | Recordings, click logs (`*.clicks.json`) and the finished videos | no |
 
 Your own mdview (port 7700, `~/.mdview`) keeps running untouched.
@@ -86,7 +87,7 @@ positions off a frame with a grid (`-vf drawgrid=w=100:h=50`).
 
 If you want a take with a real mouse: `sandbox.sh plain`, then `video/hero-demo/wezterm.sh` opens WezTerm
 on Windows with the same look (1920x1080 inner window, `wezterm.lua`), in the demo shell. Record it with
-OBS (Window Capture, Client Area). Steps: `vlog/docs/video-ideas/a1-quay-canh-2.md`.
+OBS (Window Capture, Client Area). Steps: [notes/manual-scene-2.md](notes/manual-scene-2.md).
 
 ## Tear down
 
